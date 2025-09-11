@@ -1,1 +1,9 @@
-
+- Established that weekly meetings will take place Thursday's from 1-2PM 
+- Arranged to set meetings with Bruce and Travis to review and understand existing code, and potentially outline more specific stakeholder requirements. 
+- Discussed continuing work with the tasks outlined in Slack: 
+    Data Schema & Validation – define the structure of the DLC CSV files and write code to check them.
+    Server Setup – create a simple backend connected to a database (just a starting point).
+    Client Scaffold – set up a basic front-end with a toolbar or sidebar as a placeholder.
+The goal is to get these foundations in place so that in Sprint 2 we can start building real features on top of them (like uploading a video, running analysis, and seeing results).
+- Talked about potential plans for the future including starting with a GUI to be wrapped around Bruce's code, then tinkiering with Bruces code to better fit our needs. This idea is dependent on our meeting with Bruce
+and what we understand from the code.
