@@ -1,9 +1,22 @@
+
+import os
 import pandas as pd
 
 
 def verify_deeplabcut_csv(file_path, img_width=None, img_height=None):
+
     errors = []
     warnings = []
+
+    # Check if file exists
+    if not os.path.isfile(file_path):
+        errors.append(f"[ERROR] File does not exist: {file_path}")
+        return errors, warnings
+
+    # Check if file is a CSV
+    if not file_path.lower().endswith('.csv'):
+        errors.append(f"[ERROR] File is not a CSV: {file_path}")
+        return errors, warnings
 
     # Load file
     df = pd.read_csv(file_path)
