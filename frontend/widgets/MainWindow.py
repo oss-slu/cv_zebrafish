@@ -54,3 +54,4 @@ class MainWindow(QMainWindow):
 
         # connects text field in scene 1 to label in scene 2
         self.scenes["Input"].input_field.textChanged.connect(self.scenes["View"].update_label)
+        self.scenes["View"].update_label(self.scenes["Input"].input_field.text()) # initial update

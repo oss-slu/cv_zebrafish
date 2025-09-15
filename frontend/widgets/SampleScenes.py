@@ -8,7 +8,7 @@ class SampleScene1(QWidget):
         layout.addWidget(QLabel("This is Scene One"))
         
         self.label = QLabel("Enter text (updates Scene 2 live):")
-        self.input_field = QLineEdit("hi there! this text is viewable in scene 2")
+        self.input_field = QLineEdit("hi there! this live text is viewable in the View scene. click the View button above to see.")
 
         layout.addWidget(self.label)
         layout.addWidget(self.input_field)
