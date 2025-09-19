@@ -1,4 +1,3 @@
-
 import os
 import pandas as pd
 
@@ -31,8 +30,8 @@ def verify_deeplabcut_csv(file_path, img_width=None, img_height=None):
         bp_groups.setdefault(bp, []).append(coord)
 
     for bp, coord_list in bp_groups.items():
-        expected = {"x", "y", "likelihood"}
-        if set(coord_list) != expected:
+        expected = ["x", "y", "likelihood"]
+        if coord_list != expected:
             errors.append(
                 f"[ERROR] Bodypart '{bp}' has wrong columns: {coord_list}")
 
@@ -49,7 +48,7 @@ def verify_deeplabcut_csv(file_path, img_width=None, img_height=None):
                     warnings.append(f"[WARN] Values out of range in {bp}-x")
             if img_height and coord == "y":
                 if ((vals < 0) | (vals > img_height)).any():
-                    warnings.append(f"[WARN] Values out of range in {bp}-y")
+                    errors.append(f"[ERROR] Values out of range in {bp}-y")
         elif coord == "likelihood":
             if ((vals < 0) | (vals > 1)).any():
                 warnings.append(f"[WARN] Likelihood out of [0,1] for {bp}")
@@ -64,15 +63,14 @@ def list_bodyparts(file_path):
     # First row contains bodypart names
     bodyparts = df.iloc[0, 1:].unique()  # skip first col (scorer)
 
-    print("Annotated bodyparts:")
-    for bp in bodyparts:
-        print(f"- {bp}")
+    return bodyparts
 
 
 if __name__ == "__main__":
     file_path = input("Enter the path to the DLC CSV file: ").strip()
     errors, warnings = verify_deeplabcut_csv(file_path)
-    list_bodyparts(file_path)
+    bodyparts = list_bodyparts(file_path)
+    print(f"Bodyparts found: {', '.join(bodyparts)}")
 
     if not errors and not warnings:
         print("✅ File passed all checks.")
