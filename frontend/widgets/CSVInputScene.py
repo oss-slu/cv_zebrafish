@@ -10,7 +10,7 @@ class CSVInputScene(QWidget):
 
         layout = QVBoxLayout()
 
-        header = QLabel("CSV Input Scene")
+        header = QLabel("Input CSV")
         header.setAlignment(Qt.AlignHCenter)
         layout.addWidget(header)
 
@@ -18,16 +18,16 @@ class CSVInputScene(QWidget):
         self.path_field = QLineEdit()
         self.path_field.setPlaceholderText("No file selected")
         self.path_field.setReadOnly(True)
+        layout.addWidget(self.path_field)
 
+        # creates button and shows the upload icon
         self.button = QPushButton()
         self.button.setIcon(QIcon("public/upload-button.png"))
         self.button.setIconSize(QSize(24,24))
         self.button.setCursor(Qt.PointingHandCursor)
-
-        self.button.clicked.connect(self.select_file)
-
-        layout.addWidget(self.path_field)
+        self.button.clicked.connect(self.select_file) # connects signal handler
         layout.addWidget(self.button)
+        
         self.setLayout(layout)
 
     def select_file(self):
