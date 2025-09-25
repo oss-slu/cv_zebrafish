@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QFileDialog, QLineEdit
-from PyQt5.QtCore import pyqtSignal, Qt, QSize, QSizePolicy
+from PyQt5.QtCore import pyqtSignal, Qt, QSize
 from PyQt5.QtGui import QIcon
 
 class CSVInputScene(QWidget):
@@ -12,7 +12,6 @@ class CSVInputScene(QWidget):
 
         header = QLabel("CSV Input Scene")
         header.setAlignment(Qt.AlignHCenter)
-        header.setSizePolicy(QSizePolicy.Fixed)
         layout.addWidget(header)
 
         # stored in object becaues path_field will be used by other methods
@@ -20,9 +19,11 @@ class CSVInputScene(QWidget):
         self.path_field.setPlaceholderText("No file selected")
         self.path_field.setReadOnly(True)
 
-        self.button = QPushButton("Select CSV")
-        self.button.setIcon(QIcon('../public/upload-button.png'))
+        self.button = QPushButton()
+        self.button.setIcon(QIcon("public/upload-button.png"))
         self.button.setIconSize(QSize(24,24))
+        self.button.setCursor(Qt.PointingHandCursor)
+
         self.button.clicked.connect(self.select_file)
 
         layout.addWidget(self.path_field)
@@ -35,3 +36,5 @@ class CSVInputScene(QWidget):
         if file_path:
             self.path_field.setText(file_path)
             self.csv_selected.emit(file_path)
+        else:
+            print("File path error")
