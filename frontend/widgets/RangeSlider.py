@@ -4,14 +4,14 @@ from PyQt5.QtCore import Qt, pyqtSignal, QRect
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor
 
 class RangeSlider(QSlider):
-    rangeChanged = pyqtSignal(int, int)  # emits (low, high)
+    rangeChanged = pyqtSignal(int, int)  # low, high
 
-    def __init__(self, orientation=Qt.Horizontal, parent=None):
+    def __init__(self, min, max, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation, parent)
 
-        self._low = self.minimum()
-        self._high = self.maximum()
-        self._handle_radius = 8
+        self._low = min 
+        self._high = max
+        self._handle_radius = 7
         self._moving_low = False
         self._moving_high = False
 
@@ -103,4 +103,3 @@ class RangeSlider(QSlider):
         slider_max = self.width() - self._handle_radius
         return int(slider_min + (value - self.minimum()) /
                    (self.maximum() - self.minimum()) * (slider_max - slider_min))
-
