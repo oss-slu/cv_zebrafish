@@ -1,41 +1,111 @@
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QSlider, QHBoxLayout, QCheckBox, QComboBox, QPushButton
 from PyQt5.QtCore import Qt, pyqtSignal
 
+from PyQt5.QtWidgets import QSlider
+from PyQt5.QtCore import Qt, pyqtSignal, QRect
+from PyQt5.QtGui import QPainter, QPen, QBrush, QColor
 
-class RangeSlider(QWidget):
-    """Custom double-ended range slider for selecting frame ranges."""
-    range_changed = pyqtSignal(int, int)
 
-    def __init__(self, minimum=0, maximum=100, start=10, end=90):
-        super().__init__()
-        layout = QVBoxLayout()
+class RangeSlider(QSlider):
+    rangeChanged = pyqtSignal(int, int)  # emits (low, high)
 
-        self.label = QLabel(f"Range: {start} - {end}")
-        layout.addWidget(self.label)
+    def __init__(self, orientation=Qt.Horizontal, parent=None):
+        super().__init__(orientation, parent)
 
-        slider_layout = QHBoxLayout()
-        self.start_slider = QSlider(Qt.Horizontal)
-        self.start_slider.setRange(minimum, maximum)
-        self.start_slider.setValue(start)
+        self._low = self.minimum()
+        self._high = self.maximum()
+        self._handle_radius = 8
+        self._moving_low = False
+        self._moving_high = False
 
-        self.end_slider = QSlider(Qt.Horizontal)
-        self.end_slider.setRange(minimum, maximum)
-        self.end_slider.setValue(end)
+        self.setTickPosition(QSlider.NoTicks)
+        self.setMouseTracking(True)
 
-        self.start_slider.valueChanged.connect(self.update_label)
-        self.end_slider.valueChanged.connect(self.update_label)
+    def lowValue(self):
+        return self._low
 
-        slider_layout.addWidget(self.start_slider)
-        slider_layout.addWidget(self.end_slider)
+    def highValue(self):
+        return self._high
 
-        layout.addLayout(slider_layout)
-        self.setLayout(layout)
+    def setLowValue(self, value):
+        self._low = max(self.minimum(), min(value, self._high))
+        self.update()
+        self.rangeChanged.emit(self._low, self._high)
 
-    def update_label(self):
-        start = min(self.start_slider.value(), self.end_slider.value())
-        end = max(self.start_slider.value(), self.end_slider.value())
-        self.label.setText(f"Range: {start} - {end}")
-        self.range_changed.emit(start, end)
+    def setHighValue(self, value):
+        self._high = min(self.maximum(), max(value, self._low))
+        self.update()
+        self.rangeChanged.emit(self._low, self._high)
+
+    def pixelPosToRangeValue(self, pos):
+        """Convert pixel x position into slider value"""
+        slider_min = self._handle_radius
+        slider_max = self.width() - self._handle_radius
+        if self.orientation() == Qt.Vertical:
+            slider_min = self._handle_radius
+            slider_max = self.height() - self._handle_radius
+            return int(self.minimum() + (self.maximum() - self.minimum()) *
+                       (1 - (pos - slider_min) / (slider_max - slider_min)))
+        else:
+            return int(self.minimum() + (self.maximum() - self.minimum()) *
+                       ((pos - slider_min) / (slider_max - slider_min)))
+
+    def mousePressEvent(self, event):
+        pos_value = self.pixelPosToRangeValue(event.pos().x())
+        low_dist = abs(pos_value - self._low)
+        high_dist = abs(pos_value - self._high)
+
+        if low_dist < high_dist:
+            self._moving_low = True
+        else:
+            self._moving_high = True
+
+    def mouseMoveEvent(self, event):
+        if self._moving_low or self._moving_high:
+            pos_value = self.pixelPosToRangeValue(event.pos().x())
+            if self._moving_low:
+                self.setLowValue(min(pos_value, self._high))
+            elif self._moving_high:
+                self.setHighValue(max(pos_value, self._low))
+
+    def mouseReleaseEvent(self, event):
+        self._moving_low = False
+        self._moving_high = False
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Background line
+        track_rect = QRect(self._handle_radius, self.height() // 2 - 2,
+                           self.width() - 2 * self._handle_radius, 4)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(200, 200, 200)))
+        painter.drawRect(track_rect)
+
+        # Selected range line
+        min_pos = self.valueToPixelPos(self._low)
+        max_pos = self.valueToPixelPos(self._high)
+        selected_rect = QRect(min_pos, self.height() // 2 - 2,
+                              max_pos - min_pos, 4)
+        painter.setBrush(QBrush(QColor(100, 150, 250)))
+        painter.drawRect(selected_rect)
+
+        # Handles
+        painter.setBrush(QBrush(QColor(50, 100, 200)))
+        painter.setPen(QPen(Qt.black, 1))
+        painter.drawEllipse(self.valueToPixelPos(self._low) - self._handle_radius,
+                            self.height() // 2 - self._handle_radius,
+                            2 * self._handle_radius, 2 * self._handle_radius)
+        painter.drawEllipse(self.valueToPixelPos(self._high) - self._handle_radius,
+                            self.height() // 2 - self._handle_radius,
+                            2 * self._handle_radius, 2 * self._handle_radius)
+
+    def valueToPixelPos(self, value):
+        slider_min = self._handle_radius
+        slider_max = self.width() - self._handle_radius
+        return int(slider_min + (value - self.minimum()) /
+                   (self.maximum() - self.minimum()) * (slider_max - slider_min))
 
 
 class ConfigScene(QWidget):
@@ -48,7 +118,15 @@ class ConfigScene(QWidget):
         layout.addWidget(QLabel("Variable Configuration Scene"))
 
         # Range input
-        self.range_slider = RangeSlider(0, 500, 50, 300)
+        self.slider_label = QLabel("Range: 0 - 100")
+        layout.addWidget(self.slider_label)
+
+        self.range_slider = RangeSlider()
+        self.range_slider.setMinimum(0)
+        self.range_slider.setMaximum(500)
+        self.range_slider.setLowValue(50)
+        self.range_slider.setHighValue(300)
+        self.range_slider.rangeChanged.connect(self.update_label)
         layout.addWidget(self.range_slider)
 
         # Toggle input
@@ -67,6 +145,9 @@ class ConfigScene(QWidget):
 
         layout.addStretch()
         self.setLayout(layout)
+
+    def update_label(self, low, high):
+        self.slider_label.setText(f"Range: {low} - {high}")
 
     def emit_config(self):
         start = min(self.range_slider.start_slider.value(), self.range_slider.end_slider.value())
