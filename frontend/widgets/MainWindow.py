@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
-from PyQt5.QtCore import QSize
+from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QKeySequence
 
 from widgets.SampleScenes import SampleScene2
@@ -49,6 +49,12 @@ class MainWindow(QMainWindow):
             action = QAction(name, self)
             action.triggered.connect(lambda checked, s=scene: self.stack.setCurrentWidget(s))
             toolbar.addAction(action)
+            
+            # sets cursor to hand for valid toolbar actions
+            widget = toolbar.widgetForAction(action)
+            if widget:
+                widget.setCursor(Qt.PointingHandCursor)
+
 
         # Show first scene
         self.stack.setCurrentWidget(self.scenes[startScene])
