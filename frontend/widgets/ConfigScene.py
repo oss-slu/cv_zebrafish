@@ -3,6 +3,15 @@ from PyQt5.QtCore import pyqtSignal
 from widgets.RangeSlider import RangeSlider
 
 class ConfigScene(QWidget):
+    '''
+    
+    The vision:
+        ** this scene will block until the CSV is received and validated.
+        ** Inputs will populate dymaically based on different CSVs.
+        ** This scene will create a config file based off these inputs.
+
+    '''
+
     config_generated = pyqtSignal(dict)  # Emits dict with config values
 
     def __init__(self):
@@ -12,14 +21,10 @@ class ConfigScene(QWidget):
         layout.addWidget(QLabel("Variable Configuration Scene"))
 
         # Range input
-        self.slider_label = QLabel("Range: 0 - 100")
+        self.slider_label = QLabel("Frame: 0 - 100")
         layout.addWidget(self.slider_label)
 
-        self.range_slider = RangeSlider()
-        self.range_slider.setMinimum(0)
-        self.range_slider.setMaximum(500)
-        self.range_slider.setLowValue(50)
-        self.range_slider.setHighValue(300)
+        self.range_slider = RangeSlider(0, 100)
         self.range_slider.rangeChanged.connect(self.update_label)
         layout.addWidget(self.range_slider)
 
@@ -38,17 +43,20 @@ class ConfigScene(QWidget):
         layout.addWidget(self.generate_btn)
 
         layout.addStretch()
+
         self.setLayout(layout)
 
     def update_label(self, low, high):
-        self.slider_label.setText(f"Range: {low} - {high}")
+        self.slider_label.setText(f"Frame: {low} - {high}")
 
     def emit_config(self):
         start = min(self.range_slider.start_slider.value(), self.range_slider.end_slider.value())
         end = max(self.range_slider.start_slider.value(), self.range_slider.end_slider.value())
+
         config = {
             "range": (start, end),
             "toggle": self.toggle.isChecked(),
             "dropdown": self.dropdown.currentText(),
         }
+
         self.config_generated.emit(config)
