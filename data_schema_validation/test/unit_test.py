@@ -1,7 +1,7 @@
 import io
 import pandas as pd
 import pytest
-from data_schema_validation.src.input_verifier import verify_deeplabcut_csv, list_bodyparts
+from capstone.data_schema_validation.src.csv_verifier import verify_deeplabcut_csv, list_bodyparts
 
 # --------- Helpers ---------
 
