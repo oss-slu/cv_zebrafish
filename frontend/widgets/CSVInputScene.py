@@ -14,14 +14,14 @@ class CSVInputScene(QWidget):
         header.setAlignment(Qt.AlignHCenter)
         layout.addWidget(header)
 
-        # stored in object becaues path_field will be used by other methods
+        # stored in object because path_field will be used by other methods
         self.path_field = QLineEdit()
         self.path_field.setPlaceholderText("No file selected")
         self.path_field.setReadOnly(True)
         layout.addWidget(self.path_field)
 
         # creates button and shows the upload icon
-        self.button = QPushButton()
+        self.button = QPushButton("Upload CSV")
         self.button.setIcon(QIcon("public/upload-button.png"))
         self.button.setIconSize(QSize(24,24))
         self.button.setCursor(Qt.PointingHandCursor)
