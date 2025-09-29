@@ -1,6 +1,5 @@
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QSlider
 from PyQt5.QtCore import Qt, pyqtSignal, QRect
+from PyQt5.QtWidgets import QSlider
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor
 
 class RangeSlider(QSlider):
