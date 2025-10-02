@@ -1,19 +1,21 @@
 from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
-from PyQt5.QtCore import QSize
+from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QKeySequence
 
-from widgets.SampleScenes import SampleScene1, SampleScene2
-
+from widgets.SampleScenes import SampleScene2
+from widgets.CSVInputScene import CSVInputScene
+from widgets.ConfigScene import ConfigScene
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        startScene = "File"
+
         ### window property setup ###
 
         # Sets default main window properties
         self.setWindowTitle("CV Zebrafish")
-        self.setFixedSize(QSize(800, 600))
         self.setMinimumSize(QSize(400, 400))
         self.setMaximumSize(QSize(800, 600))
 
@@ -21,9 +23,9 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setIconSize(QSize(32, 32))
         self.addToolBar(toolbar)
-
+        
+        # shortcut to close the window
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
-
 
         ### adds scenes ###
 
@@ -33,8 +35,9 @@ class MainWindow(QMainWindow):
 
         # initializes scenes
         self.scenes = {
-            "Input": SampleScene1(),
-            "View": SampleScene2(),
+            "File": CSVInputScene(),
+            "Config": ConfigScene(),
+            "View": SampleScene2()
         }
 
         # Add scenes to stack
@@ -46,12 +49,23 @@ class MainWindow(QMainWindow):
             action = QAction(name, self)
             action.triggered.connect(lambda checked, s=scene: self.stack.setCurrentWidget(s))
             toolbar.addAction(action)
+            
+            # sets cursor to hand for valid toolbar actions
+            widget = toolbar.widgetForAction(action)
+            if widget:
+                widget.setCursor(Qt.PointingHandCursor)
+
 
         # Show first scene
-        self.stack.setCurrentWidget(self.scenes["Input"])
+        self.stack.setCurrentWidget(self.scenes[startScene])
 
         ### signal handlers ###
 
-        # connects text field in scene 1 to label in scene 2
-        self.scenes["Input"].input_field.textChanged.connect(self.scenes["View"].update_label)
-        self.scenes["View"].update_label(self.scenes["Input"].input_field.text()) # initial update
+        self.scenes["File"].csv_selected.connect(self.handle_csv)
+        self.scenes["Config"].config_generated.connect(self.handle_config)
+
+    def handle_csv(self, path):
+        print("CSV selected:", path)
+
+    def handle_config(self, config):
+        print("Config generated:", config)
