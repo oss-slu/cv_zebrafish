@@ -56,16 +56,28 @@ def extra_checks(config: dict):
     # right_fin and left_fin must have at least 2 points
     for fin_key in ["right_fin", "left_fin"]:
         if fin_key in points:
-            if not isinstance(points[fin_key], list) or len(points[fin_key]) < 2:
+            fin_val = points[fin_key]
+            if not isinstance(fin_val, list) or len(fin_val) < 2:
                 errors.append(
                     f"{fin_key} must be a list with at least 2 elements")
+            else:
+                for idx, v in enumerate(fin_val):
+                    if not isinstance(v, str):
+                        errors.append(
+                            f"{fin_key}[{idx}] must be a string, got {type(v).__name__}")
 
     # spine and tail must have at least 2 points
     for part_key in ["spine", "tail"]:
         if part_key in points:
-            if not isinstance(points[part_key], list) or len(points[part_key]) < 2:
+            part_val = points[part_key]
+            if not isinstance(part_val, list) or len(part_val) < 2:
                 errors.append(
                     f"{part_key} must be a list with at least 2 elements")
+            else:
+                for idx, v in enumerate(part_val):
+                    if not isinstance(v, str):
+                        errors.append(
+                            f"{part_key}[{idx}] must be a string, got {type(v).__name__}")
 
     # head must contain pt1 and pt2 as single string points
     head = points.get("head", {})
@@ -83,6 +95,27 @@ def extra_checks(config: dict):
                         f"head.{k} must be a string, got {type(head[k]).__name__}")
 
     return errors
+
+
+# =============== GUIDANCE MESSAGES ===============
+def guidance_messages(config: dict):
+    """Return a list of informational messages about optional fields based on flags.
+
+    - If `bulk_input` is False, the bulk input path is not required.
+    - If `auto_find_time_ranges` is True, the `time_ranges` field is not required.
+    """
+    msgs = []
+    # If bulk_input is explicitly False, bulk_input_path is not required.
+    if config.get("bulk_input") is False:
+        msgs.append(
+            "'bulk_input' is False — 'file_inputs.bulk_input_path' is not required for this configuration.")
+
+    # If auto_find_time_ranges is True, time_ranges is optional/unused.
+    if config.get("auto_find_time_ranges"):
+        msgs.append(
+            "'auto_find_time_ranges' is True — 'time_ranges' is not required; ranges will be determined automatically.")
+
+    return msgs
 
 # =============== MAIN SCRIPT ===============
 def main(json_file):
@@ -102,6 +135,13 @@ def main(json_file):
             print(" -", e)
     else:
         print("✅ JSON config file is valid and matches the expected schema.")
+
+    # Print optional guidance messages based on config flags
+    guidance = guidance_messages(config)
+    if guidance:
+        print("\nℹ️  Guidance:")
+        for m in guidance:
+            print(" -", m)
 
 # =============== USAGE ===============
 if __name__ == "__main__":
