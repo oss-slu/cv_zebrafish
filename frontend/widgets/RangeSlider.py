@@ -1,3 +1,17 @@
+'''
+A custom range slider widget for PyQt5.
+Allows users to select a range between a minimum and maximum value.
+Created by ChatGPT
+
+Define the widget with RangeSlider(min, max), optionally set orientation (default is horizontal) and parent.
+    -Like range_slider = RangeSlider(0, 100)
+
+Then add the widget to the layout like any other widget.
+The slider emits rangeChanged(low, high) signal on value changes.
+    -range_slider.rangeChanged.connect(handler_function)
+Where handler_function is a function you define to accept the two new range values. 
+'''
+
 from PyQt5.QtCore import Qt, pyqtSignal, QRect
 from PyQt5.QtWidgets import QSlider
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor
