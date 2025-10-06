@@ -7,13 +7,10 @@ from PyQt5.QtWidgets import (
     QWidget, QListWidget, QHBoxLayout, QVBoxLayout, QLabel, QSizePolicy, QScrollArea
 )
 
-# Plotly (required for this Plotly-only variant)
 import plotly.graph_objs as go
 import plotly.io as pio
 
-# In this simplified variant, we always expect Plotly Figures
 GraphSource = go.Figure
-
 
 class GraphViewerScene(QWidget):
     """
