@@ -4,7 +4,7 @@ from PyQt5.QtGui import QIcon
 
 # imports the input_verifier module from the parent directory 
 from os import getcwd, path
-module_name = "input_verifier"
+module_name = "csv_verifier"
 parent_dir = path.abspath(path.join(getcwd(), path.pardir))
 file_path = path.join(parent_dir, "data_schema_validation", "src", module_name + ".py")
 
