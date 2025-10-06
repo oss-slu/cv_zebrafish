@@ -5,6 +5,8 @@ from PyQt5.QtGui import QKeySequence
 from widgets.SampleScenes import SampleScene2
 from widgets.CSVInputScene import CSVInputScene
 from widgets.ConfigScene import ConfigScene
+from widgets.CSVInputScene import CSVInputScene
+from widgets.GraphViewerScene import GraphViewerScene 
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -37,7 +39,8 @@ class MainWindow(QMainWindow):
         self.scenes = {
             "File": CSVInputScene(),
             "Config": ConfigScene(),
-            "View": SampleScene2()
+            "View": SampleScene2(),
+            "Graphs": GraphViewerScene(),
         }
 
         # Add scenes to stack
