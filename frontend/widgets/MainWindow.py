@@ -4,14 +4,16 @@ from PyQt5.QtGui import QKeySequence
 
 from widgets.SampleScenes import SampleScene2
 from widgets.CSVInputScene import CSVInputScene
+from widgets.JSONInputScene import JSONInputScene
 from widgets.ConfigScene import ConfigScene
 from widgets.GraphViewerScene import GraphViewerScene
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        startScene = "File"
+        startScene = "CSV_File"
 
         ### window property setup ###
 
@@ -24,10 +26,11 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setIconSize(QSize(32, 32))
         self.addToolBar(toolbar)
-        
+
         # shortcut to close the window
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
 
+        # ===================================================================
         ### adds scenes ###
 
         # QStackedWidget to hold scenes
@@ -36,7 +39,8 @@ class MainWindow(QMainWindow):
 
         # initializes scenes
         self.scenes = {
-            "File": CSVInputScene(),
+            "CSV_File": CSVInputScene(),
+            "JSON_File": JSONInputScene(),
             "Config": ConfigScene(),
             "View": SampleScene2(),
             "Graphs": GraphViewerScene(),
@@ -49,25 +53,29 @@ class MainWindow(QMainWindow):
         # Toolbar buttons
         for name, scene in self.scenes.items():
             action = QAction(name, self)
-            action.triggered.connect(lambda checked, s=scene: self.stack.setCurrentWidget(s))
+            action.triggered.connect(
+                lambda checked, s=scene: self.stack.setCurrentWidget(s))
             toolbar.addAction(action)
-            
+
             # sets cursor to hand for valid toolbar actions
             widget = toolbar.widgetForAction(action)
             if widget:
                 widget.setCursor(Qt.PointingHandCursor)
-
 
         # Show first scene
         self.stack.setCurrentWidget(self.scenes[startScene])
 
         ### signal handlers ###
 
-        self.scenes["File"].csv_selected.connect(self.handle_csv)
+        self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
         self.scenes["Config"].config_generated.connect(self.handle_config)
+        self.scenes["JSON_File"].json_selected.connect(self.handle_json)
 
     def handle_csv(self, path):
         print("CSV selected:", path)
+
+    def handle_json(self, path):
+        print("JSON selected:", path)
 
     def handle_config(self, config):
         print("Config generated:", config)
