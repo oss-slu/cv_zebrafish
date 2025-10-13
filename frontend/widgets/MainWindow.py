@@ -59,7 +59,6 @@ class MainWindow(QMainWindow):
             if widget:
                 widget.setCursor(Qt.PointingHandCursor)
 
-
         # Show first scene
         self.stack.setCurrentWidget(self.scenes[startScene])
 
