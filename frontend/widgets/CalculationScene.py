@@ -8,6 +8,8 @@ except ImportError:
     print("Could not import calculations")
 
 class CalculationScene(QWidget):
+    data_generated = pyqtSignal(object)  # Signal to emit calculation results
+
     def __init__(self):
         super().__init__()
 
@@ -62,6 +64,9 @@ class CalculationScene(QWidget):
 
             self.info_label.setText(f"Calculation successful")
             print("Calculation results:", results)
+
+            # Emit the results to signal the main window to start creating the graphs.
+            self.data_generated.emit(results)
         except Exception as e:
             self.info_label.setText(f"Calculation failed: {e}")
             print("Calculation error:", e)
