@@ -6,6 +6,7 @@ from widgets.SampleScenes import SampleScene2
 from widgets.CSVInputScene import CSVInputScene
 from widgets.ConfigScene import ConfigScene
 from widgets.GraphViewerScene import GraphViewerScene
+from widgets.CalculationScene import CalculationScene
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -40,6 +41,7 @@ class MainWindow(QMainWindow):
             "Config": ConfigScene(),
             "View": SampleScene2(),
             "Graphs": GraphViewerScene(),
+            "Calculation": CalculationScene()
         }
 
         # Add scenes to stack
@@ -68,6 +70,8 @@ class MainWindow(QMainWindow):
 
     def handle_csv(self, path):
         print("CSV selected:", path)
+        self.scenes["Calculation"].set_csv_path(path)
 
     def handle_config(self, config):
         print("Config generated:", config)
+        self.scenes["Calculation"].set_config(config)
