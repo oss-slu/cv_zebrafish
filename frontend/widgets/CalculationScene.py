@@ -33,6 +33,8 @@ class CalculationScene(QWidget):
         self.calc_button.clicked.connect(self.run_calculation)
         layout.addWidget(self.calc_button)
 
+        self.setLayout(layout)
+
     def set_csv_path(self, path):
         self.csv_path = path
         self.update_info()
@@ -70,6 +72,4 @@ class CalculationScene(QWidget):
         except Exception as e:
             self.info_label.setText(f"Calculation failed: {e}")
             print("Calculation error:", e)
-
-
-        
+            self.data_generated.emit(None)
