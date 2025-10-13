@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
 
         self.scenes["File"].csv_selected.connect(self.handle_csv)
         self.scenes["Config"].config_generated.connect(self.handle_config)
+        self.scenes["Calculation"].data_generated.connect(self.handle_data)
 
     def handle_csv(self, path):
         print("CSV selected:", path)
@@ -74,3 +75,11 @@ class MainWindow(QMainWindow):
     def handle_config(self, config):
         print("Config generated:", config)
         self.scenes["Calculation"].set_config(config)
+
+    def handle_data(self, data):
+        print("Data received in MainWindow:", data)
+        self.scenes["Graphs"].update_graphs(data)
+
+        # dummy code to switch to graph view after data is received
+        self.stack.setCurrentWidget(self.scenes["Graphs"])
+        self.scenes["Graphs"].refresh_view()
