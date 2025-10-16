@@ -40,8 +40,8 @@ class MainWindow(QMainWindow):
             "File": CSVInputScene(),
             "Config": ConfigScene(),
             "View": SampleScene2(),
-            "Graphs": GraphViewerScene(),
-            "Calculation": CalculationScene()
+            "Calculation": CalculationScene(),
+            "Graphs": GraphViewerScene()
         }
 
         # Add scenes to stack
@@ -78,8 +78,5 @@ class MainWindow(QMainWindow):
 
     def handle_data(self, data):
         print("Data received in MainWindow:", data)
-        self.scenes["Graphs"].update_graphs(data)
-
-        # dummy code to switch to graph view after data is received
+        self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])
-        self.scenes["Graphs"].refresh_view()
