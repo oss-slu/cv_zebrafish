@@ -7,13 +7,10 @@ from PyQt5.QtWidgets import (
     QWidget, QListWidget, QHBoxLayout, QVBoxLayout, QLabel, QSizePolicy, QScrollArea
 )
 
-# Plotly (required for this Plotly-only variant)
 import plotly.graph_objs as go
 import plotly.io as pio
 
-# In this simplified variant, we always expect Plotly Figures
 GraphSource = go.Figure
-
 
 class GraphViewerScene(QWidget):
     """
@@ -60,6 +57,9 @@ class GraphViewerScene(QWidget):
         layout.addLayout(right)
         self.setLayout(layout)
 
+        # Start in an empty state
+        self._show_empty_state("No graphs available.")
+
     # Public functions to call to construct the viewer
     def set_graphs(self, graphs: Dict[str, GraphSource]):
         """Replace all graphs."""
@@ -68,9 +68,10 @@ class GraphViewerScene(QWidget):
         self.list.clear()
         self.list.addItems(list(self._graphs.keys()))
         if self.list.count() > 0:
+            self.list.setEnabled(True)
             self.list.setCurrentRow(0)
         else:
-            self._set_message("No graphs available.")
+            self._show_empty_state("No graphs available.")
 
     def add_graph(self, name: str, graph: GraphSource):
         """Add or replace a single graph."""
@@ -79,12 +80,18 @@ class GraphViewerScene(QWidget):
         if new_item:
             self.list.addItem(name)
             if self.list.count() == 1:
+                self.list.setEnabled(True)
                 self.list.setCurrentRow(0)
 
     # Internal functions
     def _on_selection_changed(self):
         items = self.list.selectedItems()
         if not items:
+            # If nothing is selected but we have items, pick the first; otherwise show empty state
+            if self.list.count() > 0:
+                self.list.setCurrentRow(0)
+            else:
+                self._show_empty_state("No graphs available.")
             return
         self._current_name = items[0].text()
         self._show_graph(self._current_name)
@@ -92,21 +99,28 @@ class GraphViewerScene(QWidget):
     def _show_graph(self, name: str):
         fig = self._graphs.get(name)
         if fig is None:
-            self._set_message(f"Missing graph: {name}")
+            self._show_empty_state(f"Missing graph: {name}")
             return
 
         pix = self._figure_to_pixmap(fig)
         if pix is None or pix.isNull():
-            self._set_message("Unable to render this graph as a static image.")
+            self._show_empty_state("Unable to render this graph as a static image.")
             return
 
         self._original_pixmap = pix
         self._update_scaled_pixmap()
+        self.image_label.setText("")   # ensure no message overlays
+        self.list.setEnabled(True)     # we have something to show
 
     def _set_message(self, text: str):
         self._original_pixmap = None
         self.image_label.setText(text)
-        self.image_label.setPixmap(QPixmap())  
+        self.image_label.setPixmap(QPixmap())
+
+    def _show_empty_state(self, text: str = "No graphs available."):
+        """Unified empty/error state: clear image, center message, disable list."""
+        self._set_message(text)
+        self.list.setEnabled(False)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -136,7 +150,7 @@ class GraphViewerScene(QWidget):
             pix.loadFromData(png_bytes)
             return pix
         except Exception as e:
-            self._set_message(
+            self._show_empty_state(
                 "Failed to render Plotly Figure as a static image.\n"
                 "Ensure 'kaleido' is installed (pip install kaleido).\n"
                 f"Error: {e}"
