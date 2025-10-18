@@ -1,31 +1,33 @@
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QFileDialog, QLineEdit, QTextEdit
 from PyQt5.QtCore import pyqtSignal, Qt, QSize
 from PyQt5.QtGui import QIcon
-from os import getcwd, path
 import importlib.util
 from sys import modules
+from os import getcwd, path
+import json
 
 # --- Load verifier dynamically ---
-module_name = "csv_verifier"
+module_name = "json_verifier"
 parent_dir = path.abspath(path.join(getcwd(), path.pardir))
 file_path = path.join(parent_dir, "data_schema_validation",
                       "src", module_name + ".py")
 
 spec = importlib.util.spec_from_file_location(module_name, file_path)
-input_verifier = importlib.util.module_from_spec(spec)
-modules[module_name] = input_verifier
-spec.loader.exec_module(input_verifier)
+json_verifier = importlib.util.module_from_spec(spec)
+modules[module_name] = json_verifier
+spec.loader.exec_module(json_verifier)
+print("loading json verifier...")
 
 
-class CSVInputScene(QWidget):
-    csv_selected = pyqtSignal(str)  # emits file path when selected
+class JSONInputScene(QWidget):
+    json_selected = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
 
         layout = QVBoxLayout()
 
-        header = QLabel("Input CSV")
+        header = QLabel("Input JSON")
         header.setAlignment(Qt.AlignHCenter)
         layout.addWidget(header)
 
@@ -34,7 +36,7 @@ class CSVInputScene(QWidget):
         self.path_field.setReadOnly(True)
         layout.addWidget(self.path_field)
 
-        self.button = QPushButton("Upload CSV")
+        self.button = QPushButton("Upload JSON")
         self.button.setIcon(QIcon("public/upload-button.png"))
         self.button.setIconSize(QSize(24, 24))
         self.button.setCursor(Qt.PointingHandCursor)
@@ -51,39 +53,48 @@ class CSVInputScene(QWidget):
 
     def select_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select CSV File", "", "CSV Files (*.csv)")
+            self, "Select JSON File", "", "JSON Files (*.json)")
 
         if file_path:
             self.path_field.setText(file_path)
             self.feedback_box.setText(
                 f"Validating selected file:\n{file_path}\n")
 
-            if self.validate_csv(file_path):
-                self.feedback_box.append("✅ File passed all checks.")
-                self.csv_selected.emit(file_path)
+            if self.validate_json(file_path):
+                self.feedback_box.append(
+                    "✅ JSON config file is valid and matches the expected schema.")
+                self.json_selected.emit(file_path)
             else:
                 self.feedback_box.append(
-                    "❌ Invalid CSV file format (see schema validation readme).")
+                    "❌ Invalid JSON file format (check schema validation readme).")
         else:
             self.feedback_box.setText("⚠️ File path error.")
 
-    def validate_csv(self, file_path):
+    def validate_json(self, file_path):
         try:
-            errors, warnings = input_verifier.verify_deeplabcut_csv(file_path)
+            with open(file_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
         except Exception as e:
-            self.feedback_box.append(f"❌ Error reading CSV file:\n{e}")
+            self.feedback_box.append(f"Error reading JSON file:\n{e}")
             return False
 
-        if not errors and not warnings:
-            self.feedback_box.append("✅ No issues found.")
-        else:
-            if errors:
-                self.feedback_box.append("\n❌ Errors:")
-                for err in errors:
-                    self.feedback_box.append(f" - {err}")
-            if warnings:
-                self.feedback_box.append("\n⚠️ Warnings:")
-                for warn in warnings:
-                    self.feedback_box.append(f" - {warn}")
+        errors = json_verifier.validate_config(config, json_verifier.SCHEMA)
+        if hasattr(json_verifier, "extra_checks"):
+            errors.extend(json_verifier.extra_checks(config))
 
-        return not errors  # returns True only if no errors
+        if errors:
+            self.feedback_box.append(
+                "\n❌ Validation failed with the following issues:")
+            for e in errors:
+                self.feedback_box.append(f" - {e}")
+        else:
+            self.feedback_box.append("\n✅ JSON structure is valid.")
+
+        if hasattr(json_verifier, "guidance_messages"):
+            guidance = json_verifier.guidance_messages(config)
+            if guidance:
+                self.feedback_box.append("\nℹ️ Guidance:")
+                for m in guidance:
+                    self.feedback_box.append(f" - {m}")
+
+        return not errors
