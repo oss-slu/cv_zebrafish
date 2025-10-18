@@ -2,7 +2,6 @@ from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QSho
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QKeySequence
 
-from widgets.SampleScenes import SampleScene2
 from widgets.CSVInputScene import CSVInputScene
 from widgets.JSONInputScene import JSONInputScene
 from widgets.ConfigScene import ConfigScene
@@ -42,7 +41,6 @@ class MainWindow(QMainWindow):
             "CSV_File": CSVInputScene(),
             "JSON_File": JSONInputScene(),
             "Config": ConfigScene(),
-            "View": SampleScene2(),
             "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene()
         }
