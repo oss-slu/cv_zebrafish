@@ -1,27 +1,11 @@
+import json
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton
 from PyQt5.QtCore import pyqtSignal, Qt, QSize
 
-from os import getcwd, path
-module_name = "calculations"
-parent_dir = path.abspath(path.join(getcwd(), path.pardir))
-file_path = path.join(parent_dir, "calculations", module_name + ".py")
+import calculations.utils.Driver as calculations
+import calculations.utils.Parser as parser
 
-import importlib.util
-from sys import modules
-
-try: 
-    # loads the calculations module
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    calculations = importlib.util.module_from_spec(spec)
-    modules[module_name] = calculations
-    spec.loader.exec_module(calculations)
-
-    run_calculations = calculations.run_calculations
-
-except:
-    def run_calculations(csv_path, config):
-        print("Calculation module failed to load.")
-        return None
+from os import getcwd
 
 class CalculationScene(QWidget):
     data_generated = pyqtSignal(object)  # Signal to emit calculation results
@@ -47,7 +31,7 @@ class CalculationScene(QWidget):
         self.calc_button = QPushButton("Waiting for CSV and Config")
         self.calc_button.setEnabled(False)
         self.calc_button.setStyleSheet("background-color: lightgrey;")
-        self.calc_button.clicked.connect(self.run_calculation)
+        self.calc_button.clicked.connect(self.calculate)
         layout.addWidget(self.calc_button)
 
         # adds toggle to switch between using default config or test config
@@ -64,8 +48,10 @@ class CalculationScene(QWidget):
     def toggle_test(self):
         if self.toggle_button.isChecked():
             self.toggle_button.setToolTip("Using Test Config")
-            self.set_config("/../data_schema_validation/sample_inputs/jsons/BaseConfig.json", update_info=False)
-            self.set_csv_path("/../data_schema_validation/sample_inputs/csv/correct_format.csv")
+
+            # Set to test config and CSV paths
+            self.set_config(f"{getcwd()}/data_schema_validation/sample_inputs/jsons/BaseConfig.json", update_info=False)
+            self.set_csv_path(f"{getcwd()}/data_schema_validation/sample_inputs/csv/correct_format.csv")
         else:
             self.toggle_button.setToolTip("Use Default Config")
             self.set_config(self.previous_settings["config"])
@@ -99,18 +85,25 @@ class CalculationScene(QWidget):
         else:
             self.info_label.setText("No CSV or Config loaded.")
 
-    def run_calculation(self):
+    def calculate(self):
         # Placeholder for the actual calculation logic
         print("Running calculations...")
 
-        try:
-            results = run_calculations(self.csv_path, self.config)
+        config = json.load(open(self.config, 'r'))
+        parsed_points = parser.parse_dlc_csv(self.csv_path, config)
+        
+        self.info_label.setText(f"CSV parsed successfully, running calculations...")
 
+        results = calculations.run_calculations(parsed_points, config)
+
+        print(results)
+
+        if results is None:
+            self.info_label.setText(f"Calculation failed")
+            self.data_generated.emit(None)
+        else:
             self.info_label.setText(f"Calculation successful")
             print("Calculation results:", results)
 
-            # Emit the results to signal the main window to start creating the graphs.
-            self.data_generated.emit(results)
-        except:
-            self.info_label.setText(f"Calculation failed")
-            self.data_generated.emit(None)
+        # Emit the results to signal the main window to start creating the graphs.
+        self.data_generated.emit(results)
