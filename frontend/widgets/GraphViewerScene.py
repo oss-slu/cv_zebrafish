@@ -21,6 +21,7 @@ class GraphViewerScene(QWidget):
     Public functions:
       set_graphs({ name: figure })
       add_graph(name, figure)
+      set_data({ results of calculations }) will be called at button press
 
     Accepted source:
       - plotly.graph_objs.Figure  (converted to PNG via kaleido)
@@ -32,6 +33,7 @@ class GraphViewerScene(QWidget):
         self._graphs: Dict[str, GraphSource] = {}
         self._current_name: Optional[str] = None
         self._original_pixmap: Optional[QPixmap] = None
+        self._data = None
 
         # Sidebar
         self.list = QListWidget()
@@ -82,6 +84,9 @@ class GraphViewerScene(QWidget):
             if self.list.count() == 1:
                 self.list.setEnabled(True)
                 self.list.setCurrentRow(0)
+
+    def set_data(self, data):
+        self._data = data
 
     # Internal functions
     def _on_selection_changed(self):
