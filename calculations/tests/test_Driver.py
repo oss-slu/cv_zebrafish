@@ -27,7 +27,7 @@ class TestRunner(unittest.TestCase):
     def test_run_calculations(self):
         df = run_calculations(self.parsed_points, self.config)
         self.assertTrue("LF_Angle" in df.columns)
-        self.assertEqual(len(df), 2)
+        self.assertEqual(len(df), 1)
 
 if __name__ == '__main__':
     unittest.main()

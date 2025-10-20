@@ -72,8 +72,8 @@ def run_calculations(parsed_points, config):
     # Add time range columns as in legacy
     for irange, (start, end) in enumerate(time_ranges):
         col_start, col_end = f"timeRangeStart_{irange}", f"timeRangeEnd_{irange}"
-        result_df.loc[..., col_start] = ""
-        result_df.loc[..., col_end] = ""
+        result_df.loc[:, col_start] = ""
+        result_df.loc[:, col_end] = ""
         result_df.loc[0, col_start] = start
         result_df.loc[0, col_end] = end
 
