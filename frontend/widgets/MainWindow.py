@@ -80,10 +80,10 @@ class MainWindow(QMainWindow):
         self.scenes["Calculation"].set_config(path)
 
     def handle_config(self, config):
-        print("Config generated:", config)
+        print("Config generated.")
         self.scenes["Calculation"].set_config(config)
 
     def handle_data(self, data):
-        print("Data received in MainWindow:", data)
+        print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])

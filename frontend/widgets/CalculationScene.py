@@ -96,14 +96,13 @@ class CalculationScene(QWidget):
 
         results = calculations.run_calculations(parsed_points, config)
 
-        print(results)
-
         if results is None:
+            print("Calculations failed.")
             self.info_label.setText(f"Calculation failed")
             self.data_generated.emit(None)
         else:
+            print("Calculations completed successfully.")
             self.info_label.setText(f"Calculation successful")
-            print("Calculation results:", results)
 
-        # Emit the results to signal the main window to start creating the graphs.
-        self.data_generated.emit(results)
+            # Emit the results to signal the main window to start creating the graphs.
+            self.data_generated.emit(results)
