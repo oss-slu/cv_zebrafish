@@ -15,3 +15,6 @@ whenever you want to run the app, and deactivate the environment with `conda dea
 ### Running the app
 
 Cd into frontend and run `python app.py`
+
+## License
+This project is licensed under the [MIT License](./LICENSE) — see the file for details.
