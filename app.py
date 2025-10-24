@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import QApplication
-from widgets.MainWindow import MainWindow
+from frontend.widgets.MainWindow import MainWindow
 
 # Only needed for access to command line arguments
 import sys

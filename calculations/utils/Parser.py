@@ -22,8 +22,12 @@ def getDataFromColumn(df, columnPointDict):
     xColumn = pd.to_numeric(df.iloc[1:, columnPointDict["x"]])
     yColumn = pd.to_numeric(df.iloc[1:, columnPointDict["y"]])
     confColumn = pd.to_numeric(df.iloc[1:, columnPointDict["conf"]])
-    length = len(xColumn)
-    return [{"x": xColumn.iloc[i], "y": yColumn.iloc[i], "conf": confColumn.iloc[i]} for i in range(length)]
+    return {
+        "x": xColumn.values,
+        "y": yColumn.values,
+        "conf": confColumn.values
+    }
+
 
 def parse_dlc_csv(csv_path, config):
     df = getDataFrameFromPath(csv_path)

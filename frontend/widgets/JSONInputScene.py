@@ -1,23 +1,8 @@
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QFileDialog, QLineEdit, QTextEdit
 from PyQt5.QtCore import pyqtSignal, Qt, QSize
 from PyQt5.QtGui import QIcon
-import importlib.util
-from sys import modules
-from os import getcwd, path
 import json
-
-# --- Load verifier dynamically ---
-module_name = "json_verifier"
-parent_dir = path.abspath(path.join(getcwd(), path.pardir))
-file_path = path.join(parent_dir, "data_schema_validation",
-                      "src", module_name + ".py")
-
-spec = importlib.util.spec_from_file_location(module_name, file_path)
-json_verifier = importlib.util.module_from_spec(spec)
-modules[module_name] = json_verifier
-spec.loader.exec_module(json_verifier)
-print("loading json verifier...")
-
+import data_schema_validation.src.json_verifier as json_verifier
 
 class JSONInputScene(QWidget):
     json_selected = pyqtSignal(str)
