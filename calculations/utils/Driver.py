@@ -6,18 +6,19 @@ from .Metrics import (
 )
 
 def run_calculations(parsed_points, config):
-    n_frames = len(parsed_points["spine"][0]["x"])
+    #print("graph_cutoffs keys:", list(config["graph_cutoffs"].keys()))
+    n_frames = len(parsed_points["spine"][0]["x"]) 
     vp = config["video_parameters"]
     scale_factor = vp["pixel_scale_factor"] * vp["dish_diameter_m"] / vp["pixel_diameter"]
 
-    clp1 = parsed_points["head_pt1"]
-    clp2 = parsed_points["head_pt2"]
+    clp1 = parsed_points["clp1"]
+    clp2 = parsed_points["clp2"]
     left_fins = parsed_points["left_fin"]
     right_fins = parsed_points["right_fin"]
     tail = parsed_points["tail"]
-    tail_points = config["points"]["tail"]
+    tail_points = parsed_points["tailPoints"]
     tp = parsed_points["tp"] 
-    head = parsed_points["spine"][0]
+    head = parsed_points["head"]
     spine = parsed_points["spine"]
 
     left_fin_angle = calc_fin_angle(clp1, clp2, left_fins, left_fin=True)
@@ -29,8 +30,10 @@ def run_calculations(parsed_points, config):
     tail_angle = calc_tail_angle(clp1, clp2, tp)
     sides, tail_distances = calc_tail_side_and_distance(clp1, clp2, tp, scale_factor)
     furthest_tail = calc_furthest_tail_point(clp1, clp2, tail, tail_points)
-    left_fin_peaks = detect_fin_peaks(left_fin_angle, config["graph_cutoffs"]["peak_horizontal_buffer"])
-    right_fin_peaks = detect_fin_peaks(right_fin_angle, config["graph_cutoffs"]["peak_horizontal_buffer"])
+
+    buffer = config["graph_cutoffs"].get("peak_horizontal_buffer", 3)
+    left_fin_peaks = detect_fin_peaks(left_fin_angle, buffer)
+    right_fin_peaks = detect_fin_peaks(right_fin_angle, buffer)
     spine_angles = calc_spine_angles(spine)
 
     # Swim bouts (time ranges)
@@ -69,12 +72,20 @@ def run_calculations(parsed_points, config):
 
     result_df = pd.DataFrame(results_dict)
 
-    # Add time range columns as in legacy
-    for irange, (start, end) in enumerate(time_ranges):
-        col_start, col_end = f"timeRangeStart_{irange}", f"timeRangeEnd_{irange}"
-        result_df.loc[:, col_start] = ""
-        result_df.loc[:, col_end] = ""
-        result_df.loc[0, col_start] = start
-        result_df.loc[0, col_end] = end
+    # Build new time range columns in one go
+    extra_cols = {
+        f"timeRangeStart_{i}": [start] + [""] * (n_frames - 1)
+        for i, (start, end) in enumerate(time_ranges)
+    }
+    extra_cols.update({
+        f"timeRangeEnd_{i}": [end] + [""] * (n_frames - 1)
+        for i, (start, end) in enumerate(time_ranges)
+    })
+    extra_df = pd.DataFrame(extra_cols)
+    result_df = pd.concat([result_df, extra_df], axis=1)
 
     return result_df
+
+
+
+   
