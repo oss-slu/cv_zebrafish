@@ -15,7 +15,7 @@ class ConfigGeneratorScene(QWidget):
 
         # --- Load backend dynamically ---
         module_name = "generate_json"
-        parent_dir = path.abspath(path.join(getcwd(), path.pardir))
+        parent_dir = path.abspath(getcwd())
         file_path = path.join(
             parent_dir, "data_schema_validation", "src", module_name + ".py")
         spec = importlib.util.spec_from_file_location(module_name, file_path)
