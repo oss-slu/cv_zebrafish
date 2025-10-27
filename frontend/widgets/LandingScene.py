@@ -26,7 +26,7 @@ class LandingScene(QWidget):
         header = QLabel("CV Zebrafish")
         header.setAlignment(Qt.AlignHCenter)
         header.setFont(QFont("Arial", 32, QFont.Bold))
-        header.setStyleSheet("color: #1B3A57;")
+        header.setStyleSheet("color: #eee;")
         topLayout.addWidget(header)
 
         iconLabel = QLabel()
@@ -68,18 +68,6 @@ class LandingScene(QWidget):
 
         # Apply layout
         self.setLayout(wrapperLayout)
-
-        # Subtle gradient background
-        self.setStyleSheet("""
-            QWidget {
-                background: qlineargradient(
-                    spread:pad, x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #999, stop:1 #333
-                );
-            }
-        """)
-        
-        self.setAutoFillBackground(True)
 
     def setCompleted(self, step_name: str, completed: bool = True):
         """
