@@ -1,7 +1,7 @@
 from calculations.utils.Driver import run_calculations
 from calculations.utils.Parser import parse_dlc_csv
 from calculations.utils.configSetup import loadConfig
-from graphing.outputDisplay import runAllOutputs as make_outputs
+from graphing.outputDisplay import make_outputs
 #from data_schema_validation.sample_inputs.jsons import BaseConfig 
 
 def run_full_pipeline(csv_path, config_path=None):
