@@ -1,21 +1,7 @@
 from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QFileDialog, QLineEdit, QTextEdit
 from PyQt5.QtCore import pyqtSignal, Qt, QSize
 from PyQt5.QtGui import QIcon
-from os import getcwd, path
-import importlib.util
-from sys import modules
-
-# --- Load verifier dynamically ---
-module_name = "csv_verifier"
-parent_dir = path.abspath(path.join(getcwd(), path.pardir))
-file_path = path.join(parent_dir, "data_schema_validation",
-                      "src", module_name + ".py")
-
-spec = importlib.util.spec_from_file_location(module_name, file_path)
-input_verifier = importlib.util.module_from_spec(spec)
-modules[module_name] = input_verifier
-spec.loader.exec_module(input_verifier)
-
+import data_schema_validation.src.csv_verifier as input_verifier
 
 class CSVInputScene(QWidget):
     csv_selected = pyqtSignal(str)  # emits file path when selected
