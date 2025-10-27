@@ -2,11 +2,11 @@ from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QSho
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QKeySequence
 
-from widgets.CSVInputScene import CSVInputScene
-from widgets.JSONInputScene import JSONInputScene
-from widgets.ConfigScene import ConfigScene
-from widgets.GraphViewerScene import GraphViewerScene
-from widgets.CalculationScene import CalculationScene
+from frontend.widgets.CSVInputScene import CSVInputScene
+from frontend.widgets.JSONInputScene import JSONInputScene
+from frontend.widgets.ConfigScene import ConfigScene
+from frontend.widgets.GraphViewerScene import GraphViewerScene
+from frontend.widgets.CalculationScene import CalculationScene
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -80,10 +80,10 @@ class MainWindow(QMainWindow):
         self.scenes["Calculation"].set_config(path)
 
     def handle_config(self, config):
-        print("Config generated:", config)
+        print("Config generated.")
         self.scenes["Calculation"].set_config(config)
 
     def handle_data(self, data):
-        print("Data received in MainWindow:", data)
+        print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])
