@@ -4,6 +4,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QPalette, QColor, QFont
 
+from os import path, getcwd
+
 class LandingScene(QWidget):
     """
     Landing scene widget showing zebrafish research workflow steps.
@@ -30,10 +32,17 @@ class LandingScene(QWidget):
         topLayout.addWidget(header)
 
         iconLabel = QLabel()
-        iconPixmap = QPixmap("./public/upload-button.png").scaled(
-            160, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        imagePath = path.join(getcwd(), "frontend", "public", "fish3.png")
+
+        pixmap = QPixmap(imagePath).scaled(
+            150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
-        iconLabel.setPixmap(iconPixmap)
+        if pixmap.isNull():
+            print(f"Warning: could not load image {imagePath}")
+            pixmap = QPixmap(100, 100)
+            pixmap.fill(Qt.gray)
+
+        iconLabel.setPixmap(pixmap)
         iconLabel.setAlignment(Qt.AlignHCenter)
         topLayout.addWidget(iconLabel)
 
