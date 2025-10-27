@@ -2,6 +2,7 @@ from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QSho
 from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtGui import QKeySequence
 
+from frontend.widgets.LandingScene import LandingScene
 from frontend.widgets.CSVInputScene import CSVInputScene
 from frontend.widgets.JSONInputScene import JSONInputScene
 from frontend.widgets.ConfigScene import ConfigScene
@@ -12,7 +13,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        startScene = "CSV_File"
+        startScene = "Landing"
 
         ### window property setup ###
 
@@ -28,8 +29,7 @@ class MainWindow(QMainWindow):
 
         # shortcut to close the window
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
-
-        # ===================================================================
+        
         ### adds scenes ###
 
         # QStackedWidget to hold scenes
@@ -38,6 +38,7 @@ class MainWindow(QMainWindow):
 
         # initializes scenes
         self.scenes = {
+            "Landing":  LandingScene(),
             "CSV_File": CSVInputScene(),
             "JSON_File": JSONInputScene(),
             "Config": ConfigScene(),
@@ -74,16 +75,20 @@ class MainWindow(QMainWindow):
     def handle_csv(self, path):
         print("CSV selected:", path)
         self.scenes["Calculation"].set_csv_path(path)
+        self.scenes["Landing"].setCompleted("CSV_File")
 
     def handle_json(self, path):
         print("JSON selected:", path)
         self.scenes["Calculation"].set_config(path)
+        self.scenes["Landing"].setCompleted("JSON_File")
 
     def handle_config(self, config):
         print("Config generated.")
         self.scenes["Calculation"].set_config(config)
+        self.scenes["Landing"].setCompleted("Config")
 
     def handle_data(self, data):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])
+        self.scenes["Landing"].setCompleted("Graphs")
