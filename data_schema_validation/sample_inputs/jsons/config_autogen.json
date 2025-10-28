@@ -1,20 +1,33 @@
 {
     "file_inputs": {
-    "data": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\input_data\\input.csv",
-    "video": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Zebrafish_vid_3.avi",
-    "bulk_input_path": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Multiple_Input"
+        "data": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\input_data\\input.csv",
+        "video": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Zebrafish_vid_3.avi",
+        "bulk_input_path": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Multiple_Input"
     },
     "points": {
-        "right_fin": ["RF1", "RF2"], 
-        "left_fin": ["LF1", "LF2"],  
+        "right_fin": [
+            "RF1",
+            "RF2"
+        ],
+        "left_fin": [
+            "LF1",
+            "LF2"
+        ],
         "head": {
-            "pt1": "Head", 
-            "pt2": "SB"   
+            "pt1": "HeAd",
+            "pt2": "SB"
         },
-        "spine": ["Head", "BF", "SB", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "ET"],
-        "tail": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "ET"]
+        "spine": [
+            "Head",
+            "BF",
+            "SB"
+        ],
+        "tail": [
+            "T1",
+            "T2",
+            "T3"
+        ]
     },
-
     "shown_outputs": {
         "print_time_ranges": false,
         "print_fin_freq": false,
@@ -74,7 +87,10 @@
     },
     "auto_find_time_ranges": true,
     "time_ranges": [
-        [0, 110]
+        [
+            0,
+            110
+        ]
     ],
     "open_plots": true,
     "bulk_input": false
