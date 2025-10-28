@@ -7,6 +7,8 @@ from frontend.widgets.JSONInputScene import JSONInputScene
 from frontend.widgets.ConfigScene import ConfigScene
 from frontend.widgets.GraphViewerScene import GraphViewerScene
 from frontend.widgets.CalculationScene import CalculationScene
+from frontend.widgets.ConfigGeneratorScene import ConfigGeneratorScene
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -42,7 +44,8 @@ class MainWindow(QMainWindow):
             "JSON_File": JSONInputScene(),
             "Config": ConfigScene(),
             "Calculation": CalculationScene(),
-            "Graphs": GraphViewerScene()
+            "Graphs": GraphViewerScene(),
+            "Generate Config": ConfigGeneratorScene()
         }
 
         # Add scenes to stack
