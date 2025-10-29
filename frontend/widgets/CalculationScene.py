@@ -98,9 +98,14 @@ class CalculationScene(QWidget):
             self.update_info()
 
     def update_info(self):
-        base_style = """
+        # Shared inline styles for the panel
+        panel_style = """
             QLabel {
-                font-size: 14px;
+                font-size: 16px;                   /* larger text */
+                border: 2px solid #CCCCCC;         /* light border */
+                border-radius: 10px;               /* rounded corners */
+                padding: 10px 15px;                /* spacing inside panel */
+                background-color: #F8F8F8;         /* light grey panel background */
             }
         """
 
@@ -111,38 +116,36 @@ class CalculationScene(QWidget):
                 return f"<b>{label}:</b> <span style='color:grey'>Not loaded</span>"
 
         csv_line = format_path("CSV File", self.csv_path,
-                               "#0078D7")       # blue
+                               "#0066CC")       # blue tone
         config_line = format_path(
-            "Config File", self.config, "#009933")   # green
+            "Config File", self.config, "#008000")   # green tone
 
         if self.csv_path and self.config:
-            self.info_label.setText(
-                f"""
-                <div style="text-align:center; line-height:150%;">
-                    ✅ <b>Ready to Run</b><br>
-                    {csv_line}<br>
-                    {config_line}
-                </div>
-                """
-            )
+            content = f"""
+            <div style="text-align:center; line-height:170%;">
+                <span style="font-size:18px;">✅ <b>Ready to Run</b></span><br>
+                {csv_line}<br>
+                {config_line}
+            </div>
+            """
             self.calc_button.setText("🚀 Run Calculation")
             self.calc_button.setEnabled(True)
-            self.calc_button.setStyleSheet("")  # reset style
+            self.calc_button.setStyleSheet("")  # reset button style
         else:
-            self.info_label.setText(
-                f"""
-                <div style="text-align:center; line-height:150%;">
-                    ⚠️ <b>Missing Input Files</b><br>
-                    {csv_line}<br>
-                    {config_line}
-                </div>
-                """
-            )
+            content = f"""
+            <div style="text-align:center; line-height:170%;">
+                <span style="font-size:18px;">⚠️ <b>Missing Input Files</b></span><br>
+                {csv_line}<br>
+                {config_line}
+            </div>
+            """
             self.calc_button.setText("Waiting for CSV and Config")
             self.calc_button.setEnabled(False)
             self.calc_button.setStyleSheet("background-color: lightgrey;")
 
-        self.info_label.setStyleSheet(base_style)
+        # Apply panel-like appearance to the QLabel
+        self.info_label.setStyleSheet(panel_style)
+        self.info_label.setText(content)
 
     def calculate(self):
         # Placeholder for the actual calculation logic
