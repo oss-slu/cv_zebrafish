@@ -20,7 +20,7 @@ class MainWindow(QMainWindow):
         # Sets default main window properties
         self.setWindowTitle("CV Zebrafish")
         self.setMinimumSize(QSize(500, 350))
-        self.resize(QSize(800, 600))
+        self.resize(QSize(1200, 800))
 
         # Create toolbar
         toolbar = QToolBar("Main Toolbar")
