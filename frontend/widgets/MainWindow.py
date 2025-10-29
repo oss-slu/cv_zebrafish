@@ -4,7 +4,6 @@ from PyQt5.QtGui import QKeySequence
 
 from frontend.widgets.CSVInputScene import CSVInputScene
 from frontend.widgets.JSONInputScene import JSONInputScene
-from frontend.widgets.ConfigScene import ConfigScene
 from frontend.widgets.GraphViewerScene import GraphViewerScene
 from frontend.widgets.CalculationScene import CalculationScene
 from frontend.widgets.ConfigGeneratorScene import ConfigGeneratorScene
@@ -21,7 +20,7 @@ class MainWindow(QMainWindow):
         # Sets default main window properties
         self.setWindowTitle("CV Zebrafish")
         self.setMinimumSize(QSize(500, 350))
-        self.resize(QSize(800, 600))
+        self.resize(QSize(1200, 800))
 
         # Create toolbar
         toolbar = QToolBar("Main Toolbar")
@@ -42,7 +41,6 @@ class MainWindow(QMainWindow):
         self.scenes = {
             "CSV_File": CSVInputScene(),
             "JSON_File": JSONInputScene(),
-            "Config": ConfigScene(),
             "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene(),
             "Generate Config": ConfigGeneratorScene()
@@ -67,20 +65,8 @@ class MainWindow(QMainWindow):
         # Show first scene
         self.stack.setCurrentWidget(self.scenes[startScene])
 
-        ### signal handlers ###
-
-        self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
-        self.scenes["Config"].config_generated.connect(self.handle_config)
+        # calculation signal handler
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
-        self.scenes["JSON_File"].json_selected.connect(self.handle_json)
-
-    def handle_csv(self, path):
-        print("CSV selected:", path)
-        self.scenes["Calculation"].set_csv_path(path)
-
-    def handle_json(self, path):
-        print("JSON selected:", path)
-        self.scenes["Calculation"].set_config(path)
 
     def handle_config(self, config):
         print("Config generated.")
