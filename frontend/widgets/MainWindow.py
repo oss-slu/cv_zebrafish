@@ -4,7 +4,6 @@ from PyQt5.QtGui import QKeySequence
 
 from frontend.widgets.CSVInputScene import CSVInputScene
 from frontend.widgets.JSONInputScene import JSONInputScene
-from frontend.widgets.ConfigScene import ConfigScene
 from frontend.widgets.GraphViewerScene import GraphViewerScene
 from frontend.widgets.CalculationScene import CalculationScene
 from frontend.widgets.ConfigGeneratorScene import ConfigGeneratorScene
@@ -42,7 +41,6 @@ class MainWindow(QMainWindow):
         self.scenes = {
             "CSV_File": CSVInputScene(),
             "JSON_File": JSONInputScene(),
-            "Config": ConfigScene(),
             "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene(),
             "Generate Config": ConfigGeneratorScene()
@@ -70,7 +68,6 @@ class MainWindow(QMainWindow):
         ### signal handlers ###
 
         self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
-        self.scenes["Config"].config_generated.connect(self.handle_config)
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
         self.scenes["JSON_File"].json_selected.connect(self.handle_json)
 
