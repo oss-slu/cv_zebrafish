@@ -65,19 +65,8 @@ class MainWindow(QMainWindow):
         # Show first scene
         self.stack.setCurrentWidget(self.scenes[startScene])
 
-        ### signal handlers ###
-
-        self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
+        # calculation signal handler
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
-        self.scenes["JSON_File"].json_selected.connect(self.handle_json)
-
-    def handle_csv(self, path):
-        print("CSV selected:", path)
-        self.scenes["Calculation"].set_csv_path(path)
-
-    def handle_json(self, path):
-        print("JSON selected:", path)
-        self.scenes["Calculation"].set_config(path)
 
     def handle_config(self, config):
         print("Config generated.")
