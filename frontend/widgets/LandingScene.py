@@ -111,7 +111,8 @@ class ProgressWidget(QWidget):
         self.titleLabel.setFont(QFont("Arial", 11, QFont.Bold))
 
         self.checkIcon = QLabel()
-        checkPixmap = QPixmap("./public/greencheck.png").scaled(
+        checkPixmap = QPixmap(path.join(getcwd(), "frontend", "public", "greencheck.png")
+).scaled(
             32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.checkIcon.setPixmap(checkPixmap)
@@ -164,12 +165,12 @@ class ProgressWidget(QWidget):
             self.progressLabel.setText("In Progress")
 
         self.setStyleSheet(f"""
-            QWidget {{
+            ProgressWidget {{
                 background-color: {bg_color};
                 border-radius: 12px;
                 border: 2px solid {border_color};
             }}
-            QWidget:hover {{
+            ProgressWidget:hover {{
                 background-color: #F0F0F0;
                 border: 2px solid #90CAF9;
             }}
