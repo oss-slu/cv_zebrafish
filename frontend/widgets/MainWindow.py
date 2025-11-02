@@ -1,12 +1,12 @@
-from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QKeySequence
+from PyQt5.QtWidgets import QAction, QMainWindow, QShortcut, QStackedWidget, QToolBar
 
-from frontend.widgets.CSVInputScene import CSVInputScene
-from frontend.widgets.JSONInputScene import JSONInputScene
-from frontend.widgets.GraphViewerScene import GraphViewerScene
-from frontend.widgets.CalculationScene import CalculationScene
-from frontend.widgets.ConfigGeneratorScene import ConfigGeneratorScene
+from .CalculationScene import CalculationScene
+from .ConfigGeneratorScene import ConfigGeneratorScene
+from .CSVInputScene import CSVInputScene
+from .GraphViewerScene import GraphViewerScene
+from .JSONInputScene import JSONInputScene
 
 
 class MainWindow(QMainWindow):
@@ -20,7 +20,7 @@ class MainWindow(QMainWindow):
         # Sets default main window properties
         self.setWindowTitle("CV Zebrafish")
         self.setMinimumSize(QSize(500, 350))
-        self.resize(QSize(800, 600))
+        self.resize(QSize(1200, 800))
 
         # Create toolbar
         toolbar = QToolBar("Main Toolbar")

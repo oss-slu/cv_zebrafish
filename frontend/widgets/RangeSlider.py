@@ -12,9 +12,9 @@ The slider emits rangeChanged(low, high) signal on value changes.
 Where handler_function is a function you define to accept the two new range values. 
 '''
 
-from PyQt5.QtCore import Qt, pyqtSignal, QRect
+from PyQt5.QtCore import QRect, Qt, pyqtSignal
+from PyQt5.QtGui import QBrush, QColor, QPainter, QPen
 from PyQt5.QtWidgets import QSlider
-from PyQt5.QtGui import QPainter, QPen, QBrush, QColor
 
 class RangeSlider(QSlider):
     rangeChanged = pyqtSignal(int, int)  # low, high

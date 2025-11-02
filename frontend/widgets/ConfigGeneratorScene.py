@@ -1,12 +1,19 @@
-from PyQt5.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QPushButton,
-    QTextEdit, QComboBox, QFileDialog, QListWidget, QListWidgetItem
-)
-from PyQt5.QtCore import Qt
-import os
 import importlib.util
 from os import getcwd, path
 from sys import modules
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QFileDialog,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class ConfigGeneratorScene(QWidget):
@@ -135,7 +142,7 @@ class ConfigGeneratorScene(QWidget):
             config = self.json_utils.build_config(
                 points, self.json_utils.BASE_CONFIG)
             save_path, _ = QFileDialog.getSaveFileName(
-                self, "Save Config JSON", os.getcwd(), "JSON Files (*.json)"
+                self, "Save Config JSON", getcwd(), "JSON Files (*.json)"
             )
             if not save_path:
                 return

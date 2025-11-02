@@ -1,7 +1,7 @@
 import importlib.util
-from sys import modules
-from os import getcwd, path
 import json
+from os import getcwd, path
+from sys import modules
 
 # === Import json_verifier dynamically ===
 module_name = "json_verifier"

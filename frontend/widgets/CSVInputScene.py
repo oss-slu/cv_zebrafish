@@ -1,6 +1,7 @@
-from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QFileDialog, QLineEdit, QTextEdit
-from PyQt5.QtCore import pyqtSignal, Qt, QSize
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QFileDialog, QLabel, QLineEdit, QPushButton, QTextEdit, QVBoxLayout, QWidget
+
 import data_schema_validation.src.csv_verifier as input_verifier
 
 class CSVInputScene(QWidget):
