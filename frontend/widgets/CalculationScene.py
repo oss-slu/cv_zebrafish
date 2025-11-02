@@ -1,11 +1,11 @@
 import json
-from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton, QFileDialog
-from PyQt5.QtCore import pyqtSignal, Qt, QSize
+from os import getcwd
+
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
+from PyQt5.QtWidgets import QFileDialog, QLabel, QPushButton, QVBoxLayout, QWidget
 
 import calculations.utils.Driver as calculations
 import calculations.utils.Parser as parser
-
-from os import getcwd
 
 
 class CalculationScene(QWidget):
