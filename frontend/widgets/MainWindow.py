@@ -1,5 +1,4 @@
-from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QKeySequence
 
 from frontend.widgets.LandingScene import LandingScene
@@ -21,7 +20,7 @@ class MainWindow(QMainWindow):
         # Sets default main window properties
         self.setWindowTitle("CV Zebrafish")
         self.setMinimumSize(QSize(900, 350))
-        self.resize(QSize(800, 600))
+        self.resize(QSize(1200, 800))
 
         # Create toolbar
         toolbar = QToolBar("Main Toolbar")
@@ -45,7 +44,8 @@ class MainWindow(QMainWindow):
             #"JSON_File": JSONInputScene(),
             "Config": ConfigScene(),
             "Calculation": CalculationScene(),
-            "Graphs": GraphViewerScene()
+            "Graphs": GraphViewerScene(),
+            "Generate Config": ConfigGeneratorScene()
         }
 
         # Add scenes to stack

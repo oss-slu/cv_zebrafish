@@ -4,7 +4,13 @@ from typing import Dict, Optional
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QWidget, QListWidget, QHBoxLayout, QVBoxLayout, QLabel, QSizePolicy, QScrollArea
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
 import plotly.graph_objs as go
