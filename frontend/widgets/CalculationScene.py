@@ -1,11 +1,19 @@
 import json
-from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QPushButton
-from PyQt5.QtCore import pyqtSignal, Qt, QSize
+from os import getcwd
+
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QFileDialog,
+    QFrame,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 import calculations.utils.Driver as calculations
 import calculations.utils.Parser as parser
 
-from os import getcwd
 
 class CalculationScene(QWidget):
     data_generated = pyqtSignal(object)  # Signal to emit calculation results
@@ -15,17 +23,61 @@ class CalculationScene(QWidget):
 
         self.csv_path = None
         self.config = None
-        self.previous_settings = { "csv_path": None, "config": None }
+        self.previous_settings = {"csv_path": None, "config": None}
 
         layout = QVBoxLayout()
+        layout.setSpacing(16)
 
         self.label = QLabel("Calculation Scene")
         self.label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.label)
 
-        self.info_label = QLabel("No CSV or Config loaded.")
-        self.info_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.info_label)
+        self.status_label = QLabel("No CSV or Config loaded.")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        # Panel to keep selected file paths tidy
+        self.files_panel = QFrame()
+        self.files_panel.setFrameShape(QFrame.StyledPanel)
+        self.files_panel.setObjectName("filesPanel")
+        self.files_panel.setStyleSheet(
+            "#filesPanel {"
+            "border: 1px solid #d0d0d0;"
+            "border-radius: 8px;"
+            "background-color: #f5f6fa;"
+            "}"
+        )
+
+        panel_layout = QVBoxLayout(self.files_panel)
+        panel_layout.setContentsMargins(12, 12, 12, 12)
+        panel_layout.setSpacing(8)
+
+        panel_header = QLabel("Selected Files")
+        panel_header.setStyleSheet("font-weight: 600; color: #333;")
+        panel_layout.addWidget(panel_header)
+
+        csv_header = QLabel("CSV File")
+        csv_header.setStyleSheet("font-weight: 500; color: #555;")
+        panel_layout.addWidget(csv_header)
+
+        self.csv_value_label = QLabel("No CSV selected")
+        self.csv_value_label.setWordWrap(True)
+        self.csv_value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.csv_value_label.setStyleSheet("color: #333;")
+        panel_layout.addWidget(self.csv_value_label)
+
+        config_header = QLabel("Config File")
+        config_header.setStyleSheet("font-weight: 500; color: #555;")
+        panel_layout.addWidget(config_header)
+
+        self.config_value_label = QLabel("No config selected")
+        self.config_value_label.setWordWrap(True)
+        self.config_value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.config_value_label.setStyleSheet("color: #333;")
+        panel_layout.addWidget(self.config_value_label)
+
+        layout.addWidget(self.files_panel)
 
         # makes button grey and unclickable until both csv and config are loaded
         self.calc_button = QPushButton("Waiting for CSV and Config")
@@ -44,14 +96,43 @@ class CalculationScene(QWidget):
         layout.addWidget(self.toggle_button, alignment=Qt.AlignCenter)
 
         self.setLayout(layout)
-    
+
+        # buttons to select csv file to be used for calculation
+        self.csv_button = QPushButton("Select CSV File")
+        self.csv_button.clicked.connect(self.select_csv)
+        layout.addWidget(self.csv_button)
+
+        # same for json config file
+        self.config_button = QPushButton("Select Config File (JSON)")
+        self.config_button.clicked.connect(self.select_config)
+        layout.addWidget(self.config_button)
+
+    def select_csv(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select CSV File", getcwd(), "CSV Files (*.csv)"
+        )
+        if path:
+            self.set_csv_path(path)
+
+    def select_config(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Config File", getcwd(), "JSON Files (*.json)"
+        )
+        if path:
+            self.set_config(path)
+
     def toggle_test(self):
         if self.toggle_button.isChecked():
             self.toggle_button.setToolTip("Using Test Config")
 
             # Set to test config and CSV paths
-            self.set_config(f"{getcwd()}/data_schema_validation/sample_inputs/jsons/BaseConfig.json", update_info=False)
-            self.set_csv_path(f"{getcwd()}/data_schema_validation/sample_inputs/csv/correct_format.csv")
+            self.set_config(
+                f"{getcwd()}/data_schema_validation/sample_inputs/jsons/BaseConfig.json",
+                update_info=False,
+            )
+            self.set_csv_path(
+                f"{getcwd()}/data_schema_validation/sample_inputs/csv/correct_format.csv"
+            )
         else:
             self.toggle_button.setToolTip("Use Default Config")
             self.set_config(self.previous_settings["config"])
@@ -72,37 +153,48 @@ class CalculationScene(QWidget):
             self.update_info()
 
     def update_info(self):
-        if self.csv_path and self.config:
-            self.info_label.setText(f"CSV: {self.csv_path}\nConfig: {self.config}")
+        self.csv_value_label.setText(self.csv_path or "No CSV selected")
+        self.config_value_label.setText(self.config or "No config selected")
 
+        if self.csv_path and self.config:
+            self.status_label.setText("Ready to run calculations.")
             self.calc_button.setText("Run Calculation")
             self.calc_button.setEnabled(True)
-            self.calc_button.setStyleSheet("")  # reset to default style
-        elif self.csv_path:
-            self.info_label.setText(f"CSV: {self.csv_path}\nConfig: Not loaded")
-        elif self.config:
-            self.info_label.setText(f"CSV: Not loaded\nConfig: {self.config}")
+            self.calc_button.setStyleSheet("")
         else:
-            self.info_label.setText("No CSV or Config loaded.")
+            if self.csv_path:
+                self.status_label.setText(
+                    "CSV selected. Choose a config file to continue."
+                )
+            elif self.config:
+                self.status_label.setText(
+                    "Config selected. Choose a CSV file to continue."
+                )
+            else:
+                self.status_label.setText("No CSV or Config loaded.")
+
+            self.calc_button.setText("Waiting for CSV and Config")
+            self.calc_button.setEnabled(False)
+            self.calc_button.setStyleSheet("background-color: lightgrey;")
 
     def calculate(self):
         # Placeholder for the actual calculation logic
         print("Running calculations...")
 
-        config = json.load(open(self.config, 'r'))
+        config = json.load(open(self.config, "r"))
         parsed_points = parser.parse_dlc_csv(self.csv_path, config)
-        
-        self.info_label.setText(f"CSV parsed successfully, running calculations...")
+
+        self.status_label.setText("CSV parsed successfully, running calculations...")
 
         results = calculations.run_calculations(parsed_points, config)
 
         if results is None:
             print("Calculations failed.")
-            self.info_label.setText(f"Calculation failed")
+            self.status_label.setText("Calculation failed.")
             self.data_generated.emit(None)
         else:
             print("Calculations completed successfully.")
-            self.info_label.setText(f"Calculation successful")
+            self.status_label.setText("Calculation successful.")
 
             # Emit the results to signal the main window to start creating the graphs.
             self.data_generated.emit(results)
