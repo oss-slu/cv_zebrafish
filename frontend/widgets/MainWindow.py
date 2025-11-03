@@ -6,6 +6,7 @@ from frontend.widgets.LandingScene import LandingScene
 from frontend.widgets.ConfigScene import ConfigScene
 from frontend.widgets.GraphViewerScene import GraphViewerScene
 from frontend.widgets.CalculationScene import CalculationScene
+from .ConfigGeneratorScene import ConfigGeneratorScene
 from frontend.widgets.VerifyScene import VerifyScene
 
 class MainWindow(QMainWindow):
@@ -19,7 +20,7 @@ class MainWindow(QMainWindow):
         # Sets default main window properties
         self.setWindowTitle("CV Zebrafish")
         self.setMinimumSize(QSize(900, 350))
-        self.resize(QSize(1200, 800))
+        self.resize(QSize(1000, 700))
 
         # Create toolbar
         toolbar = QToolBar("Main Toolbar")
@@ -39,8 +40,6 @@ class MainWindow(QMainWindow):
         self.scenes = {
             "Landing":  LandingScene(),
             "Verify": VerifyScene(),
-            #"CSV_File": CSVInputScene(),
-            #"JSON_File": JSONInputScene(),
             "Config": ConfigScene(),
             "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene(),
