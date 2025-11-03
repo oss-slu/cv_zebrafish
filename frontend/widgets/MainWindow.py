@@ -1,9 +1,8 @@
 from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
 from PyQt5.QtGui import QKeySequence
 
 from frontend.widgets.LandingScene import LandingScene
-from frontend.widgets.CSVInputScene import CSVInputScene
-from frontend.widgets.JSONInputScene import JSONInputScene
 from frontend.widgets.ConfigScene import ConfigScene
 from frontend.widgets.GraphViewerScene import GraphViewerScene
 from frontend.widgets.CalculationScene import CalculationScene
@@ -45,7 +44,7 @@ class MainWindow(QMainWindow):
             "Config": ConfigScene(),
             "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene(),
-            "Generate Config": ConfigGeneratorScene()
+            "Generate Config": ConfigScene()
         }
 
         # Add scenes to stack
