@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout, QLineEdit
 from PyQt5.QtCore import pyqtSlot
+from PyQt5.QtWidgets import QLabel, QLineEdit, QVBoxLayout, QWidget
 
 class SampleScene1(QWidget):
     def __init__(self):
