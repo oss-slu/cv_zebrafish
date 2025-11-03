@@ -7,6 +7,7 @@ import json
 import data_schema_validation.src.csv_verifier as input_verifier
 import data_schema_validation.src.json_verifier as json_verifier
 
+from os import path, getcwd
 
 class VerifyScene(QWidget):
     """
@@ -42,7 +43,7 @@ class VerifyScene(QWidget):
         csv_layout.addWidget(self.csv_path_field)
 
         self.csv_button = QPushButton("Upload CSV")
-        self.csv_button.setIcon(QIcon("public/upload-button.png"))
+        self.csv_button.setIcon(QIcon(path.join(getcwd(), "frontend", "public", "upload-button.png")))
         self.csv_button.setIconSize(QSize(24, 24))
         self.csv_button.setCursor(Qt.PointingHandCursor)
         self.csv_button.clicked.connect(self.select_csv_file)
@@ -62,7 +63,7 @@ class VerifyScene(QWidget):
         json_layout.addWidget(self.json_path_field)
 
         self.json_button = QPushButton("Upload JSON")
-        self.json_button.setIcon(QIcon("public/upload-button.png"))
+        self.json_button.setIcon(QIcon(path.join(getcwd(), "frontend", "public", "upload-button.png")))
         self.json_button.setIconSize(QSize(24, 24))
         self.json_button.setCursor(Qt.PointingHandCursor)
         self.json_button.clicked.connect(self.select_json_file)
