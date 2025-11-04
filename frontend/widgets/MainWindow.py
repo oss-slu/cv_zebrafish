@@ -43,7 +43,7 @@ class MainWindow(QMainWindow):
             "Config": ConfigScene(),
             "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene(),
-            "Generate Config": ConfigScene()
+            "Generate Config": ConfigGeneratorScene()
         }
 
         # Add scenes to stack
