@@ -1,20 +1,36 @@
 # CV_Zebrafish
 
-### Conda
+### Python Environment
 
-use conda to initiate the `dlc` env:
+You can use Conda or a virtual environment created with `python -m venv`.
 
-`conda env create -f environment.yml`
+#### Option A: pip / venv
 
-Then activate the env using:
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-`conda activate dlc`
+#### Option B: Conda
 
-whenever you want to run the app, and deactivate the environment with `conda deactivate` whenever your finished.
+```bash
+conda env create -f environment.yml
+conda activate dlc
+```
+
+Deactivate the environment with `deactivate` (venv) or `conda deactivate` when you finish.
 
 ### Running the app
 
-Cd into frontend and run `python app.py`
+From the repository root, run:
+
+```bash
+python app.py
+```
 
 ## License
 This project is licensed under the [MIT License](./LICENSE) — see the file for details.
