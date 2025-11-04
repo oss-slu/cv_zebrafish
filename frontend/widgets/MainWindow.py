@@ -9,6 +9,7 @@ from frontend.widgets.CalculationScene import CalculationScene
 from .ConfigGeneratorScene import ConfigGeneratorScene
 from frontend.widgets.VerifyScene import VerifyScene
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -29,7 +30,7 @@ class MainWindow(QMainWindow):
 
         # shortcut to close the window
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
-        
+
         ### adds scenes ###
 
         # QStackedWidget to hold scenes
@@ -67,12 +68,11 @@ class MainWindow(QMainWindow):
 
         ### signal handlers ###
 
-       
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
 
-        #self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
-        #self.scenes["Config"].config_generated.connect(self.handle_config)
-        #self.scenes["JSON_File"].json_selected.connect(self.handle_json)
+        # self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
+        # self.scenes["Config"].config_generated.connect(self.handle_config)
+        # self.scenes["JSON_File"].json_selected.connect(self.handle_json)
 
     def handle_csv(self, path):
         print("CSV selected:", path)

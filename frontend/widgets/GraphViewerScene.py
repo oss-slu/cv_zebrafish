@@ -16,9 +16,6 @@ from PyQt5.QtWidgets import (
 import plotly.graph_objs as go
 import plotly.io as pio
 
-from PyQt5.QtWebEngineWidgets import *
-import numpy as np
-
 GraphSource = go.Figure
 
 class GraphViewerScene(QWidget):
