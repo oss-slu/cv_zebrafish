@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect
 )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap, QPalette, QColor, QFont
+from PyQt5.QtGui import QPixmap, QColor, QFont
 
 from os import path, getcwd
 
