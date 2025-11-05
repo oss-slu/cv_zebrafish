@@ -1,11 +1,12 @@
 import numpy as np
 
+
 def calc_fin_angle(head1_arr, head2_arr, fin_points_arr, left_fin=False):
     """
     Calculate the angle between head direction and fin orientation.
 
     Args:
-        head1_arr (dict): Coordinates of the first head point with 'x' and 'y' arrays.
+            head1_arr (dict): Coordinates of the first head point with 'x' and 'y' arrays.
         head2_arr (dict): Coordinates of the second head point with 'x' and 'y' arrays.
         fin_points_arr (list[dict]): List of fin point coordinate dictionaries.
         left_fin (bool): If True, sign convention is flipped for left fins.
@@ -34,6 +35,7 @@ def calc_fin_angle(head1_arr, head2_arr, fin_points_arr, left_fin=False):
             angles[i] = np.nan
     return angles
 
+
 def calc_yaw(head1_arr, head2_arr):
     """
     Compute yaw (heading angle) from head point positions.
@@ -58,6 +60,7 @@ def calc_yaw(head1_arr, head2_arr):
             yaws[i] = -angle_deg
     return yaws
 
+
 def get_angle_between_points(A, B, C):
     """
     Calculate signed angle between vectors BA and BC at point B.
@@ -68,7 +71,7 @@ def get_angle_between_points(A, B, C):
         C (dict): Coordinates of point C.
 
     Returns:
-        float: Signed angle (in degrees) between points A-B-C.
+        float: Angle (in degrees) between points A-B-C (0-180 range).
     """
     BA = np.array([A["x"] - B["x"], A["y"] - B["y"]], dtype=float)
     BC = np.array([C["x"] - B["x"], C["y"] - B["y"]], dtype=float)
@@ -76,11 +79,10 @@ def get_angle_between_points(A, B, C):
     nBC = np.linalg.norm(BC)
     if nBA == 0 or nBC == 0:
         return np.nan
-    dot = float(np.dot(BA, BC))
-    cross = float(BA[0] * BC[1] - BA[1] * BC[0])
-    unsigned = np.arctan2(abs(cross), dot)
-    signed = np.sign(cross) * (np.pi - unsigned)
-    return np.degrees(signed)
+    cosine_angle = np.dot(BA, BC) / (nBA * nBC)
+    cosine_angle = np.clip(cosine_angle, -1.0, 1.0)
+    return float(np.degrees(np.arccos(cosine_angle)))
+
 
 def calc_spine_angles(spine):
     """
@@ -96,7 +98,7 @@ def calc_spine_angles(spine):
     n_frames = len(spine[0]["x"])
     angles = np.full((n_frames, n_segments), np.nan)
     for idx in range(n_segments):
-        ptA, ptB, ptC = spine[idx], spine[idx+1], spine[idx+2]
+        ptA, ptB, ptC = spine[idx], spine[idx + 1], spine[idx + 2]
         for f in range(n_frames):
             angles[f, idx] = get_angle_between_points(
                 {k: ptA[k][f] for k in ["x", "y"]},
@@ -104,6 +106,7 @@ def calc_spine_angles(spine):
                 {k: ptC[k][f] for k in ["x", "y"]},
             )
     return angles
+
 
 def calc_tail_angle(clp1, clp2, tp):
     """
@@ -126,6 +129,7 @@ def calc_tail_angle(clp1, clp2, tp):
         ) for i in range(n)
     ])
 
+
 def calc_tail_side_and_distance(clp1, clp2, tp, scale_factor):
     """
     Determine tail side (Left/Right) and signed distance from the body axis.
@@ -137,15 +141,18 @@ def calc_tail_side_and_distance(clp1, clp2, tp, scale_factor):
         scale_factor (float): Pixel-to-mm or scaling conversion factor.
 
     Returns:
-        tuple[np.ndarray, np.ndarray]: 
+        tuple[np.ndarray, np.ndarray, np.ndarray]:
             - sides: Array of "Left", "Right", or "On the line".
-            - distances: Array of signed distances (scaled).
+            - distances_scaled: Array of signed distances scaled into real units.
+            - distances_raw: Array of signed distances in pixel units.
     """
     n = len(tp["x"])
     sides = np.array([""] * n, dtype=object)
-    distances = np.full(n, np.nan)
+    distances_scaled = np.full(n, np.nan)
+    distances_raw = np.full(n, np.nan)
     for i in range(n):
-        x1, y1, x2, y2 = clp1["x"][i], clp1["y"][i], clp2["x"][i], clp2["y"][i]
+        x1, y1 = clp1["x"][i], clp1["y"][i]
+        x2, y2 = clp2["x"][i], clp2["y"][i]
         xt, yt = tp["x"][i], tp["y"][i]
         m, b = np.polyfit([x1, x2], [y1, y2], 1)
         rel_pos = (m * xt - yt + b) / np.sqrt(m**2 + 1)
@@ -156,8 +163,10 @@ def calc_tail_side_and_distance(clp1, clp2, tp, scale_factor):
             sides[i] = "Left"
         else:
             sides[i] = "On the line"
-        distances[i] = signed_dist
-    return sides, distances
+        distances_scaled[i] = signed_dist
+        distances_raw[i] = rel_pos
+    return sides, distances_scaled, distances_raw
+
 
 def calc_furthest_tail_point(clp1, clp2, tail, tail_points):
     """
@@ -175,7 +184,8 @@ def calc_furthest_tail_point(clp1, clp2, tail, tail_points):
     n = len(tail[0]["x"])
     furthest_pt = np.empty(n, dtype=object)
     for i in range(n):
-        x1, y1, x2, y2 = clp1["x"][i], clp1["y"][i], clp2["x"][i], clp2["y"][i]
+        x1, y1 = clp1["x"][i], clp1["y"][i]
+        x2, y2 = clp2["x"][i], clp2["y"][i]
         m, b = np.polyfit([x1, x2], [y1, y2], 1)
         max_abs_dist = 0
         furthest = tail_points[0]
@@ -187,6 +197,7 @@ def calc_furthest_tail_point(clp1, clp2, tail, tail_points):
                 furthest = tail_points[p]
         furthest_pt[i] = furthest
     return furthest_pt
+
 
 def detect_fin_peaks(angles, buffer):
     """
@@ -208,11 +219,48 @@ def detect_fin_peaks(angles, buffer):
         current = angles[i]
         left = angles[i-buffer:i]
         right = angles[i+1:i+buffer+1]
-        if (np.all(current >= left) and np.all(current >= right)):
+        if np.all(current >= left) and np.all(current >= right):
             peaks[i] = "max"
-        elif (np.all(current <= left) and np.all(current <= right)):
+        elif np.all(current <= left) and np.all(current <= right):
             peaks[i] = "min"
     return peaks
+
+
+def _get_peaks(values, cutoff, total_range, negative=False):
+    peaks = []
+    on_peak = False
+    current_pos = 0
+    current_extreme = 0
+    for i in range(total_range):
+        val = values[i]
+        if np.isnan(val):
+            continue
+        if negative:
+            if not on_peak and val < cutoff:
+                current_pos = i
+                current_extreme = val
+                on_peak = True
+            elif on_peak and val >= cutoff:
+                peaks.append(current_pos)
+                on_peak = False
+            elif on_peak and val < current_extreme:
+                current_extreme = val
+                current_pos = i
+        else:
+            if not on_peak and val > cutoff:
+                current_pos = i
+                current_extreme = val
+                on_peak = True
+            elif on_peak and val <= cutoff:
+                peaks.append(current_pos)
+                on_peak = False
+            elif on_peak and val > current_extreme:
+                current_extreme = val
+                current_pos = i
+    if on_peak:
+        peaks.append(current_pos)
+    return peaks
+
 
 def get_time_ranges(left_fin_angles, right_fin_angles, tail_distances, config, n_frames):
     """
@@ -228,26 +276,95 @@ def get_time_ranges(left_fin_angles, right_fin_angles, tail_distances, config, n
     Returns:
         list[list[int]]: List of [start_frame, end_frame] pairs for detected bouts.
     """
-    cutoff = config['graph_cutoffs']
-    buffer = cutoff["swim_bout_buffer"]
-    bout_width = cutoff["movement_bout_width"]
+    cutoff = config["graph_cutoffs"]
+    swim_bout_buffer = cutoff["swim_bout_buffer"]
+    swim_bout_shift = cutoff.get("swim_bout_right_shift", 0)
+    movement_span = cutoff["movement_bout_width"]
+    use_tail = cutoff.get("use_tail_angle", False)
+
+    total_range = n_frames
+    left_peaks = _get_peaks(left_fin_angles, cutoff["left_fin_angle"], total_range)
+    right_peaks = _get_peaks(right_fin_angles, cutoff["right_fin_angle"], total_range)
+    tail_pos_peaks = _get_peaks(tail_distances, cutoff["tail_angle"], total_range)
+    tail_neg_peaks = _get_peaks(tail_distances, cutoff["tail_angle"], total_range, negative=True)
+    tail_peaks = sorted(tail_pos_peaks + tail_neg_peaks)
+
+    left_peak_set = set(left_peaks)
+    right_peak_set = set(right_peaks)
+    tail_peak_set = set(tail_peaks)
+
+    last_left = last_right = last_tail = -movement_span * 2
+    on_range = False
+    range_start = 0
     ranges = []
-    in_bout = False
-    start = None
-    for i in range(n_frames):
-        bout = (abs(left_fin_angles[i]) > cutoff["left_fin_angle"] or
-                abs(right_fin_angles[i]) > cutoff["right_fin_angle"] or
-                abs(tail_distances[i]) > cutoff["tail_angle"])
-        if bout and not in_bout:
-            start = max(i - buffer, 0)
-            in_bout = True
-        elif not bout and in_bout:
-            end = min(i + buffer, n_frames - 1)
-            if end > start + bout_width:
-                ranges.append([start, end])
-            in_bout = False
-    if in_bout and start is not None and (n_frames - 1) > start:
-        ranges.append([start, n_frames - 1])
-    if not ranges:
-        ranges = [[0, n_frames - 1]]
-    return ranges
+
+    for i in range(total_range):
+        if i in left_peak_set:
+            last_left = i
+        if i in right_peak_set:
+            last_right = i
+        if i in tail_peak_set:
+            last_tail = i
+
+        if use_tail:
+            should_start = (
+                not on_range
+                and i - last_left <= movement_span
+                and i - last_right <= movement_span
+                and i - last_tail <= movement_span
+            )
+            should_end = (
+                on_range
+                and (
+                    i - last_left > movement_span
+                    or i - last_right > movement_span
+                    or i - last_tail > movement_span
+                )
+            )
+            if should_start:
+                earliest_peak = min(last_left, last_right, last_tail)
+                range_start = max(earliest_peak - swim_bout_buffer + swim_bout_shift, 0)
+                on_range = True
+            elif should_end:
+                latest_peak = max(last_left, last_right, last_tail)
+                range_end = min(latest_peak + swim_bout_buffer + swim_bout_shift, total_range)
+                ranges.append([range_start, range_end])
+                on_range = False
+        else:
+            should_start = (
+                not on_range
+                and i - last_left <= movement_span
+                and i - last_right <= movement_span
+            )
+            should_end = (
+                on_range
+                and (i - last_left > movement_span or i - last_right > movement_span)
+            )
+            if should_start:
+                earliest_peak = min(last_left, last_right)
+                range_start = max(earliest_peak - swim_bout_buffer + swim_bout_shift, 0)
+                on_range = True
+            elif should_end:
+                latest_peak = max(last_left, last_right)
+                range_end = min(latest_peak + swim_bout_buffer + swim_bout_shift, total_range - 1)
+                ranges.append([range_start, range_end])
+                on_range = False
+
+    if on_range:
+        latest_peak = max(last_left, last_right)
+        range_end = min(latest_peak + swim_bout_buffer + swim_bout_shift, total_range - 1)
+        ranges.append([range_start, range_end])
+
+    if len(ranges) <= 1:
+        return ranges
+
+    merged = []
+    last_start, last_end = ranges[0]
+    for start, end in ranges:
+        if start <= last_end:
+            last_end = max(last_end, end)
+        else:
+            merged.append([last_start, last_end])
+            last_start, last_end = start, end
+    merged.append([last_start, last_end])
+    return merged
