@@ -1,3 +1,7 @@
+"""High-level orchestration for the zebrafish kinematic calculation pipeline."""
+
+from typing import Any, Dict
+
 import numpy as np
 import pandas as pd
 from .Metrics import (
@@ -5,8 +9,17 @@ from .Metrics import (
     calc_tail_side_and_distance, calc_furthest_tail_point, detect_fin_peaks, get_time_ranges
 )
 
-def run_calculations(parsed_points, config):
-    #print("graph_cutoffs keys:", list(config["graph_cutoffs"].keys()))
+def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Execute the full set of movement calculations on pre-parsed DLC points.
+
+    Args:
+        parsed_points: Mapping of body-part identifiers to coordinate arrays produced by the parser layer.
+        config: Configuration dictionary describing video parameters, thresholds, and optional bout ranges.
+
+    Returns:
+        pd.DataFrame: Tabular metrics for each frame, including fin/tail angles, yaw, bout metadata, and peaks.
+    """
     n_frames = len(parsed_points["spine"][0]["x"]) 
     vp = config["video_parameters"]
     scale_factor = vp["pixel_scale_factor"] * vp["dish_diameter_m"] / vp["pixel_diameter"]
@@ -28,7 +41,7 @@ def run_calculations(parsed_points, config):
     head_y = head["y"] * scale_factor
 
     tail_angle = calc_tail_angle(clp1, clp2, tp)
-    sides, tail_distances = calc_tail_side_and_distance(clp1, clp2, tp, scale_factor)
+    sides, tail_distances, tail_distances_raw = calc_tail_side_and_distance(clp1, clp2, tp, scale_factor)
     furthest_tail = calc_furthest_tail_point(clp1, clp2, tail, tail_points)
 
     buffer = config["graph_cutoffs"].get("peak_horizontal_buffer", 3)
@@ -60,6 +73,7 @@ def run_calculations(parsed_points, config):
         "HeadY": head_y,
         "Tail_Angle": tail_angle,
         "Tail_Distance": tail_distances,
+        "Tail_Distance_Pixels": tail_distances_raw,
         "Tail_Side": sides,
         "Furthest_Tail_Point": furthest_tail,
         "leftFinPeaks": left_fin_peaks,
