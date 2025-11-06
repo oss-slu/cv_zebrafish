@@ -7,7 +7,7 @@ This project expects input data in the form of a DeepLabCut-generated CSV file. 
 - **Header Row 1:** Scorer/model name for each set of columns (e.g., `DLC_Resnet50_...`).
 - **Header Row 2:** Bodypart name for each set of columns (e.g., `Head`, `LE`, `RE`, etc.).
 - **Header Row 3:** Coordinate type for each column (`x`, `y`, `likelihood`).
-- **Data Rows:** Numeric values for each frame and bodypart.
+- **Data Rows:** Numeric values for each frame and bodypart...
 
 ### Example (first few columns):
 
