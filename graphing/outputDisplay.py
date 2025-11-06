@@ -1,22 +1,27 @@
-
-
 import os
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
+from datetime import datetime
 
-# --- Output initialization ---
+# --- Output initialization -- #
+
 def init_output_folder(config):
     base_path = config.get("results_path", "results")
-    os.makedirs(base_path, exist_ok=True)
-    output_folder = os.path.join(base_path, "output_v1")
+    # Allow config to specify an output subfolder name, or default to timestamped if not present
+    output_subfolder = config.get("output_subfolder")
+    if output_subfolder:
+        output_folder = os.path.join(base_path, output_subfolder)
+    else:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_folder = os.path.join(base_path, f"output_{run_id}")
     os.makedirs(output_folder, exist_ok=True)
     return output_folder
 
 # --- Excel export ---
 def save_results_to_excel(df, output_folder):
-    file_path = os.path.join(output_folder, "results.xlsx")
-    df.to_excel(file_path, index=False)
+    file_path = os.path.join(output_folder, "results.csv")
+    df.to_csv(file_path, index=False)
     print(f"[INFO] Results saved to {file_path}")
 
 # --- Plotting functions ---
@@ -69,6 +74,8 @@ def make_outputs(df, config):
     if config.get("show_spines", True):
         plot_spines(df, output_folder, config)
     print("[INFO] All requested outputs have been generated.")
+    return output_folder  # <--- Now returns the path
+
 
 # --- You can extend this for more graph options! ---
 
