@@ -6,7 +6,8 @@ Computer-vision toolkit for analyzing zebrafish movement data exported from Deep
 ## Repository Layout
 ```text
 .
-├── app.py / webengineDemo.py         # PyQt entry point and Plotly demo
+├── app.py                   # PyQt entry point
+├── webengineDemo.py         # Plotly demo
 ├── assets/
 │   ├── images/                       # UI illustrations and icons
 │   └── sample_data/                  # Placeholder for bundled DLC runs
@@ -24,23 +25,32 @@ Computer-vision toolkit for analyzing zebrafish movement data exported from Deep
 │   ├── dlc/, input_data/             # Historical DLC artifacts
 │   └── reports/                      # Output CSVs, QA assets
 ├── requirements/validation/          # Narrow dependency set for validators
-├── scripts/
-│   ├── data/generate_graphs.py       # CLI to persist Plotly figures
-│   ├── dev/                          # Reserved for local tooling
-│   └── ops/                          # Reserved for automation hooks
 ├── src/cvzebrafish/
 │   ├── core/
-│   │   ├── calculations/{Driver,Metrics,...}
+│   │   ├── calculations/
 │   │   ├── config/configSetup.py     # Config discovery helpers
 │   │   ├── parsing/Parser.py         # DeepLabCut CSV parser
-│   │   └── validation/{csv,json}_verifier.py
-│   ├── data/sources/DB1.py           # SQLite ingestion and normalization
-│   ├── orchestrators/                # Reserved for workflow drivers
-│   ├── platform/paths.py             # Centralized repo path helpers
-│   ├── ui/{components,scenes}/       # PyQt widgets & multi-scene flow
-│   └── viz/{adapters,figures}/       # Plotly export + pipeline adapters
+│   │   └── validation/
+│   ├── data/
+│   │   ├── repositories/
+│   │   └── sources/
+│   ├── platform/
+│   │   ├── __init__.py
+│   │   ├── paths.py
+│   │   └── __pycache__/
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── .gitignore
+│   │   ├── __pycache__/
+│   │   ├── components/
+│   │   ├── resources/
+│   │   └── scenes/
+│   └── viz/
+│       ├── adapters/
+│       ├── export/
+│       └── figures/
 ├── tests/
-│   ├── unit/core/{calculations,validation}/
+│   ├── unit/core/
 │   ├── integration/, e2e/ (stubs)
 │   └── conftest.py + shared fixtures
 ├── AGENTS.md, contributing.md, LICENSE, environment.yml, requirements.txt
@@ -49,13 +59,13 @@ Computer-vision toolkit for analyzing zebrafish movement data exported from Deep
 
 ## Core Functionality Highlights
 - **Parsing & Config Loading** – `src/cvzebrafish/core/parsing/Parser.py` maps DLC CSV columns into structured point dictionaries, while `core/config/configSetup.py` cascades through local/sample config locations and backfills missing files from `BaseConfig.json`.
-- **Calculation Pipeline** – `core/calculations/Driver.py` orchestrates kinematic metrics (angles, yaw, bout detection) via helpers in `Metrics.py`. CLI utilities `core/calculations/run_calculation_to_csv.py` and `core/calculations/compare_calculations.py` export results or diff them against the legacy Bruce pipeline.
-- **Validation Utilities** – `core/validation/json_verifier.py`, `csv_verifier.py`, and `generate_json.py` enforce schema integrity, check DLC CSV structure/ranges, and scaffold configs. Minimal dependencies live in `requirements/validation/requirements.txt`.
-- **Visualization & Export** – `viz/adapters/output_adapter.py` and `viz/figures/outputDisplay.py` turn calculation outputs into Plotly charts plus CSV/HTML artifacts; `scripts/data/generate_graphs.py` wires the pipeline together for headless rendering.
+- **Calculation Pipeline** – `core/calculations/` orchestrates kinematic metrics (angles, yaw, bout detection).
+- **Validation Utilities** – `core/validation/json_verifier.py` and `csv_verifier.py` enforce schema integrity, check DLC CSV structure/ranges, and scaffold configs. Minimal dependencies live in `requirements/validation/requirements.txt`.
+- **Visualization & Export** – `viz/adapters/output_adapter.py` and `viz/figures/outputDisplay.py` turn calculation outputs into Plotly charts plus CSV/HTML artifacts.
 - **PyQt UI Flow** – `app.py` boots the multi-scene UI defined under `src/cvzebrafish/ui/scenes` (Landing, CSV/JSON inputs, Config generators, Calculation/Graph viewer, Validators) and reuses shared widgets from `ui/components/`.
-- **Data Ingestion & Persistence** – `src/cvzebrafish/data/sources/DB1.py` normalizes DLC outputs into SQLite (`CV_Zebrafish.db`), tracks file hashes, and records ingestion runs for reproducibility.
+- **Data Ingestion & Persistence** – `src/cvzebrafish/data/repositories` and `src/cvzebrafish/data/sources` normalizes DLC outputs into SQLite (`CV_Zebrafish.db`), tracks file hashes, and records ingestion runs for reproducibility.
 - **Legacy Parity & Docs** – `legacy/` mirrors the prior code path so regression comparisons and documentation in `docs/architecture/.../comparison_legacy_vs_new.md` stay grounded.
-- **Automated Tests** – `tests/unit/core/calculations` exercises parser + metrics against golden CSV fixtures, while `tests/unit/core/validation` covers schema/CSV tooling. `pytest` is configured via `conftest.py`.
+- **Automated Tests** – `tests/unit/core` exercises parser + metrics against golden CSV fixtures. `pytest` is configured via `conftest.py`.
 
 ## Python Environment
 You can use Conda or a virtual environment created with `python -m venv`.
@@ -85,9 +95,6 @@ python app.py
 The UI walks through CSV/JSON selection, validation, configuration tweaks, calculation runs, and graph review.
 
 ### Useful CLI Utilities
-- `python src/cvzebrafish/core/calculations/run_calculation_to_csv.py --csv <dlc.csv> --config <config.json> [--output results.csv]`
-- `python src/cvzebrafish/core/calculations/compare_calculations.py --csv <dlc.csv> --config <config.json> [--legacy-root legacy/codes]`
-- `python scripts/data/generate_graphs.py --csv <dlc.csv> --config <config.json> --output results/`
 - `pytest` to execute the unit suites
 - `python -m cvzebrafish.core.validation.json_verifier <config.json>` (or run without arguments to be prompted for a path)
 - `python -m cvzebrafish.core.validation.csv_verifier` to be prompted for a DLC CSV and run structural checks
