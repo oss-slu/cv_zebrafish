@@ -1,49 +1,49 @@
-import unittest
+from pathlib import Path
+
 import numpy as np
-import os
+import numpy.testing as npt
 
 from calculations.utils.Parser import parse_dlc_csv
 
-class TestDlcParser(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.csv_path = "test_dlc.csv"
-        # Simulate your DLC CSV structure: scorer row, bodypart row, coords row, data rows
-        csv_content = (
-            "scorer,DLC_Resnet,DLC_Resnet,DLC_Resnet,DLC_Resnet,DLC_Resnet,DLC_Resnet,DLC_Resnet,DLC_Resnet,DLC_Resnet\n"
-            "bodyparts,Head,Head,Head,LE,LE,LE,LF1,LF1,LF1\n"
-            "coords,x,y,likelihood,x,y,likelihood,x,y,likelihood\n"
-            "0,403.84326,520.2443,0.8864096,393.53666,528.21704,0.84318787,391.16507,549.9573,0.70455974\n"
-            "1,403.751,520.2909,0.88278824,393.9016,528.3418,0.84049153,391.08728,549.9916,0.69364315\n"
-        )
-        with open(cls.csv_path, "w") as f:
-            f.write(csv_content)
 
-    @classmethod
-    def tearDownClass(cls):
-        os.remove(cls.csv_path)
+def test_parse_dlc_csv_shapes_and_values(tmp_path: Path):
+    csv_path = tmp_path / "sample.csv"
+    csv_path.write_text(
+        "scorer,DLC,DLC,DLC,DLC,DLC,DLC,DLC,DLC,DLC\n"
+        "bodyparts,Head,Head,Head,LE,LE,LE,LF1,LF1,LF1\n"
+        "coords,x,y,likelihood,x,y,likelihood,x,y,likelihood\n"
+        "0,10,20,0.9,30,40,0.8,50,60,0.7\n"
+        "1,11,21,0.91,31,41,0.81,51,61,0.71\n"
+    )
 
-    def test_parse_dlc_csv(self):
-        config = {
-            "points": {
-                "spine": ["Head", "LE", "LF1"],
-                "left_fin": ["LF1"],          # Use only one for simplicity
-                "right_fin": [],              # No right fin in this sample
-                "head": {"pt1": "Head", "pt2": "LE"},
-                "tail": ["LF1"]
-            }
+    config = {
+        "points": {
+            "spine": ["Head", "LE", "LF1"],
+            "left_fin": ["LF1"],
+            "right_fin": ["LE"],
+            "head": {"pt1": "Head", "pt2": "LE"},
+            "tail": ["LF1", "LE"],
         }
-        parsed = parse_dlc_csv(self.csv_path, config)
-        # Check spine extraction
-        self.assertEqual(len(parsed["spine"]), 3)  # Head, LE, LF1
-        self.assertEqual(len(parsed["spine"][0]), 2)  # Two frames
-        self.assertEqual(parsed["spine"][0][0]["x"], 403.84326)
-        self.assertEqual(parsed["spine"][1][1]["y"], 528.3418)
-        # Check left fin (should match LF1)
-        self.assertIn("left_fin", parsed)
-        self.assertEqual(parsed["left_fin"][0][1]["x"], 391.08728)
-        # Check tail (LF1 for this example)
-        self.assertEqual(parsed["tail"][0][0]["conf"], 0.70455974)
+    }
 
-if __name__ == '__main__':
-    unittest.main()
+    parsed = parse_dlc_csv(str(csv_path), config)
+
+    assert set(parsed.keys()) == {
+        "spine",
+        "right_fin",
+        "left_fin",
+        "clp1",
+        "clp2",
+        "tp",
+        "head",
+        "tailPoints",
+        "tail",
+    }
+
+    assert len(parsed["spine"]) == 3
+    npt.assert_allclose(parsed["spine"][0]["x"], np.array([10.0, 11.0]))
+    npt.assert_allclose(parsed["spine"][1]["y"], np.array([40.0, 41.0]))
+    npt.assert_allclose(parsed["left_fin"][0]["x"], np.array([50.0, 51.0]))
+    npt.assert_allclose(parsed["right_fin"][0]["x"], np.array([30.0, 31.0]))
+    assert parsed["tailPoints"] == ["LF1", "LE"]
+    npt.assert_allclose(parsed["tail"][0]["conf"], np.array([0.7, 0.71]))
