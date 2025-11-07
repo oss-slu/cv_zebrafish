@@ -4,7 +4,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QColor, QFont
 
-from os import path, getcwd
+from cvzebrafish.platform.paths import images_dir
+
+IMAGES_DIR = images_dir()
 
 class LandingScene(QWidget):
     """
@@ -32,13 +34,13 @@ class LandingScene(QWidget):
         topLayout.addWidget(header)
 
         iconLabel = QLabel()
-        imagePath = path.join(getcwd(), "frontend", "public", "fish3.png")
+        fish_path = IMAGES_DIR / "fish3.png"
 
-        pixmap = QPixmap(imagePath).scaled(
+        pixmap = QPixmap(str(fish_path)).scaled(
             150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         if pixmap.isNull():
-            print(f"Warning: could not load image {imagePath}")
+            print(f"Warning: could not load image {fish_path}")
             pixmap = QPixmap(100, 100)
             pixmap.fill(Qt.gray)
 
@@ -111,8 +113,7 @@ class ProgressWidget(QWidget):
         self.titleLabel.setFont(QFont("Arial", 11, QFont.Bold))
 
         self.checkIcon = QLabel()
-        checkPixmap = QPixmap(path.join(getcwd(), "frontend", "public", "greencheck.png")
-).scaled(
+        checkPixmap = QPixmap(str(IMAGES_DIR / "greencheck.png")).scaled(
             32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.checkIcon.setPixmap(checkPixmap)

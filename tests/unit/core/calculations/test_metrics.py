@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.testing as npt
 
-from calculations.utils.Metrics import (
+from cvzebrafish.core.calculations.Metrics import (
     calc_fin_angle,
     calc_yaw,
     calc_tail_side_and_distance,

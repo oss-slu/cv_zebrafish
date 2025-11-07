@@ -18,11 +18,12 @@ import numpy as np
 import pandas as pd
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_LEGACY_ROOT = (REPO_ROOT.parent / "codes" / "bruce" / "codes").resolve()
+SRC_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = SRC_ROOT.parent
+DEFAULT_LEGACY_ROOT = (PROJECT_ROOT / "legacy" / "codes").resolve()
 
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 @dataclass
 class ColumnComparison:
@@ -73,8 +74,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def ensure_import_paths(legacy_root: Path) -> None:
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
+    if str(SRC_ROOT) not in sys.path:
+        sys.path.insert(0, str(SRC_ROOT))
     if str(legacy_root) not in sys.path:
         sys.path.insert(0, str(legacy_root))
 
@@ -85,8 +86,8 @@ def load_config(config_path: Path) -> dict:
 
 
 def run_new_pipeline(csv_path: Path, config: dict) -> pd.DataFrame:
-    from calculations.utils.Parser import parse_dlc_csv
-    from calculations.utils.Driver import run_calculations
+    from cvzebrafish.core.parsing.Parser import parse_dlc_csv
+    from cvzebrafish.core.calculations.Driver import run_calculations
 
     parsed_points = parse_dlc_csv(str(csv_path), config)
     new_df = run_calculations(parsed_points, config)

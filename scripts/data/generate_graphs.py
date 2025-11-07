@@ -6,34 +6,29 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
-from calculations.utils.Driver import run_calculations
-from calculations.utils.Parser import parse_dlc_csv
-from graphing.outputDisplay import make_outputs
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from cvzebrafish.core.calculations.Driver import run_calculations
+from cvzebrafish.core.parsing.Parser import parse_dlc_csv
+from cvzebrafish.platform.paths import default_sample_config, default_sample_csv
+from cvzebrafish.viz.figures.outputDisplay import make_outputs
 
 
 def _default_paths(repo_root: Path) -> tuple[Path, Path, Path]:
     """Return default csv, config, and output folders based on the repo root."""
-    csv_path = (
-        repo_root
-        / "data_schema_validation"
-        / "sample_inputs"
-        / "csv"
-        / "correct_format.csv"
-    )
-    config_path = (
-        repo_root
-        / "data_schema_validation"
-        / "sample_inputs"
-        / "jsons"
-        / "BaseConfig.json"
-    )
+    csv_path = default_sample_csv()
+    config_path = default_sample_config()
     output_dir = repo_root / "results"
     return csv_path, config_path, output_dir
 
 
 def parse_args() -> argparse.Namespace:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = REPO_ROOT
     default_csv, default_config, default_output = _default_paths(repo_root)
 
     parser = argparse.ArgumentParser(
@@ -67,7 +62,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = REPO_ROOT
 
     if not args.csv.is_file():
         raise FileNotFoundError(f"DLC csv not found at '{args.csv}'")

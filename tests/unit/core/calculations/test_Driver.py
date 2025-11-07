@@ -2,7 +2,7 @@ import numpy as np
 import numpy.testing as npt
 import pandas as pd
 
-from calculations.utils.Driver import run_calculations
+from cvzebrafish.core.calculations.Driver import run_calculations
 
 
 def _build_parsed_points():

@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import numpy.testing as npt
 
-from calculations.utils.Parser import parse_dlc_csv
+from cvzebrafish.core.parsing.Parser import parse_dlc_csv
 
 
 def test_parse_dlc_csv_shapes_and_values(tmp_path: Path):

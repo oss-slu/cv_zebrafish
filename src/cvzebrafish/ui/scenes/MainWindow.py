@@ -2,12 +2,12 @@ from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
 from PyQt5.QtGui import QKeySequence
 
-from frontend.widgets.LandingScene import LandingScene
-from frontend.widgets.ConfigScene import ConfigScene
-from frontend.widgets.GraphViewerScene import GraphViewerScene
-from frontend.widgets.CalculationScene import CalculationScene
+from .LandingScene import LandingScene
+from .ConfigScene import ConfigScene
+from .GraphViewerScene import GraphViewerScene
+from .CalculationScene import CalculationScene
 from .ConfigGeneratorScene import ConfigGeneratorScene
-from frontend.widgets.VerifyScene import VerifyScene
+from .VerifyScene import VerifyScene
 
 
 class MainWindow(QMainWindow):

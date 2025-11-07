@@ -1,5 +1,5 @@
 import json
-from os import getcwd
+from pathlib import Path
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -11,8 +11,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-import calculations.utils.Driver as calculations
-import calculations.utils.Parser as parser
+from cvzebrafish.core.calculations.Driver import run_calculations
+from cvzebrafish.core.parsing.Parser import parse_dlc_csv
+from cvzebrafish.platform.paths import default_sample_config, default_sample_csv
 
 
 class CalculationScene(QWidget):
@@ -21,6 +22,8 @@ class CalculationScene(QWidget):
     def __init__(self):
         super().__init__()
 
+        self.default_config = default_sample_config()
+        self.default_csv = default_sample_csv()
         self.csv_path = None
         self.config = None
         self.previous_settings = {"csv_path": None, "config": None}
@@ -109,14 +112,14 @@ class CalculationScene(QWidget):
 
     def select_csv(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select CSV File", getcwd(), "CSV Files (*.csv)"
+            self, "Select CSV File", str(Path.cwd()), "CSV Files (*.csv)"
         )
         if path:
             self.set_csv_path(path)
 
     def select_config(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Config File", getcwd(), "JSON Files (*.json)"
+            self, "Select Config File", str(Path.cwd()), "JSON Files (*.json)"
         )
         if path:
             self.set_config(path)
@@ -127,11 +130,11 @@ class CalculationScene(QWidget):
 
             # Set to test config and CSV paths
             self.set_config(
-                f"{getcwd()}/data_schema_validation/sample_inputs/jsons/BaseConfig.json",
+                str(self.default_config),
                 update_info=False,
             )
             self.set_csv_path(
-                f"{getcwd()}/data_schema_validation/sample_inputs/csv/correct_format.csv"
+                str(self.default_csv)
             )
         else:
             self.toggle_button.setToolTip("Use Default Config")
@@ -181,12 +184,13 @@ class CalculationScene(QWidget):
         # Placeholder for the actual calculation logic
         print("Running calculations...")
 
-        config = json.load(open(self.config, "r"))
-        parsed_points = parser.parse_dlc_csv(self.csv_path, config)
+        with open(self.config, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+        parsed_points = parse_dlc_csv(self.csv_path, config)
 
         self.status_label.setText("CSV parsed successfully, running calculations...")
 
-        results = calculations.run_calculations(parsed_points, config)
+        results = run_calculations(parsed_points, config)
 
         if results is None:
             print("Calculations failed.")

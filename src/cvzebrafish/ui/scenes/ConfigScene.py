@@ -1,7 +1,7 @@
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QComboBox, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from .RangeSlider import RangeSlider
+from ..components.RangeSlider import RangeSlider
 
 class ConfigScene(QWidget):
     '''
