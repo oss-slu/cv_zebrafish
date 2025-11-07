@@ -1,8 +1,32 @@
+# Byte-compiled / optimized files
 __pycache__/
-*.pyc
-.DS_Store
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Project settings
+.vscode/
+.idea/
+
+# Data / artifacts
 *.db
 *.csv
-.vscode/
-__pycache__/__init__.cpython-310.pyc
-*/__pycache__/__init__.cpython-310.pyc
+*.log
+*.pkl
+
+# Environment files
+.env
+.env.*
+
+# OS-generated files
+.DS_Store
+Thumbs.db
