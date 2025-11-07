@@ -1,0 +1,10 @@
+{
+    "right_fin": ["RF1", "RF2", "RF3"],
+    "left_fin": ["LF1", "LF2", "LF3"],
+    "head": {
+        "pt1": "Head",
+        "pt2": "BF"
+    },
+    "spine": ["Head", "BF", "RostralTail", "MidRostral", "MidTail", "MidCaudal1", "MidCaudal2", "MidCaudal3", "EndTail"],
+    "tail": ["RostralTail", "MidRostral", "MidTail", "MidCaudal1", "MidCaudal2", "MidCaudal3", "EndTail"]
+}
