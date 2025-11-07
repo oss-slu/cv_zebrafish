@@ -33,3 +33,5 @@ Thumbs.db
 
 # coding tools
 AGENTS.md
+package-lock.json
+package.json
