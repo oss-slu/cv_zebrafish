@@ -35,3 +35,8 @@ Thumbs.db
 AGENTS.md
 package-lock.json
 package.json
+
+# videos
+*.mp4
+*.avi
+*.mov
