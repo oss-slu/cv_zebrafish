@@ -1,11 +1,9 @@
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtWebEngineWidgets import *
-import plotly.graph_objects as go
-import numpy as np
-
 import sys
+
+import numpy as np
+import plotly.graph_objects as go
+from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtWidgets import QApplication, QMainWindow
 
 class MainWindow(QMainWindow):
 

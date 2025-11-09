@@ -1,8 +1,9 @@
+from datetime import datetime
 import os
+
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
-from datetime import datetime
 
 # --- Output initialization -- #
 
