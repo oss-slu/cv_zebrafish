@@ -1,33 +1,37 @@
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QComboBox,
-    QPushButton, QGraphicsDropShadowEffect, QMessageBox
+    QPushButton, QMessageBox, QListWidget, QListWidgetItem, QFrame
 )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap, QColor, QFont
+from PyQt5.QtGui import QPixmap, QFont
 from os import path, getcwd, listdir
+import json
 
-# --- Constants (you can define these later) ---
+# --- Constants ---
 SESSIONS_DIR = path.join(getcwd(), "sessions")  # folder for JSON sessions/configs
 
 class LandingScene(QWidget):
     """
     Landing scene for CV Zebrafish session startup and workflow selection.
+    Allows users to create new sessions, select existing sessions, view configs,
+    and create new configs tied to an existing session.
     """
     session_selected = pyqtSignal(str)        # emit chosen session path
-    new_config_requested = pyqtSignal()       # trigger config creation
-    step_clicked = pyqtSignal(str)            # for later progress step selection
+    new_config_requested = pyqtSignal(str)    # emit existing session path for config creation
+    create_new_session = pyqtSignal()         # start brand-new session
 
     def __init__(self):
         super().__init__()
+        self.current_session_path = None
 
-        self.selected_config = None
+        # -----------------------------
+        # Main layout
+        # -----------------------------
+        self.mainLayout = QVBoxLayout()
+        self.mainLayout.setContentsMargins(40, 30, 40, 30)
+        self.mainLayout.setSpacing(20)
 
-        # Layout setup
-        mainLayout = QVBoxLayout()
-        mainLayout.setContentsMargins(40, 30, 40, 30)
-        mainLayout.setSpacing(20)
-
-        # Header and icon
+        # --- Header and icon ---
         header = QLabel("CV Zebrafish")
         header.setAlignment(Qt.AlignHCenter)
         header.setFont(QFont("Arial", 32, QFont.Bold))
@@ -36,92 +40,231 @@ class LandingScene(QWidget):
         icon = QLabel()
         fish_path = path.join(getcwd(), "frontend", "public", "fish3.png")
         pix = QPixmap(fish_path).scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        icon.setPixmap(pix if not pix.isNull() else QPixmap(100, 100))
+        if pix.isNull():
+            pix = QPixmap(100, 100)
+            pix.fill(Qt.gray)
+        icon.setPixmap(pix)
         icon.setAlignment(Qt.AlignCenter)
 
-        mainLayout.addWidget(header)
-        mainLayout.addWidget(icon)
+        self.mainLayout.addWidget(header)
+        self.mainLayout.addWidget(icon)
 
-        # --- Session selection UI ---
-        sessionBox = QVBoxLayout()
-        sessionBox.setAlignment(Qt.AlignCenter)
+        # -----------------------------
+        # Sub-widgets (switchable sections)
+        # -----------------------------
+        self.startWidget = self._build_start_widget()
+        self.sessionWidget = self._build_session_select_widget()
+        self.configListWidget = self._build_config_list_widget()
 
-        chooseLabel = QLabel("Start a new session or use an existing one?")
-        chooseLabel.setStyleSheet("color: #ddd; font-size: 14pt;")
-        chooseLabel.setAlignment(Qt.AlignCenter)
-        sessionBox.addWidget(chooseLabel)
-
-        buttonLayout = QHBoxLayout()
-        buttonLayout.setSpacing(15)
-        newBtn = QPushButton("New Session")
-        newBtn.setFixedWidth(160)
-        existBtn = QPushButton("Existing Session")
-        existBtn.setFixedWidth(160)
-        buttonLayout.addWidget(newBtn)
-        buttonLayout.addWidget(existBtn)
-        sessionBox.addLayout(buttonLayout)
-        mainLayout.addLayout(sessionBox)
-
-        # --- Existing session selection ---
-        self.dropdownLayout = QVBoxLayout()
-        self.dropdownLayout.setAlignment(Qt.AlignCenter)
-        self.dropdownLayout.setSpacing(10)
-        self.dropdownLayout.setContentsMargins(0, 15, 0, 15)
-
-        self.configDropdown = QComboBox()
-        self.configDropdown.setFixedWidth(250)
-        self.configDropdown.hide()
-        self.dropdownLayout.addWidget(self.configDropdown)
-
-        self.confirmBtn = QPushButton("Load Session")
-        self.confirmBtn.setFixedWidth(180)
-        self.confirmBtn.hide()
-        self.dropdownLayout.addWidget(self.confirmBtn)
-        mainLayout.addLayout(self.dropdownLayout)
+        # Initially show only the start widget
+        self.mainLayout.addWidget(self.startWidget)
+        self.mainLayout.addWidget(self.sessionWidget)
+        self.mainLayout.addWidget(self.configListWidget)
+        self.sessionWidget.hide()
+        self.configListWidget.hide()
 
         # Footer
         footer = QLabel("Created by Finn, Nilesh, and Jacob")
         footer.setAlignment(Qt.AlignCenter)
         footer.setStyleSheet("color: #999; font-size: 10px; margin-top: 15px;")
-        mainLayout.addWidget(footer)
+        self.mainLayout.addWidget(footer)
 
-        self.setLayout(mainLayout)
+        self.setLayout(self.mainLayout)
 
-        # --- Connect signals ---
-        newBtn.clicked.connect(self._start_new_session)
-        existBtn.clicked.connect(self._show_existing_sessions)
-        self.confirmBtn.clicked.connect(self._load_selected_session)
+    # ===============================================================
+    # 1. START SCREEN: "New or Existing Session?"
+    # ===============================================================
+    def _build_start_widget(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(20)
 
-    # --------------------------
-    # Internal behavior
-    # --------------------------
+        prompt = QLabel("Start a new session or open an existing one?")
+        prompt.setStyleSheet("color: #ddd; font-size: 14pt;")
+        prompt.setAlignment(Qt.AlignCenter)
 
-    def _start_new_session(self):
-        """If no session exists, go directly to config creation."""
-        self.new_config_requested.emit()
+        btnRow = QHBoxLayout()
+        newBtn = QPushButton("New Session")
+        existBtn = QPushButton("Existing Session")
+        for b in (newBtn, existBtn):
+            b.setFixedWidth(160)
+            b.setCursor(Qt.PointingHandCursor)
+        btnRow.addWidget(newBtn)
+        btnRow.addWidget(existBtn)
 
-    def _show_existing_sessions(self):
-        """Display dropdown of existing session JSONs."""
-        configs = [f for f in listdir(SESSIONS_DIR) if f.endswith(".json")]
-        if not configs:
+        layout.addWidget(prompt)
+        layout.addLayout(btnRow)
+
+        newBtn.clicked.connect(self._handle_new_session)
+        existBtn.clicked.connect(self._show_session_list)
+
+        return w
+
+    # ===============================================================
+    # 2. SESSION SELECT SCREEN: choose which saved session JSON to load
+    # ===============================================================
+    def _build_session_select_widget(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(15)
+
+        self.sessionDropdown = QComboBox()
+        self.sessionDropdown.setFixedWidth(300)
+
+        loadBtn = QPushButton("Load Session")
+        loadBtn.setFixedWidth(180)
+
+        backBtn = QPushButton("Back")
+        backBtn.setFixedWidth(100)
+
+        layout.addWidget(QLabel("Select an existing session:"))
+        layout.addWidget(self.sessionDropdown)
+        layout.addWidget(loadBtn)
+        layout.addWidget(backBtn)
+
+        loadBtn.clicked.connect(self._load_selected_session)
+        backBtn.clicked.connect(self._return_to_start)
+
+        return w
+
+    # ===============================================================
+    # 3. CONFIG LIST SCREEN: view configs for selected session
+    # ===============================================================
+    def _build_config_list_widget(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(10)
+
+        self.sessionLabel = QLabel("")
+        self.sessionLabel.setAlignment(Qt.AlignCenter)
+        self.sessionLabel.setStyleSheet("color: #ccc; font-size: 12pt;")
+
+        self.configList = QListWidget()
+        self.configList.setFixedWidth(400)
+        self.configList.setStyleSheet("""
+            QListWidget {
+                background: #2a2a2a;
+                color: #eee;
+                border-radius: 6px;
+                border: 1px solid #444;
+            }
+            QListWidget::item:selected { background: #4CAF50; color: white; }
+        """)
+
+        # Buttons
+        btnRow = QHBoxLayout()
+        self.newConfigBtn = QPushButton("New Config")
+        self.openConfigBtn = QPushButton("Open Config")
+        for b in (self.newConfigBtn, self.openConfigBtn):
+            b.setFixedWidth(140)
+            b.setCursor(Qt.PointingHandCursor)
+        btnRow.addWidget(self.newConfigBtn)
+        btnRow.addWidget(self.openConfigBtn)
+
+        layout.addWidget(self.sessionLabel)
+        layout.addWidget(QLabel("Available Configurations:"))
+        layout.addWidget(self.configList)
+        layout.addLayout(btnRow)
+
+        self.newConfigBtn.clicked.connect(self._create_new_config)
+        self.openConfigBtn.clicked.connect(self._open_selected_config)
+
+        return w
+
+    # ===============================================================
+    # --- Internal Handlers ---
+    # ===============================================================
+
+    def _handle_new_session(self):
+        self.create_new_session.emit()
+
+    def _show_session_list(self):
+        """Display dropdown of existing sessions."""
+        sessions = [f for f in listdir(SESSIONS_DIR) if f.endswith(".json")]
+        if not sessions:
             QMessageBox.information(
                 self, "No Sessions Found",
-                "No saved sessions were found. Proceeding to Config Creation."
+                "No saved sessions found. Proceeding to Config Creation."
             )
-            self.new_config_requested.emit()
+            self.create_new_session.emit()
             return
 
-        self.configDropdown.clear()
-        self.configDropdown.addItems(configs)
-        self.configDropdown.show()
-        self.confirmBtn.show()
+        self.sessionDropdown.clear()
+        self.sessionDropdown.addItems(sessions)
+
+        self.startWidget.hide()
+        self.sessionWidget.show()
 
     def _load_selected_session(self):
-        """Emit selected config path for loading."""
-        selected = self.configDropdown.currentText()
+        """Load session and show configs inside."""
+        selected = self.sessionDropdown.currentText()
         if not selected:
             QMessageBox.warning(self, "No Selection", "Please choose a session first.")
             return
 
-        full_path = path.join(SESSIONS_DIR, selected)
-        self.session_selected.emit(full_path)
+        session_path = path.join(SESSIONS_DIR, selected)
+        self.current_session_path = session_path
+        self.session_selected.emit(session_path)
+
+        # Try to read the configs in the JSON file
+        self._populate_configs(session_path)
+
+        self.sessionWidget.hide()
+        self.configListWidget.show()
+
+    def _populate_configs(self, session_path):
+        """Read the session JSON to populate available configs."""
+        try:
+            with open(session_path, "r") as f:
+                session_data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not read session file:\n{e}")
+            return
+
+        configs = session_data.get("configs", [])
+        self.configList.clear()
+        if not configs:
+            self.configList.addItem(QListWidgetItem("(No configs found)"))
+            self.configList.setEnabled(False)
+            self.openConfigBtn.setEnabled(False)
+        else:
+            for c in configs:
+                item = QListWidgetItem(c)
+                self.configList.addItem(item)
+            self.configList.setEnabled(True)
+            self.openConfigBtn.setEnabled(True)
+
+        self.sessionLabel.setText(f"Session: {path.basename(session_path)}")
+
+    def _create_new_config(self):
+        """Direct user to config creation, passing the CSV from session JSON."""
+        if not self.current_session_path:
+            return
+
+        try:
+            with open(self.current_session_path, "r") as f:
+                data = json.load(f)
+            csv_path = data.get("csv_path", None)
+        except Exception:
+            csv_path = None
+
+        if csv_path:
+            self.new_config_requested.emit(csv_path)
+        else:
+            QMessageBox.warning(self, "Missing CSV", "This session has no CSV path defined.")
+
+    def _open_selected_config(self):
+        """Open existing config (emit its path or signal)."""
+        item = self.configList.currentItem()
+        if not item or "(No configs found)" in item.text():
+            return
+        config_name = item.text()
+        full_config_path = path.join(path.dirname(self.current_session_path), config_name)
+        self.session_selected.emit(full_config_path)
+
+    def _return_to_start(self):
+        self.sessionWidget.hide()
+        self.startWidget.show()

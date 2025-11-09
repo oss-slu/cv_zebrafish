@@ -76,6 +76,14 @@ class MainWindow(QMainWindow):
 
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].new_config_requested.connect(self.createSession)
+        self.scenes["Landing"].session_selected.connect(self.loadSession)
+        self.scenes["Landing"].new_config_requested.connect(self.openConfigGenerator)
+        self.scenes["Landing"].create_new_session.connect(self.createSession)
+
+    def openConfigGenerator(self, csv_path):
+        print("Opening Config Generator with:", csv_path)
+        self.scenes["Generate Config"].set_csv(csv_path)
+        self.stack.setCurrentWidget(self.scenes["Generate Config"])
 
     def handle_csv(self, path):
         print("CSV selected:", path)
