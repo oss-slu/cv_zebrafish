@@ -4,13 +4,15 @@
 `codes/bruce/codes/utils/outputDisplay.py` is the visualization hub of the Bruce legacy pipeline. It consumes the metrics produced by `mainCalculation.py`, emits numeric summaries, and generates interactive Plotly figures plus PNG snapshots. This note inventories every graph generated there and ties each one to the data that drives it so the new implementation in `cv_zebrafish` can reproduce the same behaviors.
 
 ## Data interface and mapping
-The new stack currently exports `calculations/tests/calculated_data.csv`, where each row corresponds to a frame's derived metrics and some aggregate arrays are stored in the first row. The table below links the legacy variable names used inside `outputDisplay.py` to the CSV columns (or highlights gaps that must be filled).
+The new stack exports an enriched CSV file (e.g., `correct_format_results_enriched.csv`), where each row corresponds to a frame's derived metrics. The table below links the legacy variable names used inside `outputDisplay.py` to the new CSV columns (or highlights gaps that must be filled).
 
-| Legacy variable | Description | `calculations/tests/calculated_data.csv` |
+| Legacy variable | Description | `correct_format_results_enriched.csv` |
 | --- | --- | --- |
 | `Time` / frame index | Loop index used across all plots. | `Time` column (integer frame number). |
 | `leftFinAngles` | Left fin polar angle in degrees used for thresholds and peaks. | `LF_Angle`. |
 | `rightFinAngles` | Right fin polar angle in degrees. | `RF_Angle`. |
+| `L_Eye_Angle` | Left eye angle in degrees. | `L_Eye_Angle`. |
+| `R_Eye_Angle` | Right eye angle in degrees. | `R_Eye_Angle`. |
 | `tailDistances` | Tail tip displacement relative to capture point (meters). | `Tail_Distance` (meters) and `Tail_Distance_Pixels` (already scaled). |
 | `tailDistances` (signed angles) | Per-link tail angles (`TailAngle_0` … `TailAngle_11`). | `TailAngle_0`-`TailAngle_11`. |
 | `headYaw` | Absolute yaw of the head in degrees. | `HeadYaw`. |
@@ -18,14 +20,49 @@ The new stack currently exports `calculations/tests/calculated_data.csv`, where 
 | `headPixelsX`, `headPixelsY` | Pixel-space head coordinates for movement/heatmap overlays. | **Not yet exported.** Derive by storing raw pixel coords or by re-scaling `HeadX/HeadY` with `pixel_scale_factor`. |
 | `tailPixelsX`, `tailPixelsY` | Pixel-space tail coordinates used to size the heatmap crop. | **Not yet exported** (only distances exist). |
 | `spine` | List of per-frame body segments (each point has `x`, `y`, `conf`). | **Not yet exported.** Needs to be serialized (e.g., columns per point or nested JSON). |
-| `leftFinPeaks`, `rightFinPeaks` | Frame indices where each fin exceeds its cutoff. | `leftFinPeaks` and `rightFinPeaks` columns already exist but currently appear empty except on row 0; they should hold serialized index lists. |
-| `timeRanges` | Swim-bout ranges selected for every plot. | `timeRangeStart_*` / `timeRangeEnd_*` columns (row 0 stores all ranges). |
-| `headYaw` per bout | `curBoutHeadYaw` is saved for convenience. | `curBoutHeadYaw`. |
+| `timeRanges` | Swim-bout ranges selected for every plot. | See "Bout and Time-Range Encoding" section below. |
+| `headYaw` per bout | `curBoutHeadYaw` is saved for convenience. | `bout_head_yaw`. |
 | `Tail_Side`, `Furthest_Tail_Point` | Frame-level categorical descriptors used downstream. | `Tail_Side`, `Furthest_Tail_Point`. |
 | `videoFile` & `pixel_scale_factor` | Used by movement plots to fetch imagery and rescale. | From runtime config (`config["file_inputs"]["video"]`, `config["video_parameters"]["pixel_scale_factor"]`); not stored in CSV. |
 
-### Time-range encoding
-`outputDisplay.py` expects `timeRanges` shaped as `[[start_idx, end_idx], …]`. The legacy code stores those indices in the first row of the CSV using columns named `timeRangeStart_<n>` and `timeRangeEnd_<n>`. To reuse them you can read row 0, pair each `start` / `end`, and stop once you encounter blanks.
+### Bout and Time-Range Encoding
+The legacy system stored bout windows in the first row of the CSV using `timeRangeStart_<n>` and `timeRangeEnd_<n>` columns.
+
+The new enriched CSV simplifies this by including bout information on **every frame's row**:
+- `bout_num`: A unique integer identifier for the bout that this frame belongs to.
+- `bout_start`: The starting frame index of the bout.
+- `bout_end`: The ending frame index of the bout.
+
+This per-frame annotation makes it much easier to group, filter, and analyze data by bout without special handling of the first row.
+
+### Bout-level Aggregate Metrics
+The enriched CSV also provides a rich set of pre-calculated metrics for each bout. These values are repeated on every row belonging to the same bout.
+
+| New Column | Description |
+| --- | --- |
+| `bout_head_yaw` | The initial head yaw at the start of the bout. |
+| `bout_tail_thrash_freq` | Tail thrashing frequency (in Hz) for the bout. |
+| `bout_fin_beat_freq` | Fin beating frequency (in Hz) for the bout. |
+| `bout_max_tail_dist` | Maximum tail distance from midline during the bout. |
+| `bout_mean_tail_dist` | Mean tail distance from midline during the bout. |
+| `bout_max_fin_beat_amp` | Maximum fin beat amplitude (in degrees) during the bout. |
+| `bout_mean_fin_beat_amp`| Mean fin beat amplitude (in degrees) during the bout. |
+| `bout_max_head_yaw` | Maximum head yaw during the bout. |
+| `bout_mean_head_yaw` | Mean head yaw during the bout. |
+| `bout_max_eye_angle` | Maximum eye angle during the bout. |
+| `bout_mean_eye_angle` | Mean eye angle during the bout. |
+| `bout_duration` | Duration of the bout (in frames). |
+| `bout_total_dist` | Total distance traveled during the bout. |
+| `bout_mean_speed` | Mean speed during the bout. |
+| `bout_max_speed` | Maximum speed during the bout. |
+| `bout_min_speed` | Minimum speed during the bout. |
+| `bout_max_accel` | Maximum acceleration during the bout. |
+| `bout_mean_accel` | Mean acceleration during the bout. |
+| `bout_min_accel` | Minimum acceleration during the bout. |
+| `bout_max_jerk` | Maximum jerk during the bout. |
+| `bout_mean_jerk` | Mean jerk during the bout. |
+| `bout_min_jerk` | Minimum jerk during the bout. |
+
 
 ## Graph catalog
 
@@ -35,7 +72,7 @@ The new stack currently exports `calculations/tests/calculated_data.csv`, where 
 **Inputs.**
 - `spine`: for each frame, an ordered list of skeleton points with `x`, `y`, and confidence. Low-confidence points are gap-filled along each polyline.
 - `leftFinAngles`, `rightFinAngles`: drive both confidence filtering and the optional “select by peak/parallel” modes.
-- `timeRanges`: restricts frame selection to bouts.
+- `bout_num`, `bout_start`, `bout_end`: restricts frame selection to bouts.
 - `spine_plot_settings`: controls selection strategy (`select_by_bout`, `select_by_parallel_fins`, `select_by_peaks`), gradients, per-bout splitting, offsets, etc.
 - `graph_cutoffs`: provides fin-angle thresholds when peaks are used.
 
@@ -48,15 +85,15 @@ The new stack currently exports `calculations/tests/calculated_data.csv`, where 
 
 **CSV translation.**
 - Use `LF_Angle` / `RF_Angle` arrays for fin thresholds.
-- Extract bout windows from the `timeRangeStart_*` columns.
-- **Spine coordinates are not present** in `calculations/tests/calculated_data.csv`; to rebuild this graph you must persist each point's `x`, `y`, and `conf` per frame (e.g., `spine_point_0_x`, etc.) or load them from an auxiliary artifact.
+- Group frames by `bout_num` to process each bout.
+- **Spine coordinates are not present** in the enriched CSV; to rebuild this graph you must persist each point's `x`, `y`, and `conf` per frame (e.g., `spine_point_0_x`, etc.) or load them from an auxiliary artifact.
 
 ### 2. Fin + tail timeline (`plotFinAndTailCombined`)
 **Goal.** Plot synchronized time-series to show how left/right fin beating, tail displacement, and head yaw align during bouts.
 
 **Inputs.**
 - `leftFinAngles`, `rightFinAngles`, `tailDistances`, `headYaw`.
-- `timeRanges` to mask “None” separators between bouts.
+- `bout_num` to mask “None” separators between bouts.
 - `angle_and_distance_plot_settings` toggles for which traces are shown.
 
 **Behavior.**
@@ -67,35 +104,35 @@ The new stack currently exports `calculations/tests/calculated_data.csv`, where 
 **Meaning.** Lets analysts correlate fin strokes with tail propulsion and head steering. Spikes above configured cutoffs indicate individual beats; phase offsets between fins or between fins and tail become visually apparent.
 
 **CSV translation.**
-- `LF_Angle`, `RF_Angle`, `Tail_Distance`, and `HeadYaw` columns already match the required arrays. Read them per frame, filter by `timeRanges`, and honor any new sampling cadence.
+- `LF_Angle`, `RF_Angle`, `Tail_Distance`, and `HeadYaw` columns already match the required arrays. Read them per frame, grouping by `bout_num` to draw separators.
 
 ### 3. Movement track overlay (`plotMovement`)
 **Goal.** Overlay the head trajectory on a representative video frame to confirm spatial calibration.
 
 **Inputs.**
 - `headPixelsX`, `headPixelsY`: pixel coordinates per frame.
-- `timeRanges`: only the first range is used.
+- `bout_num`: used to select frames from a specific bout.
 - `videoFile`: read via OpenCV to fetch the frame that anchors the plot.
 - `pixel_scale_factor`: manual tweak to align CSV coordinates with raw footage.
 - `open_plots`: decides whether to open the figure.
 
 **Behavior.**
-- Loads the video frame at the start of the first time range, converts it to RGB, and adds it as a background image in Plotly.
-- Scales the head coordinates, flips the y-axis so the path draws correctly, and plots a red spline line following the swim path.
+- Loads a video frame (e.g., at `bout_start`), converts it to RGB, and adds it as a background image in Plotly.
+- Scales the head coordinates, flips the y-axis so the path draws correctly, and plots a red spline line following the swim path for that bout.
 - Writes `Zebrafish_Movement_Plotly.html` and `.png`.
 
 **Meaning.** Validates that the coordinate system from DeepLabCut aligns with the video and highlights gross movement direction or arena boundaries.
 
 **CSV translation.**
-- Today the CSV only stores `HeadX`/`HeadY` in meters. To reproduce the overlay you either need to export `headPixelsX/Y` directly or convert the metric coordinates back to pixels using the same `pixel_scale_factor` and any origin offsets you applied during calculation.
-- Ensure the new calculation exports or rediscover the underlying `videoFile` path so this function can pull a frame.
+- The CSV only stores `HeadX`/`HeadY` in meters. To reproduce the overlay you either need to export `headPixelsX/Y` directly or convert the metric coordinates back to pixels using the same `pixel_scale_factor` and any origin offsets you applied during calculation.
+- Ensure the new calculation exports or can rediscover the underlying `videoFile` path so this function can pull a frame.
 
 ### 4. Movement heatmap (`plotMovementHeatmap`)
 **Goal.** Produce an intensity map showing where the head (and implicitly the fish body) spends time within its local neighborhood.
 
 **Inputs.**
 - `headPixelsX`, `headPixelsY`, `tailPixelsX`, `tailPixelsY` to determine crop bounds and positions.
-- `timeRanges`: iterated in sequence, pulling every relevant frame.
+- `bout_num`: iterated in sequence, pulling every relevant frame.
 - `videoFile`: used to read all frames inside the selected bouts.
 
 **Behavior.**
@@ -106,7 +143,7 @@ The new stack currently exports `calculations/tests/calculated_data.csv`, where 
 **Meaning.** Highlights spatial occupancy—bright regions correspond to positions/orientations the fish visited often during the chosen bouts.
 
 **CSV translation.**
-- Requires full pixel-space trajectories for head and tail; `Tail_Distance_Pixels` alone is insufficient because it contains only magnitudes. Extending `calculated_data.csv` with `HeadPX`, `HeadPY`, `TailPX`, `TailPY` (or storing a separate JSON) is necessary.
+- Requires full pixel-space trajectories for head and tail; `Tail_Distance_Pixels` alone is insufficient because it contains only magnitudes. Extending the CSV with `HeadPX`, `HeadPY`, `TailPX`, `TailPY` (or storing a separate JSON) is necessary.
 - Access to the raw video file remains a requirement.
 
 ### 5. Head orientation tabs (`plotHead`)
@@ -115,7 +152,7 @@ The new stack currently exports `calculations/tests/calculated_data.csv`, where 
 **Inputs.**
 - `headYaw` array.
 - `leftFinAngles` and `rightFinAngles` to detect fin peaks (respecting `head_plot_settings` such as `fin_peaks_for_right_fin`, `ignore_synchronized_fin_peaks`, and `sync_fin_peaks_range`).
-- `timeRanges` to split into bouts when requested.
+- `bout_num` to split into bouts when requested.
 - `head_plot_settings`: includes a horizontal offset so multiple heads can be stacked.
 
 **Behavior.**
@@ -127,10 +164,13 @@ The new stack currently exports `calculations/tests/calculated_data.csv`, where 
 **Meaning.** The stack of head outlines makes it easy to see if the fish consistently yaws toward one side during fin beats, or whether head motion is synchronized with fin usage.
 
 **CSV translation.**
-- Pull `HeadYaw`, `LF_Angle`, `RF_Angle`, and `timeRanges` directly from the CSV.
-- Ensure the CSV’s `leftFinPeaks/rightFinPeaks` columns actually store the computed peak indices if you want to skip recomputation—otherwise recompute peaks from `LF_Angle`/`RF_Angle` just like the legacy routine.
+- Pull `HeadYaw`, `LF_Angle`, `RF_Angle` directly from the CSV and group by `bout_num`.
+- Fin peak indices are not pre-calculated in the new CSV, so they must be computed from the `LF_Angle`/`RF_Angle` time-series for each bout.
 
 ## Implications for the new implementation
-1. Persist spine point coordinates (x, y, confidence per segment) and pixel-space trajectories (head & tail) if you want to match the movement, heatmap, and spine plots exactly; they are currently absent from `calculations/tests/calculated_data.csv`.
-2. Treat the `timeRangeStart_*` / `timeRangeEnd_*` columns in `calculations/tests/calculated_data.csv` as the canonical bout definitions; every graph in `outputDisplay.py` filters on those ranges, so reusing them ensures parity.
-3. When building new Plotly components, reuse the same filenames (HTML + PNG) if you want drop-in compatibility with downstream automation that expects artifacts in the legacy `results/Results N` directories.
+1. **Persist missing data for full parity.** To reproduce the movement, heatmap, and spine plots exactly, the data pipeline must be updated to export:
+    - Spine point coordinates (x, y, confidence per segment).
+    - Pixel-space trajectories for the head and tail.
+2. **Leverage the new data structure.** The per-frame `bout_*` columns make bout-based analysis significantly simpler. Grouping data by `bout_num` should be the standard approach for all plots.
+3. **Utilize aggregate metrics.** The new `bout_*` aggregate columns are immediately available for creating summary plots, statistical tables, or higher-level analyses without needing to re-process the raw time-series data.
+4. **Maintain consistent outputs.** When building new Plotly components, reuse the same filenames (HTML + PNG) if you want drop-in compatibility with downstream automation that expects artifacts in the legacy `results/Results N` directories.
