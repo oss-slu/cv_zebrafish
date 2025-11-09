@@ -74,6 +74,9 @@ class MainWindow(QMainWindow):
         #self.scenes["Config"].config_generated.connect(self.handle_config)
         #self.scenes["JSON_File"].json_selected.connect(self.handle_json)
 
+        self.scenes["Landing"].session_selected.connect(self.loadSession)
+        self.scenes["Landing"].new_config_requested.connect(self.createSession)
+
     def handle_csv(self, path):
         print("CSV selected:", path)
         self.scenes["Calculation"].set_csv_path(path)
@@ -95,4 +98,12 @@ class MainWindow(QMainWindow):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])
-        self.scenes["Landing"].setCompleted("Graphs")
+
+    def loadSession(self, path):
+        print("Loading session from:", path)
+        self.scenes["Calculation"].load_session(path)
+        self.stack.setCurrentWidget(self.scenes["Calculation"])
+
+    def createSession(self):
+        print("Creating new session with config.")
+        self.stack.setCurrentWidget(self.scenes["Generate Config"])

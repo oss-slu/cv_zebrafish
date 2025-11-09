@@ -1,180 +1,127 @@
 from PyQt5.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QComboBox,
+    QPushButton, QGraphicsDropShadowEffect, QMessageBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QColor, QFont
+from os import path, getcwd, listdir
 
-from os import path, getcwd
+# --- Constants (you can define these later) ---
+SESSIONS_DIR = path.join(getcwd(), "sessions")  # folder for JSON sessions/configs
 
 class LandingScene(QWidget):
     """
-    Landing scene widget showing zebrafish research workflow steps.
+    Landing scene for CV Zebrafish session startup and workflow selection.
     """
-
-    step_clicked = pyqtSignal(str)  # emitted when user clicks a step
+    session_selected = pyqtSignal(str)        # emit chosen session path
+    new_config_requested = pyqtSignal()       # trigger config creation
+    step_clicked = pyqtSignal(str)            # for later progress step selection
 
     def __init__(self):
         super().__init__()
 
-        # Main wrapper layout
-        wrapperLayout = QVBoxLayout()
-        wrapperLayout.setContentsMargins(40, 30, 40, 30)
-        wrapperLayout.setSpacing(20)
+        self.selected_config = None
 
-        # Top half (Header + Icon)
-        topLayout = QVBoxLayout()
-        topLayout.setAlignment(Qt.AlignCenter)
+        # Layout setup
+        mainLayout = QVBoxLayout()
+        mainLayout.setContentsMargins(40, 30, 40, 30)
+        mainLayout.setSpacing(20)
 
+        # Header and icon
         header = QLabel("CV Zebrafish")
         header.setAlignment(Qt.AlignHCenter)
         header.setFont(QFont("Arial", 32, QFont.Bold))
         header.setStyleSheet("color: #eee;")
-        topLayout.addWidget(header)
 
-        iconLabel = QLabel()
-        imagePath = path.join(getcwd(), "frontend", "public", "fish3.png")
+        icon = QLabel()
+        fish_path = path.join(getcwd(), "frontend", "public", "fish3.png")
+        pix = QPixmap(fish_path).scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        icon.setPixmap(pix if not pix.isNull() else QPixmap(100, 100))
+        icon.setAlignment(Qt.AlignCenter)
 
-        pixmap = QPixmap(imagePath).scaled(
-            150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        if pixmap.isNull():
-            print(f"Warning: could not load image {imagePath}")
-            pixmap = QPixmap(100, 100)
-            pixmap.fill(Qt.gray)
+        mainLayout.addWidget(header)
+        mainLayout.addWidget(icon)
 
-        iconLabel.setPixmap(pixmap)
-        iconLabel.setAlignment(Qt.AlignHCenter)
-        topLayout.addWidget(iconLabel)
+        # --- Session selection UI ---
+        sessionBox = QVBoxLayout()
+        sessionBox.setAlignment(Qt.AlignCenter)
 
-        wrapperLayout.addLayout(topLayout, stretch=3)
+        chooseLabel = QLabel("Start a new session or use an existing one?")
+        chooseLabel.setStyleSheet("color: #ddd; font-size: 14pt;")
+        chooseLabel.setAlignment(Qt.AlignCenter)
+        sessionBox.addWidget(chooseLabel)
 
-        # Bottom half (Progress widgets)
-        bottomLayout = QHBoxLayout()
-        bottomLayout.setAlignment(Qt.AlignCenter)
-        bottomLayout.setSpacing(25)
+        buttonLayout = QHBoxLayout()
+        buttonLayout.setSpacing(15)
+        newBtn = QPushButton("New Session")
+        newBtn.setFixedWidth(160)
+        existBtn = QPushButton("Existing Session")
+        existBtn.setFixedWidth(160)
+        buttonLayout.addWidget(newBtn)
+        buttonLayout.addWidget(existBtn)
+        sessionBox.addLayout(buttonLayout)
+        mainLayout.addLayout(sessionBox)
 
-        self.steps = {
-            "CSV_File": "Load CSV File",
-            "JSON_File": "Load JSON File",
-            "Config": "Generate Config",
-            "Calculation": "Run Calculations",
-            "Graphs": "View Graphs"
-        }
+        # --- Existing session selection ---
+        self.dropdownLayout = QVBoxLayout()
+        self.dropdownLayout.setAlignment(Qt.AlignCenter)
+        self.dropdownLayout.setSpacing(10)
+        self.dropdownLayout.setContentsMargins(0, 15, 0, 15)
 
-        for name, label in self.steps.items():
-            widget = ProgressWidget(label)
-            widget.clicked.connect(lambda _, s=name: self.step_clicked.emit(s))
-            self.steps[name] = widget
-            bottomLayout.addWidget(widget)
+        self.configDropdown = QComboBox()
+        self.configDropdown.setFixedWidth(250)
+        self.configDropdown.hide()
+        self.dropdownLayout.addWidget(self.configDropdown)
 
-        wrapperLayout.addLayout(bottomLayout, stretch=2)
+        self.confirmBtn = QPushButton("Load Session")
+        self.confirmBtn.setFixedWidth(180)
+        self.confirmBtn.hide()
+        self.dropdownLayout.addWidget(self.confirmBtn)
+        mainLayout.addLayout(self.dropdownLayout)
 
         # Footer
         footer = QLabel("Created by Finn, Nilesh, and Jacob")
         footer.setAlignment(Qt.AlignCenter)
-        footer.setStyleSheet("color: #FFF; font-size: 10px; margin-top: 15px;")
-        wrapperLayout.addWidget(footer)
+        footer.setStyleSheet("color: #999; font-size: 10px; margin-top: 15px;")
+        mainLayout.addWidget(footer)
 
-        # Apply layout
-        self.setLayout(wrapperLayout)
+        self.setLayout(mainLayout)
 
-    def setCompleted(self, step_name: str, completed: bool = True):
-        """
-        Update step completion status.
-        """
-        if step_name in self.steps:
-            self.steps[step_name].setCompleted(completed)
+        # --- Connect signals ---
+        newBtn.clicked.connect(self._start_new_session)
+        existBtn.clicked.connect(self._show_existing_sessions)
+        self.confirmBtn.clicked.connect(self._load_selected_session)
 
-class ProgressWidget(QWidget):
-    """
-    Widget to show progress of a step in the workflow.
-    """
+    # --------------------------
+    # Internal behavior
+    # --------------------------
 
-    clicked = pyqtSignal()  # signal for clicking on widget
+    def _start_new_session(self):
+        """If no session exists, go directly to config creation."""
+        self.new_config_requested.emit()
 
-    def __init__(self, step_name: str):
-        super().__init__()
-        self.completed = False
+    def _show_existing_sessions(self):
+        """Display dropdown of existing session JSONs."""
+        configs = [f for f in listdir(SESSIONS_DIR) if f.endswith(".json")]
+        if not configs:
+            QMessageBox.information(
+                self, "No Sessions Found",
+                "No saved sessions were found. Proceeding to Config Creation."
+            )
+            self.new_config_requested.emit()
+            return
 
-        self.setFixedSize(160, 120)
-        self.setAutoFillBackground(True)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setCursor(Qt.PointingHandCursor)
+        self.configDropdown.clear()
+        self.configDropdown.addItems(configs)
+        self.configDropdown.show()
+        self.confirmBtn.show()
 
-        # Main layout
-        layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignCenter)
+    def _load_selected_session(self):
+        """Emit selected config path for loading."""
+        selected = self.configDropdown.currentText()
+        if not selected:
+            QMessageBox.warning(self, "No Selection", "Please choose a session first.")
+            return
 
-        self.titleLabel = QLabel(step_name)
-        self.titleLabel.setAlignment(Qt.AlignCenter)
-        self.titleLabel.setWordWrap(True)
-        self.titleLabel.setFont(QFont("Arial", 11, QFont.Bold))
-
-        self.checkIcon = QLabel()
-        checkPixmap = QPixmap(path.join(getcwd(), "frontend", "public", "greencheck.png")
-).scaled(
-            32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        self.checkIcon.setPixmap(checkPixmap)
-        self.checkIcon.setAlignment(Qt.AlignTop | Qt.AlignRight)
-        self.checkIcon.setVisible(False)
-
-        self.progressLabel = QLabel("In Progress")
-        self.progressLabel.setAlignment(Qt.AlignCenter)
-        self.progressLabel.setStyleSheet("font-size: 10pt; color: #555;")
-
-        layout.addWidget(self.checkIcon)
-        layout.addStretch()
-        layout.addWidget(self.titleLabel)
-        layout.addWidget(self.progressLabel)
-        layout.addStretch()
-
-        self.setLayout(layout)
-
-        # Shadow effect
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15)
-        shadow.setOffset(0, 3)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        self.setGraphicsEffect(shadow)
-
-        # Default appearance
-        self.updateStyle()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-
-    def setCompleted(self, completed: bool):
-        self.completed = completed
-        self.updateStyle()
-
-    def updateStyle(self):
-        # Set base appearance
-        if self.completed:
-            bg_color = "#B9F6CA"  # light green
-            border_color = "#43A047"
-            text_color = "#2E7D32"
-            self.checkIcon.setVisible(True)
-            self.progressLabel.setText("Completed")
-        else:
-            bg_color = "#E0E0E0"
-            border_color = "#BDBDBD"
-            text_color = "#333"
-            self.checkIcon.setVisible(False)
-            self.progressLabel.setText("In Progress")
-
-        self.setStyleSheet(f"""
-            ProgressWidget {{
-                background-color: {bg_color};
-                border-radius: 12px;
-                border: 2px solid {border_color};
-            }}
-            ProgressWidget:hover {{
-                background-color: #F0F0F0;
-                border: 2px solid #90CAF9;
-            }}
-        """)
-
-        # Apply text color separately (so it doesn't change on hover)
-        self.titleLabel.setStyleSheet(f"color: {text_color}; font-weight: bold;")
+        full_path = path.join(SESSIONS_DIR, selected)
+        self.session_selected.emit(full_path)
