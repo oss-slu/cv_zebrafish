@@ -22,11 +22,14 @@ all three data categories live in the exported artifacts:
 
 Example:
 
-    python calculations/export_enriched_results.py \
-        --csv data_schema_validation/sample_inputs/csv/correct_format.csv \
-        --config data_schema_validation/sample_inputs/jsons/BaseConfig.json \
+    python calculations/export_enriched_calculations.py \
+        --csv data/samples/csv/correct_format.csv \
+        --config data/samples/jsons/BaseConfig.json \
         --output calculations/tests/calculated_data_enriched.csv \
         --extra-json calculations/tests/calculated_data_enriched.meta.json
+        
+    from the root:
+    python src/core/calculations/export_enriched_calculations.py --csv data/samples/csv/correct_format.csv --config data/samples/jsons/BaseConfig.json
 
 Downstream Plotly code can now read the enriched CSV (plus optional metadata JSON)
 as a drop-in replacement for the legacy artifacts without touching the original
@@ -48,8 +51,8 @@ SRC_ROOT = Path(__file__).resolve().parents[3]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from cvzebrafish.core.parsing.Parser import parse_dlc_csv  # noqa: E402
-from cvzebrafish.core.calculations.Driver import run_calculations  # noqa: E402
+from src.core.parsing.Parser import parse_dlc_csv  # noqa: E402
+from src.core.calculations.Driver import run_calculations  # noqa: E402
 
 
 def load_config(config_path: Path) -> dict:

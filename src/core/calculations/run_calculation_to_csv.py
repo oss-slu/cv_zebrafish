@@ -2,7 +2,7 @@
 """Run the zebrafish calculation pipeline and export results as CSV.
 
 Example command:
-    python calculations/run_calculation_to_csv.py --csv configs/samples/csv/correct_format.csv --config configs/samples/jsons/BaseConfig.json --output calculations/tests/calculated_data.csv
+    python src/core/calculations/run_calculation_to_csv.py --csv data/samples/csv/correct_format.csv --config data/samples/jsons/BaseConfig.json --output calculations/tests/calculated_data.csv
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ SRC_ROOT = Path(__file__).resolve().parents[3]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from cvzebrafish.core.parsing.Parser import parse_dlc_csv
-from cvzebrafish.core.calculations.Driver import run_calculations
+from src.core.parsing.Parser import parse_dlc_csv
+from src.core.calculations.Driver import run_calculations
 
 
 def load_config(config_path: Path) -> dict:
