@@ -23,6 +23,9 @@ dist/
 *.log
 *.pkl
 
+# sample that should be kept
+!data/samples/csv/correct_format.csv
+
 # Environment files
 .env
 .env.*
