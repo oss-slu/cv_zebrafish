@@ -1,8 +1,13 @@
-from PyQt5.QtWidgets import QApplication
-from frontend.widgets.MainWindow import MainWindow
-
-# Only needed for access to command line arguments
+from pathlib import Path
 import sys
+
+from PyQt5.QtWidgets import QApplication
+
+SRC_ROOT = Path(__file__).resolve().parent / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from cvzebrafish.ui.scenes.MainWindow import MainWindow
 
 # You need one (and only one) QApplication instance per application.
 # Pass in sys.argv to allow command line arguments for your app.
