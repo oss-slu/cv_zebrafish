@@ -83,7 +83,9 @@ class MainWindow(QMainWindow):
 
         self.currentSession = load_session_from_json(path)
 
+        self.scenes["Generate Config"].load_session(self.currentSession)
         self.scenes["Calculation"].load_session(self.currentSession)
+
         self.stack.setCurrentWidget(self.scenes["Calculation"])
 
     def createSession(self, session_name):
@@ -93,5 +95,6 @@ class MainWindow(QMainWindow):
         self.currentSession.save()
 
         self.scenes["Generate Config"].load_session(self.currentSession)
+        self.scenes["Calculation"].load_session(self.currentSession)
 
         self.stack.setCurrentWidget(self.scenes["Generate Config"])
