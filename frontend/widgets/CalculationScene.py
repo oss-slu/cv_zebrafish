@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
 import calculations.utils.Driver as calculations
 import calculations.utils.Parser as parser
 
-
 class CalculationScene(QWidget):
     data_generated = pyqtSignal(object)  # Signal to emit calculation results
 
