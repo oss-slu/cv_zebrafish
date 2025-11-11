@@ -71,16 +71,7 @@ class MainWindow(QMainWindow):
 
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
         self.scenes["Landing"].session_selected.connect(self.loadSession)
-        self.scenes["Landing"].new_config_requested.connect(self.createSession)
-        self.scenes["Landing"].session_selected.connect(self.loadSession)
-        self.scenes["Landing"].new_config_requested.connect(self.openConfigGenerator)
-        
         self.scenes["Landing"].create_new_session.connect(self.createSession)
-
-    def openConfigGenerator(self, csv_path):
-        print("Opening Config Generator with:", csv_path)
-        self.scenes["Generate Config"].set_csv(csv_path)
-        self.stack.setCurrentWidget(self.scenes["Generate Config"])
 
     def handle_data(self, data):
         print("Data received in MainWindow")
@@ -89,7 +80,7 @@ class MainWindow(QMainWindow):
 
     def loadSession(self, path):
         print("Loading session from:", path)
-        
+
         self.currentSession = load_session_from_json(path)
 
         self.scenes["Calculation"].load_session(self.currentSession)
@@ -99,6 +90,8 @@ class MainWindow(QMainWindow):
         print("Creating new session with config.")
 
         self.currentSession = Session(session_name)
+        self.currentSession.save()
+
         self.scenes["Generate Config"].load_session(self.currentSession)
 
         self.stack.setCurrentWidget(self.scenes["Generate Config"])
