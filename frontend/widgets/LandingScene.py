@@ -1,12 +1,15 @@
-import os
+from os import path, getcwd, listdir
+import json
+
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QComboBox,
     QPushButton, QMessageBox, QListWidget, QListWidgetItem, QFrame
 )
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QFont
-from os import path, getcwd, listdir
-import json
+
+
 from frontend.widgets.session import getSessionsDir
 
 class LandingScene(QWidget):
@@ -241,7 +244,7 @@ class LandingScene(QWidget):
         """Validate and emit signal to create new session."""
         name = self.newSessionInput.text().strip()
 
-        session_names = os.listdir(getSessionsDir())
+        session_names = listdir(getSessionsDir())
         if f"{name}.json" in session_names:
             QMessageBox.warning(self, "Name Exists", "A session with this name already exists. Please choose a different name.")
             return
