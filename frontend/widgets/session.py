@@ -1,4 +1,7 @@
 import json
+from os import path, getcwd
+
+SESSIONS_DIR = path.join(getcwd(), "sessions")
 
 class Session:
     def __init__(self, name):
@@ -51,7 +54,9 @@ class Session:
             "csvs": self.csvs,
         }
     
-    def saveToFile(self, file_path):
+    def save(self):
+        file_path = path.join(SESSIONS_DIR, f"{self.name}.json")
+
         with open(file_path, 'w') as f:
             json.dump(self.toDict(), f, indent=4)
 
@@ -83,3 +88,6 @@ def save_session_to_json(session, json_path):
             json.dump(data, f, indent=4)
     except Exception as e:
         raise ValueError(f"Could not write session file: {e}")
+    
+def getSessionsDir():
+    return SESSIONS_DIR
