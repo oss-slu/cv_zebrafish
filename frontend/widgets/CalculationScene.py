@@ -198,3 +198,7 @@ class CalculationScene(QWidget):
 
             # Emit the results to signal the main window to start creating the graphs.
             self.data_generated.emit(results)
+    
+    def load_session(self, session):
+        """Load session data into the Calculation scene."""
+        self.current_session = session
