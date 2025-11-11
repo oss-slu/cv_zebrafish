@@ -1,3 +1,4 @@
+import os
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QComboBox,
     QPushButton, QMessageBox, QListWidget, QListWidgetItem, QFrame
@@ -6,8 +7,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QFont
 from os import path, getcwd, listdir
 import json
-
-SESSIONS_DIR = path.join(getcwd(), "sessions")  # folder for JSON sessions/configs
+from frontend.widgets.session import getSessionsDir
 
 class LandingScene(QWidget):
     """
@@ -17,7 +17,7 @@ class LandingScene(QWidget):
     """
     session_selected = pyqtSignal(str)        # emit chosen session path
     new_config_requested = pyqtSignal(str)    # emit existing session path for config creation
-    create_new_session = pyqtSignal()         # start brand-new session
+    create_new_session = pyqtSignal(str)         # start brand-new session
 
     def __init__(self):
         super().__init__()
@@ -54,13 +54,16 @@ class LandingScene(QWidget):
         self.startWidget = self._build_start_widget()
         self.sessionWidget = self._build_session_select_widget()
         self.configListWidget = self._build_config_list_widget()
+        self.newSessionWidget = self._build_new_session_widget()
 
         # Initially show only the start widget
         self.mainLayout.addWidget(self.startWidget)
         self.mainLayout.addWidget(self.sessionWidget)
+        self.mainLayout.addWidget(self.newSessionWidget)
         self.mainLayout.addWidget(self.configListWidget)
         self.sessionWidget.hide()
         self.configListWidget.hide()
+        self.newSessionWidget.hide()
 
         # Footer
         footer = QLabel("Created by Finn, Nilesh, and Jacob")
@@ -172,17 +175,88 @@ class LandingScene(QWidget):
         self.openConfigBtn.clicked.connect(self._open_selected_config)
 
         return w
+    
+    # ===============================================================
+    # 4. NEW SESSION SCREEN: create a new session
+    # ===============================================================
+    def _build_new_session_widget(self):
+        """Sub-scene for creating a new session with a name input."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(15)
+
+        title = QLabel("Create New Session")
+        title.setStyleSheet("color: #ddd; font-size: 16pt; font-weight: bold;")
+        title.setAlignment(Qt.AlignCenter)
+
+        self.newSessionInput = QComboBox()  # if you want autocompletion from existing names, change to QLineEdit if pure text
+        from PyQt5.QtWidgets import QLineEdit
+        self.newSessionInput = QLineEdit()
+        self.newSessionInput.setPlaceholderText("Enter session name...")
+        self.newSessionInput.setFixedWidth(300)
+        self.newSessionInput.setStyleSheet("""
+            QLineEdit {
+                padding: 6px;
+                font-size: 11pt;
+                border-radius: 6px;
+                border: 1px solid #666;
+                background-color: #2a2a2a;
+                color: #fff;
+            }
+            QLineEdit:focus {
+                border: 1px solid #4CAF50;
+            }
+        """)
+
+        createBtn = QPushButton("Create Session")
+        createBtn.setFixedWidth(180)
+        createBtn.setCursor(Qt.PointingHandCursor)
+
+        backBtn = QPushButton("Back")
+        backBtn.setFixedWidth(100)
+        backBtn.setCursor(Qt.PointingHandCursor)
+
+        layout.addWidget(title)
+        layout.addWidget(self.newSessionInput)
+        layout.addWidget(createBtn)
+        layout.addWidget(backBtn)
+
+        # Connect button signals
+        createBtn.clicked.connect(self._confirm_new_session)
+        backBtn.clicked.connect(self._return_to_start)
+
+        return w
 
     # ===============================================================
     # --- Internal Handlers ---
     # ===============================================================
 
     def _handle_new_session(self):
-        self.create_new_session.emit()
+        """Show name input field for creating a new session."""
+        self.startWidget.hide()
+        self.newSessionWidget.show()
+
+    def _confirm_new_session(self):
+        """Validate and emit signal to create new session."""
+        name = self.newSessionInput.text().strip()
+
+        session_names = os.listdir(getSessionsDir())
+        if f"{name}.json" in session_names:
+            QMessageBox.warning(self, "Name Exists", "A session with this name already exists. Please choose a different name.")
+            return
+        
+        if not name:
+            QMessageBox.warning(self, "Invalid Name", "Please enter a valid session name.")
+            return
+        
+        self.newSessionWidget.hide()
+        self.create_new_session.emit(name)
 
     def _show_session_list(self):
         """Display dropdown of existing sessions."""
-        sessions = [f for f in listdir(SESSIONS_DIR) if f.endswith(".json")]
+        sessions = [f for f in listdir(getSessionsDir()) if f.endswith(".json")]
+
         if not sessions:
             QMessageBox.information(
                 self, "No Sessions Found",
@@ -204,7 +278,7 @@ class LandingScene(QWidget):
             QMessageBox.warning(self, "No Selection", "Please choose a session first.")
             return
 
-        session_path = path.join(SESSIONS_DIR, selected)
+        session_path = path.join(getSessionsDir(), selected)
         self.current_session_path = session_path
         self.session_selected.emit(session_path)
 
