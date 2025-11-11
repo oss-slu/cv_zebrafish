@@ -54,9 +54,6 @@ class Session:
     def saveToFile(self, file_path):
         with open(file_path, 'w') as f:
             json.dump(self.toDict(), f, indent=4)
-    
-
-            
 
 def load_session_from_json(json_path):
     """Load a session from a JSON file."""
