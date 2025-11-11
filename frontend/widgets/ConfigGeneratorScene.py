@@ -15,7 +15,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-
 class ConfigGeneratorScene(QWidget):
     def __init__(self, csv_path=None, parent=None):
         super().__init__(parent)
@@ -93,6 +92,8 @@ class ConfigGeneratorScene(QWidget):
             return
 
         try:
+            
+
             self.bodyparts = self.json_utils.load_bodyparts_from_csv(
                 self.csv_path)
             self.feedback_box.setText(

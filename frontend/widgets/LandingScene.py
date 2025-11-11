@@ -7,7 +7,6 @@ from PyQt5.QtGui import QPixmap, QFont
 from os import path, getcwd, listdir
 import json
 
-# --- Constants ---
 SESSIONS_DIR = path.join(getcwd(), "sessions")  # folder for JSON sessions/configs
 
 class LandingScene(QWidget):

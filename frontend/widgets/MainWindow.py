@@ -67,13 +67,7 @@ class MainWindow(QMainWindow):
 
         ### signal handlers ###
 
-       
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
-
-        #self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
-        #self.scenes["Config"].config_generated.connect(self.handle_config)
-        #self.scenes["JSON_File"].json_selected.connect(self.handle_json)
-
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].new_config_requested.connect(self.createSession)
         self.scenes["Landing"].session_selected.connect(self.loadSession)
@@ -89,18 +83,6 @@ class MainWindow(QMainWindow):
         print("CSV selected:", path)
         self.scenes["Calculation"].set_csv_path(path)
         self.scenes["Landing"].setCompleted("CSV_File")
-
-    '''
-    def handle_json(self, path):
-        print("JSON selected:", path)
-        self.scenes["Calculation"].set_config(path)
-        self.scenes["Landing"].setCompleted("JSON_File")
-
-    def handle_config(self, config):
-        print("Config generated.")
-        self.scenes["Calculation"].set_config(config)
-        self.scenes["Landing"].setCompleted("Config")
-    '''
 
     def handle_data(self, data):
         print("Data received in MainWindow")
