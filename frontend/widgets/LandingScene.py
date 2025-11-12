@@ -18,9 +18,8 @@ class LandingScene(QWidget):
     Allows users to create new sessions, select existing sessions, view configs,
     and create new configs tied to an existing session.
     """
-    session_selected = pyqtSignal(str)        # emit chosen session path
-    new_config_requested = pyqtSignal(str)    # emit existing session path for config creation
-    create_new_session = pyqtSignal(str)         # start brand-new session
+    session_selected = pyqtSignal(str)      # load existing session or config
+    create_new_session = pyqtSignal(str)    # start brand-new session
 
     def __init__(self):
         super().__init__()
@@ -56,16 +55,13 @@ class LandingScene(QWidget):
         # -----------------------------
         self.startWidget = self._build_start_widget()
         self.sessionWidget = self._build_session_select_widget()
-        self.configListWidget = self._build_config_list_widget()
         self.newSessionWidget = self._build_new_session_widget()
 
         # Initially show only the start widget
         self.mainLayout.addWidget(self.startWidget)
         self.mainLayout.addWidget(self.sessionWidget)
         self.mainLayout.addWidget(self.newSessionWidget)
-        self.mainLayout.addWidget(self.configListWidget)
         self.sessionWidget.hide()
-        self.configListWidget.hide()
         self.newSessionWidget.hide()
 
         # Footer
@@ -133,54 +129,9 @@ class LandingScene(QWidget):
         backBtn.clicked.connect(self._return_to_start)
 
         return w
-
-    # ===============================================================
-    # 3. CONFIG LIST SCREEN: view configs for selected session
-    # ===============================================================
-    def _build_config_list_widget(self):
-        w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(10)
-
-        self.sessionLabel = QLabel("")
-        self.sessionLabel.setAlignment(Qt.AlignCenter)
-        self.sessionLabel.setStyleSheet("color: #ccc; font-size: 12pt;")
-
-        self.configList = QListWidget()
-        self.configList.setFixedWidth(400)
-        self.configList.setStyleSheet("""
-            QListWidget {
-                background: #2a2a2a;
-                color: #eee;
-                border-radius: 6px;
-                border: 1px solid #444;
-            }
-            QListWidget::item:selected { background: #4CAF50; color: white; }
-        """)
-
-        # Buttons
-        btnRow = QHBoxLayout()
-        self.newConfigBtn = QPushButton("New Config")
-        self.openConfigBtn = QPushButton("Open Config")
-        for b in (self.newConfigBtn, self.openConfigBtn):
-            b.setFixedWidth(140)
-            b.setCursor(Qt.PointingHandCursor)
-        btnRow.addWidget(self.newConfigBtn)
-        btnRow.addWidget(self.openConfigBtn)
-
-        layout.addWidget(self.sessionLabel)
-        layout.addWidget(QLabel("Available Configurations:"))
-        layout.addWidget(self.configList)
-        layout.addLayout(btnRow)
-
-        self.newConfigBtn.clicked.connect(self._create_new_config)
-        self.openConfigBtn.clicked.connect(self._open_selected_config)
-
-        return w
     
     # ===============================================================
-    # 4. NEW SESSION SCREEN: create a new session
+    # 3. NEW SESSION SCREEN: create a new session
     # ===============================================================
     def _build_new_session_widget(self):
         """Sub-scene for creating a new session with a name input."""
@@ -256,6 +207,8 @@ class LandingScene(QWidget):
         self.newSessionWidget.hide()
         self.create_new_session.emit(name)
 
+        self._return_to_start()
+
     def _show_session_list(self):
         """Display dropdown of existing sessions."""
         sessions = [f for f in listdir(getSessionsDir()) if f.endswith(".json")]
@@ -285,61 +238,7 @@ class LandingScene(QWidget):
         self.current_session_path = session_path
         self.session_selected.emit(session_path)
 
-        # Try to read the configs in the JSON file
-        self._populate_configs(session_path)
-
-        self.sessionWidget.hide()
-        self.configListWidget.show()
-
-    def _populate_configs(self, session_path):
-        """Read the session JSON to populate available configs."""
-        try:
-            with open(session_path, "r") as f:
-                session_data = json.load(f)
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Could not read session file:\n{e}")
-            return
-
-        configs = session_data.get("configs", [])
-        self.configList.clear()
-        if not configs:
-            self.configList.addItem(QListWidgetItem("(No configs found)"))
-            self.configList.setEnabled(False)
-            self.openConfigBtn.setEnabled(False)
-        else:
-            for c in configs:
-                item = QListWidgetItem(c)
-                self.configList.addItem(item)
-            self.configList.setEnabled(True)
-            self.openConfigBtn.setEnabled(True)
-
-        self.sessionLabel.setText(f"Session: {path.basename(session_path)}")
-
-    def _create_new_config(self):
-        """Direct user to config creation, passing the CSV from session JSON."""
-        if not self.current_session_path:
-            return
-
-        try:
-            with open(self.current_session_path, "r") as f:
-                data = json.load(f)
-            csv_path = data.get("csv_path", None)
-        except Exception:
-            csv_path = None
-
-        if csv_path:
-            self.new_config_requested.emit(csv_path)
-        else:
-            QMessageBox.warning(self, "Missing CSV", "This session has no CSV path defined.")
-
-    def _open_selected_config(self):
-        """Open existing config (emit its path or signal)."""
-        item = self.configList.currentItem()
-        if not item or "(No configs found)" in item.text():
-            return
-        config_name = item.text()
-        full_config_path = path.join(path.dirname(self.current_session_path), config_name)
-        self.session_selected.emit(full_config_path)
+        self._return_to_start()
 
     def _return_to_start(self):
         self.sessionWidget.hide()
