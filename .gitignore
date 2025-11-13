@@ -1,0 +1,45 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Project settings
+.vscode/
+.idea/
+
+# Data / artifacts
+*.db
+*.csv
+*.log
+*.pkl
+
+# sample that should be kept
+!data/samples/csv/correct_format.csv
+
+# Environment files
+.env
+.env.*
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# coding tools
+AGENTS.md
+package-lock.json
+package.json
+
+# videos
+*.mp4
+*.avi
+*.mov
