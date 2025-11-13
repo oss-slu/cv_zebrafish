@@ -25,6 +25,7 @@ dist/
 
 # sample that should be kept
 !data/samples/csv/correct_format.csv
+!data/samples/csv/calculated_data_enriched.csv
 
 # Environment files
 .env
