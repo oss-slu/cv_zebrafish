@@ -1,7 +1,7 @@
-from calculations.utils.Driver import run_calculations
-from calculations.utils.Parser import parse_dlc_csv
-from calculations.utils.configSetup import loadConfig
-from graphing.outputDisplay import make_outputs
+from src.core.calculations.utils.Driver import run_calculations
+from src.core.calculations.utils.Parser import parse_dlc_csv
+from src.core.calculations.utils.configSetup import loadConfig
+from src.core.graphs.outputDisplay import make_outputs
 
 def run_full_pipeline(csv_path, config_path=None):
     config = loadConfig(config_path) if config_path else loadConfig("LastConfig.json")

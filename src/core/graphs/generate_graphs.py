@@ -2,9 +2,9 @@
 """Generate all graphs from enriched CSV.
 
 Usage:
-    python graphing/generate_graphs.py \
-        results/fish_enriched.csv \
-        BaseConfig.json
+    python src/core/graphs/generate_graphs.py \
+        \data\samples\csv\calculated_data_enriched.csv \
+        \data\samples\jsons\BaseConfig.json
 """
 
 import argparse
@@ -16,8 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from graphing.data_loader import GraphDataLoader
-from graphing.outputDisplay import runAllOutputs, getOutputFile
+from graphs.data_loader import GraphDataLoader
+from graphs.outputDisplay import runAllOutputs, getOutputFile
 
 
 def main(csv_path: str, config_path: str):
