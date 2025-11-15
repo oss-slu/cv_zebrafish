@@ -247,18 +247,22 @@ class CalculationSceneTree(QWidget):
 
         # Update session if it's a new CSV/config
         if self.current_session:
+            added = False
             if self.csv_path not in self.current_session.csvs:
                 self.current_session.addCSV(self.csv_path)
+                added = True
             if self.config_path not in self.current_session.csvs[self.csv_path]:
                 self.current_session.addConfigToCSV(self.csv_path, self.config_path)
+                added = True
 
-            # Save updated session
-            save_path = path.join(sessions_dir(), f"{self.current_session.name}.json")
-            save_session_to_json(self.current_session, save_path)
-            print(f"Session updated and saved to: {save_path}")
+            if added:
+                # Save updated session
+                save_path = path.join(sessions_dir(), f"{self.current_session.name}.json")
+                save_session_to_json(self.current_session, save_path)
+                print(f"Session updated and saved to: {save_path}")
 
-            # Refresh tree to show new additions
-            self.populate_tree()
+                # Refresh tree to show new additions
+                self.populate_tree()
 
         # Emit data to MainWindow
         self.data_generated.emit(results)
