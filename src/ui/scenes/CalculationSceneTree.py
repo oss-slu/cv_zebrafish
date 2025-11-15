@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
 import calculations.utils.Driver as calculations
 import calculations.utils.Parser as parser
 
-from frontend.widgets.session import save_session_to_json, getSessionsDir
+from src.session.session import save_session_to_json, getSessionsDir
 
 
 class CalculationSceneTree(QWidget):

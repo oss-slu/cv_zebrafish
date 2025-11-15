@@ -3,7 +3,7 @@ import json
 
 from PyQt5.QtCore import pyqtSignal, QObject
 
-SESSIONS_DIR = path.join(getcwd(), "sessions")
+SESSIONS_DIR = path.join(getcwd(), "data", "sessions")
 
 class Session(QObject):
     session_updated = pyqtSignal()
