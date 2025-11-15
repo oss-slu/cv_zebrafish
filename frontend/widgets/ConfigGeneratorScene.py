@@ -95,6 +95,7 @@ class ConfigGeneratorScene(QWidget):
             # adds csv to session
             if self.current_session is not None:
                 self.current_session.addCSV(self.csv_path)
+                self.current_session.save()
 
             self.bodyparts = self.json_utils.load_bodyparts_from_csv(
                 self.csv_path)
@@ -153,6 +154,7 @@ class ConfigGeneratorScene(QWidget):
             self.json_utils.save_config_json(config, save_path)
 
             self.current_session.addConfigToCSV(self.csv_path, save_path)
+            self.current_session.save()
 
             self.feedback_box.setText(
                 f"✅ Configuration saved to:\n{save_path}")
