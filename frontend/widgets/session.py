@@ -1,24 +1,35 @@
-import json
 from os import path, getcwd
+import json
+
+from PyQt5.QtCore import pyqtSignal, QObject
 
 SESSIONS_DIR = path.join(getcwd(), "sessions")
 
-class Session:
+class Session(QObject):
+    session_updated = pyqtSignal()
+
     def __init__(self, name):
+        super().__init__()
         self.name = name
         self.csvs = {}
     
     def addCSV(self, csv_path):
         self.csvs[csv_path] = {}
 
+        self.session_updated.emit()
+
     def addConfigToCSV(self, csv_path, config_path):
         if csv_path in self.csvs:
             self.csvs[csv_path][config_path] = []
+        
+        self.session_updated.emit()
 
     def addGraphToConfig(self, config_path, graph_path):
         for _, configs in self.csvs.items():
             if config_path in configs:
                 configs[config_path].append(graph_path)
+
+        self.session_updated.emit()
 
     def getConfigsForCSV(self, csv_path):
         return self.csvs.get(csv_path, {})
@@ -54,6 +65,9 @@ class Session:
             "csvs": self.csvs,
         }
     
+    def length(self):
+        return len(self.csvs)
+
     def save(self):
         file_path = path.join(SESSIONS_DIR, f"{self.name}.json")
 
@@ -72,7 +86,6 @@ def load_session_from_json(json_path):
 
     if session_name == "UnnamedSession":
         raise ValueError("Session file is missing a valid name.")
-        return None
 
     session = Session(session_name)
 
