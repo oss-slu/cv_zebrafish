@@ -1,5 +1,5 @@
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
+from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut, QMessageBox
 from PyQt5.QtGui import QKeySequence
 
 from frontend.widgets.LandingScene import LandingScene
@@ -9,6 +9,8 @@ from frontend.widgets.CalculationScene import CalculationScene
 from .ConfigGeneratorScene import ConfigGeneratorScene
 from frontend.widgets.VerifyScene import VerifyScene
 from frontend.widgets.session import *
+
+from frontend.widgets.CalculationSceneTree import  CalculationSceneTree
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -44,6 +46,7 @@ class MainWindow(QMainWindow):
             "Verify": VerifyScene(),
             "Config": ConfigScene(),
             "Calculation": CalculationScene(),
+            "Calculation With Tree": CalculationSceneTree(),
             "Graphs": GraphViewerScene(),
             "Generate Config": ConfigGeneratorScene()
         }
@@ -82,11 +85,15 @@ class MainWindow(QMainWindow):
         print("Loading session from:", path)
 
         self.currentSession = load_session_from_json(path)
+        if self.currentSession is None:
+            QMessageBox.warning(self, "Bad Session", "Please choose a session.")
+
+            return
 
         self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Calculation"].load_session(self.currentSession)
+        self.scenes["Calculation With Tree"].load_session(self.currentSession)
 
-        self.stack.setCurrentWidget(self.scenes["Calculation"])
+        self.stack.setCurrentWidget(self.scenes["Calculation With Tree"])
 
     def createSession(self, session_name):
         print("Creating new session with config.")
