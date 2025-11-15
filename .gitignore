@@ -23,6 +23,9 @@ dist/
 *.log
 *.pkl
 
+# sample that should be kept
+!data/samples/csv/correct_format.csv
+
 # Environment files
 .env
 .env.*
@@ -30,3 +33,13 @@ dist/
 # OS-generated files
 .DS_Store
 Thumbs.db
+
+# coding tools
+AGENTS.md
+package-lock.json
+package.json
+
+# videos
+*.mp4
+*.avi
+*.mov
