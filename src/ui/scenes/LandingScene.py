@@ -9,9 +9,7 @@ from os import listdir, path
 from src.app_platform.paths import images_dir, sessions_dir
 
 IMAGES_DIR = images_dir()
-sessions_dir = sessions_dir()
-
-print("Sessions directory:", sessions_dir)
+SESSIONS_DIR = sessions_dir() / ""
 
 
 class LandingScene(QWidget):
@@ -192,7 +190,7 @@ class LandingScene(QWidget):
         """Validate and emit signal to create new session."""
         name = self.newSessionInput.text().strip()
 
-        session_names = listdir(sessions_dir())
+        session_names = listdir(SESSIONS_DIR)
         if f"{name}.json" in session_names:
             QMessageBox.warning(self, "Name Exists", "A session with this name already exists. Please choose a different name.")
             return
@@ -208,7 +206,7 @@ class LandingScene(QWidget):
 
     def _show_session_list(self):
         """Display dropdown of existing sessions."""
-        sessions = [f for f in listdir(sessions_dir()) if f.endswith(".json")]
+        sessions = [f for f in listdir(SESSIONS_DIR) if f.endswith(".json")]
 
         if not sessions:
             QMessageBox.information(
@@ -231,7 +229,7 @@ class LandingScene(QWidget):
             QMessageBox.warning(self, "No Selection", "Please choose a session first.")
             return
 
-        session_path = path.join(sessions_dir(), selected)
+        session_path = path.join(SESSIONS_DIR, selected)
         self.current_session_path = session_path
 
         print("Loading session from:", session_path)
