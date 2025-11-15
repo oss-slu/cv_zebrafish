@@ -1,16 +1,13 @@
 import json
 from os import getcwd, path
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QFileDialog,
-    QFrame,
     QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
-    QListWidget,
-    QListWidgetItem,
     QTreeWidget,
     QTreeWidgetItem,
     QMessageBox,
@@ -22,7 +19,7 @@ import calculations.utils.Parser as parser
 from frontend.widgets.session import save_session_to_json, getSessionsDir
 
 
-class CalculationScene(QWidget):
+class CalculationSceneTree(QWidget):
     """
     Scene that allows users to run calculations on zebrafish data.
     Displays saved CSVs/configs from the current session and allows new ones to be added.
@@ -55,15 +52,17 @@ class CalculationScene(QWidget):
         self.file_tree = QTreeWidget()
         self.file_tree.setHeaderLabels(["CSV Files", "Configurations"])
         self.file_tree.setColumnCount(2)
+        self.file_tree.setColumnWidth(0, 200)
         self.file_tree.setStyleSheet("""
             QTreeWidget {
                 background-color: #f9f9f9;
                 border: 1px solid #ccc;
                 border-radius: 8px;
+                color: black;
             }
             QTreeWidget::item:selected {
                 background-color: #4CAF50;
-                color: white;
+                color: black;
             }
         """)
         self.file_tree.itemClicked.connect(self.handle_tree_click)
@@ -107,6 +106,13 @@ class CalculationScene(QWidget):
     def load_session(self, session):
         """Load a Session object and populate the tree view."""
         self.current_session = session
+        print(f"[load_session] Loaded session: {session.name}")
+        print(f"[load_session] Session CSVs: {list(session.csvs.keys())}")
+
+        # refresh tree on session updates
+        self.current_session.session_updated.connect(self.populate_tree)
+
+        # initial population
         self.populate_tree()
 
     def populate_tree(self):
@@ -119,14 +125,14 @@ class CalculationScene(QWidget):
 
         print(f"[populate_tree] Populating for session: {self.current_session.name}")
         csvs = self.current_session.getAllCSVs()
-        print(f"[populate_tree] CSV count: {len(csvs)}")
+        print(f"[populate_tree] CSV count: {self.current_session.length()}")
 
-        if not csvs:
+        if self.current_session.length() == 0:
             item = QTreeWidgetItem(["(No saved CSVs)", ""])
             item.setDisabled(True)
             self.file_tree.addTopLevelItem(item)
             return
-
+    
         for csv_path, configs in self.current_session.csvs.items():
             print(f"  - CSV: {csv_path}, configs: {list(configs.keys())}")
 
