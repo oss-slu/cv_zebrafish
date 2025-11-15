@@ -236,6 +236,8 @@ class LandingScene(QWidget):
 
         session_path = path.join(getSessionsDir(), selected)
         self.current_session_path = session_path
+
+        print("Loading session from:", session_path)
         self.session_selected.emit(session_path)
 
         self._return_to_start()
