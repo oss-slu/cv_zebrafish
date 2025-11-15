@@ -68,13 +68,18 @@ def load_session_from_json(json_path):
     except Exception as e:
         raise ValueError(f"Could not read session file: {e}")
 
-    session_name = data.get("session_name", "Unnamed Session")
+    session_name = data.get("name", "UnnamedSession")
+
+    if session_name == "UnnamedSession":
+        raise ValueError("Session file is missing a valid name.")
+        return None
+
     session = Session(session_name)
 
-    csv_path = data.get("csv_path", None)
-    if csv_path:
+    csvs = data.get("csvs", {})
+    for csv_path, cfgs in (csvs or {}).items():
         session.addCSV(csv_path)
-        configs = data.get("configs", [])
+        configs = cfgs or []
         for config in configs:
             session.addConfigToCSV(csv_path, config)
 
