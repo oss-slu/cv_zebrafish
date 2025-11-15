@@ -1,13 +1,18 @@
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtWidgets import QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut
+from PyQt5.QtWidgets import (
+    QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut, QMessageBox
+)
 from PyQt5.QtGui import QKeySequence
 
-from .LandingScene import LandingScene
-from .ConfigScene import ConfigScene
-from .GraphViewerScene import GraphViewerScene
-from .CalculationScene import CalculationScene
-from .ConfigGeneratorScene import ConfigGeneratorScene
-from .VerifyScene import VerifyScene
+from src.ui.scenes.LandingScene import LandingScene
+from src.ui.scenes.ConfigScene import ConfigScene
+from src.ui.scenes.GraphViewerScene import GraphViewerScene
+from src.ui.scenes.CalculationScene import CalculationScene
+from src.ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
+from src.ui.scenes.VerifyScene import VerifyScene
+from src.ui.scenes.CalculationSceneTree import  CalculationSceneTree
+
+from src.session.session import *
 
 
 class MainWindow(QMainWindow):
@@ -15,6 +20,8 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         startScene = "Landing"
+
+        self.currentSession = None
 
         ### window property setup ###
 
@@ -43,6 +50,7 @@ class MainWindow(QMainWindow):
             "Verify": VerifyScene(),
             "Config": ConfigScene(),
             "Calculation": CalculationScene(),
+            "Calculation With Tree": CalculationSceneTree(),
             "Graphs": GraphViewerScene(),
             "Generate Config": ConfigGeneratorScene()
         }
@@ -69,30 +77,35 @@ class MainWindow(QMainWindow):
         ### signal handlers ###
 
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
+        self.scenes["Landing"].session_selected.connect(self.loadSession)
+        self.scenes["Landing"].create_new_session.connect(self.createSession)
 
-        # self.scenes["CSV_File"].csv_selected.connect(self.handle_csv)
-        # self.scenes["Config"].config_generated.connect(self.handle_config)
-        # self.scenes["JSON_File"].json_selected.connect(self.handle_json)
+    def loadSession(self, path):
+        print("Loading session from:", path)
 
-    def handle_csv(self, path):
-        print("CSV selected:", path)
-        self.scenes["Calculation"].set_csv_path(path)
-        self.scenes["Landing"].setCompleted("CSV_File")
+        self.currentSession = load_session_from_json(path)
+        if self.currentSession is None:
+            QMessageBox.warning(self, "Bad Session", "Please choose a session.")
 
-    '''
-    def handle_json(self, path):
-        print("JSON selected:", path)
-        self.scenes["Calculation"].set_config(path)
-        self.scenes["Landing"].setCompleted("JSON_File")
+            return
 
-    def handle_config(self, config):
-        print("Config generated.")
-        self.scenes["Calculation"].set_config(config)
-        self.scenes["Landing"].setCompleted("Config")
-    '''
+        self.scenes["Generate Config"].load_session(self.currentSession)
+        self.scenes["Calculation With Tree"].load_session(self.currentSession)
+
+        self.stack.setCurrentWidget(self.scenes["Calculation With Tree"])
+
+    def createSession(self, session_name):
+        print("Creating new session with config.")
+
+        self.currentSession = Session(session_name)
+        self.currentSession.save()
+
+        self.scenes["Generate Config"].load_session(self.currentSession)
+        self.scenes["Calculation With Tree"].load_session(self.currentSession)
+
+        self.stack.setCurrentWidget(self.scenes["Generate Config"])
 
     def handle_data(self, data):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])
-        self.scenes["Landing"].setCompleted("Graphs")
