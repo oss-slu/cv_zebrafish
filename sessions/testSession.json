@@ -1,14 +1,14 @@
 {
     "name": "Test Session 1",
     "csvs": {
-        "/data_schema_validation/sample_inputs/csv/correct_format.csv": {
-            "/data_schema_validation/sample_inputs/jsons/BaseConfig.json": [],
-            "/data_schema_validation/sample_inputs/jsons/config_autogen.json": []
+        "data_schema_validation/sample_inputs/csv/correct_format.csv": {
+            "data_schema_validation/sample_inputs/jsons/BaseConfig.json": [],
+            "data_schema_validation/sample_inputs/jsons/config_autogen.json": []
         },
 
-        "/data_schema_validation/sample_inputs/csv/non_numeric.csv": {
-            "/data_schema_validation/sample_inputs/jsons/BaseConfig.json": [],
-            "/data_schema_validation/sample_inputs/jsons/config_autogen.json": []
+        "data_schema_validation/sample_inputs/csv/non_numeric.csv": {
+            "data_schema_validation/sample_inputs/jsons/BaseConfig.json": [],
+            "data_schema_validation/sample_inputs/jsons/config_autogen.json": []
         }
     }
 }
