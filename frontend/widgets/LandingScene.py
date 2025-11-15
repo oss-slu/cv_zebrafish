@@ -1,14 +1,12 @@
 from os import path, getcwd, listdir
-import json
 
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QComboBox,
-    QPushButton, QMessageBox, QListWidget, QListWidgetItem, QFrame
+    QPushButton, QMessageBox
 )
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QFont
-
 
 from frontend.widgets.session import getSessionsDir
 
