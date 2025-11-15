@@ -7,12 +7,7 @@ from pathlib import Path
 
 
 def _detect_root() -> Path:
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if (parent / "src").exists() and (parent / "configs").exists():
-            return parent
-    return current.parent
-
+    return Path.cwd()
 
 @lru_cache(maxsize=1)
 def project_root() -> Path:
@@ -36,6 +31,10 @@ def images_dir() -> Path:
 
 def configs_dir() -> Path:
     return project_root() / "configs"
+
+
+def sessions_dir() -> Path:
+    return project_root() / "sessions"
 
 
 def sample_csv_dir() -> Path:
@@ -69,4 +68,5 @@ __all__ = [
     "default_sample_csv",
     "default_sample_config",
     "default_last_config",
+    "sessions_dir",
 ]

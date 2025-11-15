@@ -3,7 +3,7 @@ import json
 
 from PyQt5.QtCore import pyqtSignal, QObject
 
-SESSIONS_DIR = path.join(getcwd(), "data", "sessions")
+from src.app_platform.paths import sessions_dir
 
 class Session(QObject):
     session_updated = pyqtSignal()
@@ -69,7 +69,7 @@ class Session(QObject):
         return len(self.csvs)
 
     def save(self):
-        file_path = path.join(SESSIONS_DIR, f"{self.name}.json")
+        file_path = path.join(sessions_dir(), f"{self.name}.json")
 
         with open(file_path, 'w') as f:
             json.dump(self.toDict(), f, indent=4)
@@ -106,6 +106,3 @@ def save_session_to_json(session, json_path):
             json.dump(data, f, indent=4)
     except Exception as e:
         raise ValueError(f"Could not write session file: {e}")
-    
-def getSessionsDir():
-    return SESSIONS_DIR

@@ -16,7 +16,9 @@ from PyQt5.QtWidgets import (
 import calculations.utils.Driver as calculations
 import calculations.utils.Parser as parser
 
-from src.session.session import save_session_to_json, getSessionsDir
+from src.session.session import save_session_to_json
+
+from src.app_platform.paths import sessions_dir
 
 
 class CalculationSceneTree(QWidget):
@@ -251,7 +253,7 @@ class CalculationSceneTree(QWidget):
                 self.current_session.addConfigToCSV(self.csv_path, self.config_path)
 
             # Save updated session
-            save_path = path.join(getSessionsDir(), f"{self.current_session.name}.json")
+            save_path = path.join(sessions_dir(), f"{self.current_session.name}.json")
             save_session_to_json(self.current_session, save_path)
             print(f"Session updated and saved to: {save_path}")
 
