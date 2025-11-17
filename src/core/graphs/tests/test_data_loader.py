@@ -28,7 +28,7 @@ from typing import Dict, Any
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from graphing.data_loader import (
+from graphs.data_loader import (
     GraphDataLoader,
     BoutRange,
     TimeSeriesFrame,
