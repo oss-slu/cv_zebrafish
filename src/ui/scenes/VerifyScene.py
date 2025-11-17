@@ -14,9 +14,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from cvzebrafish.core.validation import csv_verifier as input_verifier
-from cvzebrafish.core.validation import json_verifier
-from cvzebrafish.platform.paths import images_dir
+from core.validation import csv_verifier as input_verifier
+from core.validation import json_verifier
+from app_platform.paths import images_dir
+
 
 UPLOAD_ICON = images_dir() / "upload-button.png"
 

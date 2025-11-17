@@ -4,7 +4,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QColor, QFont
 
-from cvzebrafish.platform.paths import images_dir
+from app_platform.paths import images_dir
+
 
 IMAGES_DIR = images_dir()
 
