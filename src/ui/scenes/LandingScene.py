@@ -8,6 +8,8 @@ from os import listdir, path
 
 from src.app_platform.paths import images_dir, sessions_dir
 
+from styles.themes import THEMES
+
 IMAGES_DIR = images_dir()
 SESSIONS_DIR = sessions_dir() / ""
 
@@ -36,7 +38,7 @@ class LandingScene(QWidget):
         header = QLabel("CV Zebrafish")
         header.setAlignment(Qt.AlignHCenter)
         header.setFont(QFont("Arial", 32, QFont.Bold))
-        header.setStyleSheet("color: #eee;")
+        header.setStyleSheet("class: header;")
         topLayout.addWidget(header)
 
         iconLabel = QLabel()
