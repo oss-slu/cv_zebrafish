@@ -1,0 +1,105 @@
+"""High-level orchestration for the zebrafish kinematic calculation pipeline."""
+
+from typing import Any, Dict
+
+import numpy as np
+import pandas as pd
+from .Metrics import (
+    calc_fin_angle, calc_yaw, calc_spine_angles, calc_tail_angle,
+    calc_tail_side_and_distance, calc_furthest_tail_point, detect_fin_peaks, get_time_ranges
+)
+
+def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Execute the full set of movement calculations on pre-parsed DLC points.
+
+    Args:
+        parsed_points: Mapping of body-part identifiers to coordinate arrays produced by the parser layer.
+        config: Configuration dictionary describing video parameters, thresholds, and optional bout ranges.
+
+    Returns:
+        pd.DataFrame: Tabular metrics for each frame, including fin/tail angles, yaw, bout metadata, and peaks.
+    """
+    n_frames = len(parsed_points["spine"][0]["x"]) 
+    vp = config["video_parameters"]
+    scale_factor = vp["pixel_scale_factor"] * vp["dish_diameter_m"] / vp["pixel_diameter"]
+
+    clp1 = parsed_points["clp1"]
+    clp2 = parsed_points["clp2"]
+    left_fins = parsed_points["left_fin"]
+    right_fins = parsed_points["right_fin"]
+    tail = parsed_points["tail"]
+    tail_points = parsed_points["tailPoints"]
+    tp = parsed_points["tp"] 
+    head = parsed_points["head"]
+    spine = parsed_points["spine"]
+
+    left_fin_angle = calc_fin_angle(clp1, clp2, left_fins, left_fin=True)
+    right_fin_angle = calc_fin_angle(clp1, clp2, right_fins, left_fin=False)
+    head_yaw = calc_yaw(clp1, clp2)
+    head_x = head["x"] * scale_factor
+    head_y = head["y"] * scale_factor
+
+    tail_angle = calc_tail_angle(clp1, clp2, tp)
+    sides, tail_distances, tail_distances_raw = calc_tail_side_and_distance(clp1, clp2, tp, scale_factor)
+    furthest_tail = calc_furthest_tail_point(clp1, clp2, tail, tail_points)
+
+    buffer = config["graph_cutoffs"].get("peak_horizontal_buffer", 3)
+    left_fin_peaks = detect_fin_peaks(left_fin_angle, buffer)
+    right_fin_peaks = detect_fin_peaks(right_fin_angle, buffer)
+    spine_angles = calc_spine_angles(spine)
+
+    # Swim bouts (time ranges)
+    if config.get("auto_find_time_ranges", False):
+        time_ranges = get_time_ranges(left_fin_angle, right_fin_angle, tail_distances, config, n_frames)
+    else:
+        time_ranges = config.get("time_ranges", [[0, n_frames-1]])
+        if time_ranges == [[0, 0]]:
+            time_ranges = [[0, n_frames - 1]]
+
+    # Fill swim bout columns
+    bout_head_yaw = np.array([""] * n_frames, dtype=object)
+    for start, end in time_ranges:
+        bout_yaw_center = head_yaw[start]
+        for i in range(start, end + 1):
+            bout_head_yaw[i] = head_yaw[i] - bout_yaw_center
+
+    results_dict = {
+        "Time": np.arange(n_frames),
+        "LF_Angle": left_fin_angle,
+        "RF_Angle": right_fin_angle,
+        "HeadYaw": head_yaw,
+        "HeadX": head_x,
+        "HeadY": head_y,
+        "Tail_Angle": tail_angle,
+        "Tail_Distance": tail_distances,
+        "Tail_Distance_Pixels": tail_distances_raw,
+        "Tail_Side": sides,
+        "Furthest_Tail_Point": furthest_tail,
+        "leftFinPeaks": left_fin_peaks,
+        "rightFinPeaks": right_fin_peaks,
+        "curBoutHeadYaw": bout_head_yaw,
+    }
+
+    for seg in range(spine_angles.shape[1]):
+        results_dict[f"TailAngle_{seg}"] = spine_angles[:, seg]
+
+    result_df = pd.DataFrame(results_dict)
+
+    # Build new time range columns in one go
+    extra_cols = {
+        f"timeRangeStart_{i}": [start] + [""] * (n_frames - 1)
+        for i, (start, end) in enumerate(time_ranges)
+    }
+    extra_cols.update({
+        f"timeRangeEnd_{i}": [end] + [""] * (n_frames - 1)
+        for i, (start, end) in enumerate(time_ranges)
+    })
+    extra_df = pd.DataFrame(extra_cols)
+    result_df = pd.concat([result_df, extra_df], axis=1)
+
+    return result_df
+
+
+
+   

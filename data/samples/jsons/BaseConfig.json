@@ -1,0 +1,81 @@
+{
+    "file_inputs": {
+    "data": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\input_data\\input.csv",
+    "video": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Zebrafish_vid_3.avi",
+    "bulk_input_path": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Multiple_Input"
+    },
+    "points": {
+        "right_fin": ["RF1", "RF2"], 
+        "left_fin": ["LF1", "LF2"],  
+        "head": {
+            "pt1": "Head", 
+            "pt2": "SB"   
+        },
+        "spine": ["Head", "BF", "SB", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "ET"],
+        "tail": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "ET"]
+    },
+
+    "shown_outputs": {
+        "print_time_ranges": false,
+        "print_fin_freq": false,
+        "print_tail_freq": false,
+        "print_travel_distance": false,
+        "print_travel_velocity": false,
+        "show_angle_and_distance_plot": false,
+        "show_spines": true,
+        "show_movement_track": false,
+        "show_heatmap": false,
+        "show_head_plot": true
+    },
+    "angle_and_distance_plot_settings": {
+        "show_left_fin_angle": true,
+        "show_right_fin_angle": true,
+        "show_tail_distance": true,
+        "show_head_yaw": true
+    },
+    "spine_plot_settings": {
+        "select_by_bout": true,
+        "select_by_parallel_fins": true,
+        "select_by_peaks": true,
+        "spines_per_bout": 20,
+        "parallel_error_range": 20,
+        "fin_peaks_for_right_fin": true,
+        "ignore_synchronized_fin_peaks": true,
+        "sync_fin_peaks_range": 5,
+        "min_accepted_confidence": 0.3,
+        "accepted_broken_points": 1,
+        "min_confidence_replace_from_surrounding_points": 0.5,
+        "draw_with_gradient": true,
+        "plot_draw_offset": 50,
+        "split_plots_by_bout": true
+    },
+    "head_plot_settings": {
+        "fin_peaks_for_right_fin": true,
+        "ignore_synchronized_fin_peaks": true,
+        "sync_fin_peaks_range": 5,
+        "min_accepted_confidence": 0.3,
+        "plot_draw_offset": 10,
+        "split_plots_by_bout": true
+    },
+    "video_parameters": {
+        "pixel_diameter": 1450,
+        "dish_diameter_m": 0.02,
+        "recorded_framerate": 648,
+        "pixel_scale_factor": 1.825
+    },
+    "graph_cutoffs": {
+        "left_fin_angle": 50,
+        "right_fin_angle": 50,
+        "tail_angle": 25,
+        "movement_bout_width": 50,
+        "use_tail_angle": false,
+        "swim_bout_buffer": 26,
+        "swim_bout_right_shift": 13
+    },
+    "auto_find_time_ranges": true,
+    "time_ranges": [
+        [0, 110]
+    ],
+    "open_plots": true,
+    "bulk_input": false
+}

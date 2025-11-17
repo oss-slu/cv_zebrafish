@@ -1,0 +1,170 @@
+Output folder: Results 16Warning: 1 spines removed due to low confidence in spine_plot_0Warning: 3 spines removed due to low confidence in spine_plot_0Warning: 1 spines removed due to low confidence in spine_plot_0Warning: 6 spines removed due to low confidence in spine_plot_0Warning: 1 spines removed due to low confidence in spine_plot_0Spine frames: [119, 124, 130, 135, 141, 146, 152, 158, 163, 169, 174, 180, 185, 191, 197, 202, 208, 213, 219, 225]
+Spines with gaps more than two: 3 
+
+Spine frames: [529, 534, 539, 544, 550, 555, 560, 566, 571, 576, 582, 587, 592, 598, 603, 608, 614, 619, 624, 630]
+
+
+Spine frames: [727, 733, 739, 746, 752, 759, 765, 772, 778, 785, 791, 798, 804, 811, 817, 824, 830, 837, 843, 850]
+Spines with gaps more than two: 7 10 
+
+Spine frames: [1130, 1135, 1140, 1150, 1155, 1160, 1165, 1170, 1175, 1180, 1185, 1190, 1195, 1200, 1205, 1210, 1215, 1220, 1226]
+Spines with gaps more than two: 4 5 6 7 8 9 10 11 12 15 16 17 
+
+Spine frames: [1966, 1972, 1978, 1984, 1991, 1997, 2010, 2016, 2029, 2035, 2048, 2054, 2060, 2067, 2073, 2079, 2086]
+Spines with gaps more than two: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 
+
+Spine frames: [2343, 2347, 2352, 2362, 2367, 2372, 2377, 2382, 2387, 2391, 2396, 2401, 2406, 2411, 2416, 2421, 2426, 2431, 2436]
+Spines with gaps more than two: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 
+
+Spine frames: [2815, 2821, 2827, 2834, 2840, 2847, 2853, 2859, 2866, 2872, 2879, 2885, 2892, 2898, 2904, 2911, 2917, 2924, 2930, 2937]
+Spines with gaps more than two: 3 4 5 6 8 9 10 11 12 13 14 15 16 17 18 19 20 
+
+Spine frames: [2987, 2991, 2995, 3021, 3029, 3033, 3038, 3042, 3046, 3050, 3055, 3059, 3063, 3068]
+Spines with gaps more than two: 4 5 6 7 9 10 11 12 13 14 
+
+Spine frames: [3803, 3808, 3814, 3826, 3831, 3837, 3843, 3849, 3855, 3860, 3866, 3872, 3878, 3884, 3889, 3895, 3901, 3907, 3913]
+Spines with gaps more than two: 1 2 3 4 5 7 8 
+
+Spine frames: [4173, 4177, 4182, 4187, 4191, 4196, 4201, 4206, 4210, 4215, 4220, 4225, 4229, 4234, 4239, 4244, 4248, 4253, 4258, 4263]
+Spines with gaps more than two: 4 5 9 11 12 14 
+
+Spine frames: [4401, 4406, 4412, 4418, 4424, 4430, 4436, 4442, 4448, 4454, 4460, 4466, 4472, 4478, 4484, 4490, 4496, 4502, 4508, 4514]
+Spines with gaps more than two: 8 9 10 12 13 14 
+
+Spine frames: [4524, 4528, 4532, 4537, 4541, 4546, 4550, 4554, 4559, 4563, 4568, 4572, 4577, 4581, 4585, 4590, 4594, 4599, 4603, 4608]
+Spines with gaps more than two: 8 9 10 
+
+Spine frames: [4609, 4617, 4626, 4635, 4644, 4653, 4662, 4670, 4679, 4688, 4697, 4706, 4715, 4723, 4732, 4741, 4750, 4759, 4768, 4777]
+Spines with gaps more than two: 4 9 10 11 
+
+Spine frames: [4798, 4806, 4815, 4823, 4832, 4840, 4849, 4858, 4866, 4875, 4883, 4892, 4900, 4909, 4918, 4926, 4935, 4943, 4952, 4961]
+
+
+Spine frames: [4999, 5003, 5007, 5011, 5015, 5019, 5023, 5027, 5031, 5035, 5039, 5043, 5047, 5051, 5055, 5059, 5063, 5067, 5071, 5076]
+Spines with gaps more than two: 3 4 5 10 
+
+Spine frames: [5084, 5090, 5097, 5103, 5110, 5116, 5123, 5130, 5136, 5143, 5149, 5156, 5162, 5169, 5176, 5182, 5189, 5195, 5202, 5209]
+Spines with gaps more than two: 3 5 6 7 8 15 17 
+
+Spine frames: [5227, 5233, 5239, 5245, 5251, 5257, 5263, 5269, 5275, 5281, 5287, 5293, 5299, 5305, 5311, 5317, 5323, 5329, 5335, 5341]
+Spines with gaps more than two: 6 7 8 10 11 12 13 14 15 16 17 18 19 20 
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: [741]
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: [2359]
+Spines with gaps more than two: 1 
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: [3828]
+Spines with gaps more than two: 1 
+
+Spine frames: [3847]
+Spines with gaps more than two: 1 
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: [5302, 5304, 5306]
+
+
+Spine frames: [153, 175]
+Spines with gaps more than two: 1 
+
+Spine frames: [560, 580]
+
+
+Spine frames: [759, 781, 802]
+
+
+Spine frames: [1187]
+
+
+Spine frames: [2007]
+Spines with gaps more than two: 1 
+
+Spine frames: [2384]
+Spines with gaps more than two: 1 
+
+Spine frames: [2828]
+Spines with gaps more than two: 1 
+
+Spine frames: []
+
+
+Spine frames: [3807]
+Spines with gaps more than two: 1 
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: [4707, 4709]
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: []
+
+
+Spine frames: [5277]
+
+
+Head frames: [119, 153, 175]
+Head frames: [529, 560, 580]
+Head frames: [727, 759, 781, 802]
+Head frames: [1130, 1187]
+Head frames: [1966, 2007]
+Head frames: [2343, 2384]
+Head frames: [2815, 2828]
+Head frames: [2987]
+Head frames: [3803, 3807, 3874]
+Head frames: [4173]
+Head frames: [4401]
+Head frames: [4524]
+Head frames: [4609, 4707, 4709]
+Head frames: [4798]
+Head frames: [4999]
+Head frames: [5084]
+Head frames: [5227, 5277]

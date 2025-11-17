@@ -1,0 +1,2 @@
+Output folder: Results 6
+Please select exactly one spine selection strategy.
