@@ -1,3 +1,4 @@
+from logging import config
 import numpy as np
 import pandas as pd
 import cv2
@@ -14,6 +15,17 @@ import webbrowser
 
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
+
+def ensure_results_list(resultsList, idx):
+    while idx >= len(resultsList):
+        resultsList.append({})
+
+def get_config_flag(config, section, key, default=False):
+    value = config.get(section, {}).get(key, None)
+    if value is None:
+        print(f"Warning: Config key '{key}' missing in section '{section}'. Using default: {default}")
+        return default
+    return value
 
 """ GLOBALS FOR EVENT HANDLER """
 #Lag cooldown handling
@@ -169,76 +181,88 @@ def runAllOutputs(timeRanges, config, resultsList, inputValues, calculatedValues
         selectByBout = config["spine_plot_settings"]["select_by_bout"]
         selectByParallel = config["spine_plot_settings"]["select_by_parallel_fins"]
         selectByPeaks = config["spine_plot_settings"]["select_by_peaks"]
-        ### Selecting N spines across the swim bouts
+
+    # Selecting N spines across the swim bouts
         if selectByBout:
             config["spine_plot_settings"]["select_by_bout"] = True
             config["spine_plot_settings"]["select_by_parallel_fins"] = False
             config["spine_plot_settings"]["select_by_peaks"] = False
-            spineOutputInfo = plotSpines(spine, leftFinAngles, rightFinAngles, timeRanges, config["spine_plot_settings"], config["graph_cutoffs"], config["open_plots"])
+            spineOutputInfo = plotSpines(spine, leftFinAngles, rightFinAngles, timeRanges,
+                                    config["spine_plot_settings"], config["graph_cutoffs"], config["open_plots"])
+            ensure_results_list(resultsList, spineResultsRowPos)
             resultsList[spineResultsRowPos]["spineFrameNum"] = "selectedByBout"
             resultsList[spineResultsRowPos]["gapsInSpine"] = ""
             resultsList[spineResultsRowPos]["missingEndPoints"] = ""
             spineResultsRowPos += 1
             for row in range(len(spineOutputInfo[0])):
+                ensure_results_list(resultsList, spineResultsRowPos)
                 resultsList[spineResultsRowPos]["spineFrameNum"] = spineOutputInfo[0][row]
                 resultsList[spineResultsRowPos]["gapsInSpine"] = spineOutputInfo[1][row]
                 resultsList[spineResultsRowPos]["missingEndPoints"] = spineOutputInfo[2][row]
                 spineResultsRowPos += 1
-        ### Selecting spines when both fins are parallel
+
+    # Selecting spines when both fins are parallel
         if selectByParallel:
             config["spine_plot_settings"]["select_by_bout"] = False
             config["spine_plot_settings"]["select_by_parallel_fins"] = True
             config["spine_plot_settings"]["select_by_peaks"] = False
-            spineOutputInfo = plotSpines(spine, leftFinAngles, rightFinAngles, timeRanges, config["spine_plot_settings"], config["graph_cutoffs"], config["open_plots"])
+            spineOutputInfo = plotSpines(spine, leftFinAngles, rightFinAngles, timeRanges,
+                                    config["spine_plot_settings"], config["graph_cutoffs"], config["open_plots"])
+            ensure_results_list(resultsList, spineResultsRowPos)
             resultsList[spineResultsRowPos]["spineFrameNum"] = "selectedByParallel"
             resultsList[spineResultsRowPos]["gapsInSpine"] = ""
             resultsList[spineResultsRowPos]["missingEndPoints"] = ""
             spineResultsRowPos += 1
             for row in range(len(spineOutputInfo[0])):
+                ensure_results_list(resultsList, spineResultsRowPos)
                 resultsList[spineResultsRowPos]["spineFrameNum"] = spineOutputInfo[0][row]
                 resultsList[spineResultsRowPos]["gapsInSpine"] = spineOutputInfo[1][row]
                 resultsList[spineResultsRowPos]["missingEndPoints"] = spineOutputInfo[2][row]
                 spineResultsRowPos += 1
-        ### Selecting spines when one fin is extended and the other is down.
+
+    # Selecting spines when one fin is extended and the other is down
         if selectByPeaks:
             config["spine_plot_settings"]["select_by_bout"] = False
             config["spine_plot_settings"]["select_by_parallel_fins"] = False
             config["spine_plot_settings"]["select_by_peaks"] = True
-            spineOutputInfo = plotSpines(spine, leftFinAngles, rightFinAngles, timeRanges, config["spine_plot_settings"], config["graph_cutoffs"], config["open_plots"])
+            spineOutputInfo = plotSpines(spine, leftFinAngles, rightFinAngles, timeRanges,
+                                    config["spine_plot_settings"], config["graph_cutoffs"], config["open_plots"])
+            ensure_results_list(resultsList, spineResultsRowPos)
             resultsList[spineResultsRowPos]["spineFrameNum"] = "selectedByPeaks"
             resultsList[spineResultsRowPos]["gapsInSpine"] = ""
             resultsList[spineResultsRowPos]["missingEndPoints"] = ""
             spineResultsRowPos += 1
             for row in range(len(spineOutputInfo[0])):
+                ensure_results_list(resultsList, spineResultsRowPos)
                 resultsList[spineResultsRowPos]["spineFrameNum"] = spineOutputInfo[0][row]
                 resultsList[spineResultsRowPos]["gapsInSpine"] = spineOutputInfo[1][row]
                 resultsList[spineResultsRowPos]["missingEndPoints"] = spineOutputInfo[2][row]
                 spineResultsRowPos += 1
 
     ### Plots fin, head, and tail angles and distances.
-    if config["shown_outputs"]["show_angle_and_distance_plot"]:
+    if get_config_flag(config, "shown_outputs", "show_angle_and_distance_plot"):
         plotFinAndTailCombined(leftFinAngles, rightFinAngles, tailDistances, headYaw, timeRanges, config["angle_and_distance_plot_settings"], config["open_plots"],config["angle_and_distance_plot_settings"]["combine_plots"])
 
     ### Plots the movement of the fish (Requires video) -> [Not being used / may be nonfunctional]
-    if config["shown_outputs"]["show_movement_track"]:
+    if get_config_flag(config, "shown_outputs", "show_movement_track"):
         plotMovement(headPixelsX, headPixelsY, timeRanges, config["file_inputs"]["video"], config["video_parameters"]["pixel_scale_factor"], config["open_plots"])
 
     ### Plots a heatmap of the fish movement with the fish centered (Requires video) -> [Not being used / may be nonfunctional]
-    if config["shown_outputs"]["show_heatmap"]:
+    if get_config_flag(config, "shown_outputs", "show_heatmap"):
         plotMovementHeatmap(headPixelsX, headPixelsY, tailPixelsX, tailPixelsY, timeRanges, config["file_inputs"]["video"], config["open_plots"], config["open_plots"])
 
     ### Plots head angles
-    if config["shown_outputs"]["show_head_plot"]:
+    if get_config_flag(config, "shown_outputs", "show_head_plot"):
         plotHead(headYaw, leftFinAngles, rightFinAngles, timeRanges, config["head_plot_settings"], config["graph_cutoffs"], config["open_plots"])
 
     ### Dot plots
-    if config["shown_outputs"]["show_tail_left_fin_angle_dot_plot"]:
+    if get_config_flag(config, "shown_outputs", "show_tail_left_fin_angle_dot_plot"):
         showDotPlot(tailDistances, leftFinAngles, config["open_plots"], "tailDist", "leftFinAng", "m", "deg")
-    if config["shown_outputs"]["show_tail_right_fin_angle_dot_plot"]:
+    if get_config_flag(config, "shown_outputs", "show_tail_right_fin_angle_dot_plot"):
         showDotPlot(tailDistances, rightFinAngles, config["open_plots"], "tailDist", "rightFinAng", "m", "deg")
-    if config["shown_outputs"]["show_tail_left_fin_moving_dot_plot"]:
+    if get_config_flag(config, "shown_outputs", "show_tail_left_fin_moving_dot_plot"):
         showDotPlot(np.diff(tailDistances) * config["video_parameters"]["recorded_framerate"], np.diff(leftFinAngles) * config["video_parameters"]["recorded_framerate"], config["open_plots"], "tailDistMov", "leftFinAngMov", "m/s", "deg/s")
-    if config["shown_outputs"]["show_tail_right_fin_moving_dot_plot"]:
+    if get_config_flag(config, "shown_outputs", "show_tail_right_fin_moving_dot_plot"):
         showDotPlot(np.diff(tailDistances) * config["video_parameters"]["recorded_framerate"], np.diff(rightFinAngles) * config["video_parameters"]["recorded_framerate"], config["open_plots"], "tailDistMov", "rightFinAng", "m/s", "deg/s")
     
     saveResultstoExcelFile(resultsList)
