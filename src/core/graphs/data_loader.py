@@ -391,6 +391,47 @@ class GraphDataLoader:
         Returns the raw DataFrame for advanced use, e.g., exploratory visualization or ad hoc metrics.
         """
         return self.df
+    
+    @classmethod
+    def from_latest_csv(cls, config_path="BaseConfig.json", meta_path="latest_enriched_csv_path.txt"):
+        """
+        Load from the most recent enriched CSV path recorded in a metadata file.
+        
+        Args:
+            config_path: Path to config JSON
+            meta_path: Path to metadata file containing the enriched CSV path
+            
+        Returns:
+            GraphDataLoader instance
+            
+        Raises:
+            LoaderError: If metadata file doesn't exist or CSV path is invalid
+        """
+        meta_file = Path(meta_path)
+        
+        if not meta_file.exists():
+            raise LoaderError(
+                f"Metadata file not found: {meta_path}\n"
+                f"Please run export_enriched_calculations.py first to generate an enriched CSV.\n"
+                f"Example: python src/core/calculations/export_enriched_calculations.py "
+                f"--csv data/samples/csv/correct_format.csv --config {config_path}"
+            )
+        
+        try:
+            with open(meta_file, "r") as f:
+                csv_path = f.read().strip()
+        except Exception as e:
+            raise LoaderError(f"Failed to read metadata file {meta_path}: {e}")
+        
+        csv_file = Path(csv_path)
+        if not csv_file.exists():
+            raise LoaderError(
+                f"Enriched CSV referenced in metadata doesn't exist: {csv_path}\n"
+                f"The file may have been moved or deleted. "
+                f"Re-run export_enriched_calculations.py to regenerate."
+            )
+        
+        return cls(csv_path=str(csv_file), config_path=config_path)
 
     # --------------- Legacy Bridge Methods ---------------
     # These methods provide backward compatibility with outputDisplay.py

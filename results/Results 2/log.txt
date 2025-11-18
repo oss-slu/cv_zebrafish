@@ -1,0 +1,12 @@
+Output folder: Results 2Warning: 1 spines removed due to low confidence in spine_plot_0Warning: 3 spines removed due to low confidence in spine_plot_0Warning: 1 spines removed due to low confidence in spine_plot_0Warning: 6 spines removed due to low confidence in spine_plot_0Warning: 1 spines removed due to low confidence in spine_plot_0Spine frames: [119, 124, 130, 135, 141, 146, 152, 158, 163, 169, 174, 180, 185, 191, 197, 202, 208, 213, 219, 225]
+Spines with gaps more than two: 3 
+
+Spine frames: [529, 534, 539, 544, 550, 555, 560, 566, 571, 576, 582, 587, 592, 598, 603, 608, 614, 619, 624, 630]
+
+
+Spine frames: [727, 733, 739, 746, 752, 759, 765, 772, 778, 785, 791, 798, 804, 811, 817, 824, 830, 837, 843, 850]
+Spines with gaps more than two: 7 10 
+
+Spine frames: [1130, 1135, 1140, 1150, 1155, 1160, 1165, 1170, 1175, 1180, 1185, 1190, 1195, 1200, 1205, 1210, 1215, 1220, 1226]
+Spines with gaps more than two: 4 5 6 7 8 9 10 11 12 15 16 17 
+

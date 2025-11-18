@@ -232,6 +232,11 @@ def main() -> None:
     merged_df.to_csv(output_path, index=False)
     print(f"Saved enriched calculation results to {output_path}")
 
+    # Write metadata file with ABSOLUTE path so it works from any working directory
+    meta_path = Path("latest_enriched_csv_path.txt")
+    meta_path.write_text(str(output_path.resolve()))  # Use .resolve() to get absolute path
+    print(f"Recorded enriched CSV path to {meta_path}")
+
     if args.extra_json:
         metadata_path = resolve_path(args.extra_json)
         metadata_path.parent.mkdir(parents=True, exist_ok=True)

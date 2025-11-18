@@ -20,11 +20,27 @@ def convert_spine_for_legacy(inputValues):
         legacy_spine.append(pt_list)
     return legacy_spine
 
-def run_full_pipeline(enriched_csv_path, config_path=None):
-    loader = GraphDataLoader(
-        csv_path=enriched_csv_path,
-        config_path=config_path if config_path else "LastConfig.json"
-    )
+
+def run_full_pipeline(config_path=None):
+    """
+    Run the full graphing pipeline using the latest enriched CSV.
+    
+    This function expects that export_enriched_calculations.py has already been run
+    to generate an enriched CSV and write its path to latest_enriched_csv_path.txt.
+    
+    Args:
+        config_path: Optional path to config JSON. Defaults to BaseConfig.json.
+    """
+    try:
+        loader = GraphDataLoader.from_latest_csv(config_path=config_path or "BaseConfig.json")
+    except Exception as e:
+        print(f"ERROR: Failed to load data: {e}", file=__import__('sys').stderr)
+        print("\nTo generate an enriched CSV, run:", file=__import__('sys').stderr)
+        print("  python src/core/calculations/export_enriched_calculations.py \\", file=__import__('sys').stderr)
+        print("    --csv data/samples/csv/correct_format.csv \\", file=__import__('sys').stderr)
+        print("    --config BaseConfig.json", file=__import__('sys').stderr)
+        raise
+    
     config = loader.get_config()
     df = loader.get_dataframe()
     timeRanges = loader.get_time_ranges()
@@ -36,6 +52,9 @@ def run_full_pipeline(enriched_csv_path, config_path=None):
     getOutputFile(config) 
 
     runAllOutputs(timeRanges, config, resultsList, inputValues, calculatedValues, df)
+    
+    print(f"\n✓ Successfully generated graphs for {len(timeRanges)} time range(s)")
+    print(f"✓ Output folder: {getattr(__import__('outputDisplay'), 'outputsDict', {}).get('outputFolder', 'results/')}")
 
 if __name__ == "__main__":
-    run_full_pipeline("test_enriched.csv")
+    run_full_pipeline()
