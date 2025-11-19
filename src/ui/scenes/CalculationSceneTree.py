@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (
     QMessageBox,
 )
 
-import calculations.utils.Driver as calculations
-import calculations.utils.Parser as parser
+import src.core.calculations.Driver as calculations
+import src.core.parsing.Parser as parser
 
 from src.session.session import save_session_to_json
 
