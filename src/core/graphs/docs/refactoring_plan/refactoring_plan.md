@@ -29,6 +29,8 @@ current outputs and configuration flags.
   `getOutputFile`, `printToOutput`, `saveResultstoExcelFile`).
 - `runner` or `pipeline` module: orchestrates calling the individual plot modules based on config flags
   (replacement for `runAllOutputs`), and collects per-bout results in a structured payload.
+- Legacy reference only: keep `output_adapter.py` and `outputDisplay.py` in a reference/legacy folder;
+  the new implementation must be fully independent (no imports/calls into those files).
 
 ## Module Structure (proposed)
 - `graphs/loader_bundle.py`: wrapper that pulls once from `GraphDataLoader` and returns a typed bundle
