@@ -25,6 +25,7 @@ dist/
 
 # sample that should be kept
 !data/samples/csv/correct_format.csv
+!data/samples/csv/calculated_data_enriched.csv
 
 # Environment files
 .env
@@ -43,3 +44,6 @@ package.json
 *.mp4
 *.avi
 *.mov
+
+# sessions
+sessions

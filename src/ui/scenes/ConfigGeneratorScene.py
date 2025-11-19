@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from src.core.validation import generate_json
+from core.validation import generate_json
 
 
 class ConfigGeneratorScene(QWidget):

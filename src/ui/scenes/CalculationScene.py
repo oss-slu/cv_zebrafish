@@ -11,9 +11,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from src.core.calculations.Driver import run_calculations
-from src.core.parsing.Parser import parse_dlc_csv
-from src.app_platform.paths import default_sample_config, default_sample_csv
+from core.calculations.Driver import run_calculations
+from core.parsing.Parser import parse_dlc_csv
+from app_platform.paths import default_sample_config, default_sample_csv
+
 
 class CalculationScene(QWidget):
     data_generated = pyqtSignal(object)  # Signal to emit calculation results

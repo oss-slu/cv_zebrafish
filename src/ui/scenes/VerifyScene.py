@@ -14,9 +14,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from src.core.validation import csv_verifier as input_verifier
-from src.core.validation import json_verifier
-from src.app_platform.paths import images_dir
+from core.validation import csv_verifier as input_verifier
+from core.validation import json_verifier
+from app_platform.paths import images_dir
+
 
 UPLOAD_ICON = images_dir() / "upload-button.png"
 

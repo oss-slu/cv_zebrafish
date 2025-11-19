@@ -22,11 +22,11 @@ all three data categories live in the exported artifacts:
 
 Example:
 
-    python calculations/export_enriched_calculations.py \
+    python src/calculations/export_enriched_calculations.py \
         --csv data/samples/csv/correct_format.csv \
         --config data/samples/jsons/BaseConfig.json \
-        --output calculations/tests/calculated_data_enriched.csv \
-        --extra-json calculations/tests/calculated_data_enriched.meta.json
+        --output data/samples/csv/calculated_data_enriched.csv \
+        --extra-json data/samples/jsons/calculated_data_enriched.meta.json
         
     from the root:
     python src/core/calculations/export_enriched_calculations.py --csv data/samples/csv/correct_format.csv --config data/samples/jsons/BaseConfig.json
@@ -231,6 +231,11 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     merged_df.to_csv(output_path, index=False)
     print(f"Saved enriched calculation results to {output_path}")
+
+    # Write metadata file with ABSOLUTE path so it works from any working directory
+    meta_path = Path("latest_enriched_csv_path.txt")
+    meta_path.write_text(str(output_path.resolve()))  # Use .resolve() to get absolute path
+    print(f"Recorded enriched CSV path to {meta_path}")
 
     if args.extra_json:
         metadata_path = resolve_path(args.extra_json)
