@@ -1,1 +1,0 @@
-Output folder: Results 4Input file: C:\Users\Finn\Downloads\SLU\Fall 2025\CV_Zebrafish\Bruce_codes\input_data\input.csv
