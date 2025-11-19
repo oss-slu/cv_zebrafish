@@ -1,23 +1,27 @@
 from PyQt5.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGraphicsDropShadowEffect
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox, QMessageBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap, QColor, QFont
+from PyQt5.QtGui import QPixmap, QFont
 
 from app_platform.paths import images_dir
 
 
 IMAGES_DIR = images_dir()
+SESSIONS_DIR = sessions_dir() / ""
+
 
 class LandingScene(QWidget):
     """
     Landing scene widget showing zebrafish research workflow steps.
     """
-
+    session_selected = pyqtSignal(str)      # load existing session or config
+    create_new_session = pyqtSignal(str)    # start brand-new session
     step_clicked = pyqtSignal(str)  # emitted when user clicks a step
 
     def __init__(self):
         super().__init__()
+        self.current_session_path = None
 
         # Main wrapper layout
         wrapperLayout = QVBoxLayout()
@@ -51,27 +55,21 @@ class LandingScene(QWidget):
 
         wrapperLayout.addLayout(topLayout, stretch=3)
 
-        # Bottom half (Progress widgets)
-        bottomLayout = QHBoxLayout()
-        bottomLayout.setAlignment(Qt.AlignCenter)
-        bottomLayout.setSpacing(25)
+        # -----------------------------
+        # Sub-widgets (switchable sections)
+        # -----------------------------
+        self.startWidget = self._build_start_widget()
+        self.sessionWidget = self._build_session_select_widget()
+        self.newSessionWidget = self._build_new_session_widget()
 
-        self.steps = {
-            "CSV_File": "Load CSV File",
-            "JSON_File": "Load JSON File",
-            "Config": "Generate Config",
-            "Calculation": "Run Calculations",
-            "Graphs": "View Graphs"
-        }
+        # Initially show only the start widget
+        wrapperLayout.addWidget(self.startWidget)
+        wrapperLayout.addWidget(self.sessionWidget)
+        wrapperLayout.addWidget(self.newSessionWidget)
 
-        for name, label in self.steps.items():
-            widget = ProgressWidget(label)
-            widget.clicked.connect(lambda _, s=name: self.step_clicked.emit(s))
-            self.steps[name] = widget
-            bottomLayout.addWidget(widget)
-
-        wrapperLayout.addLayout(bottomLayout, stretch=2)
-
+        self.sessionWidget.hide()
+        self.newSessionWidget.hide()
+        
         # Footer
         footer = QLabel("Created by Finn, Nilesh, and Jacob")
         footer.setAlignment(Qt.AlignCenter)
@@ -81,102 +79,164 @@ class LandingScene(QWidget):
         # Apply layout
         self.setLayout(wrapperLayout)
 
-    def setCompleted(self, step_name: str, completed: bool = True):
-        """
-        Update step completion status.
-        """
-        if step_name in self.steps:
-            self.steps[step_name].setCompleted(completed)
-
-class ProgressWidget(QWidget):
-    """
-    Widget to show progress of a step in the workflow.
-    """
-
-    clicked = pyqtSignal()  # signal for clicking on widget
-
-    def __init__(self, step_name: str):
-        super().__init__()
-        self.completed = False
-
-        self.setFixedSize(160, 120)
-        self.setAutoFillBackground(True)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setCursor(Qt.PointingHandCursor)
-
-        # Main layout
-        layout = QVBoxLayout()
+    def _build_start_widget(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
         layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(20)
 
-        self.titleLabel = QLabel(step_name)
-        self.titleLabel.setAlignment(Qt.AlignCenter)
-        self.titleLabel.setWordWrap(True)
-        self.titleLabel.setFont(QFont("Arial", 11, QFont.Bold))
+        prompt = QLabel("Start a new session or open an existing one?")
+        prompt.setStyleSheet("color: #ddd; font-size: 14pt;")
+        prompt.setAlignment(Qt.AlignCenter)
 
-        self.checkIcon = QLabel()
-        checkPixmap = QPixmap(str(IMAGES_DIR / "greencheck.png")).scaled(
-            32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        self.checkIcon.setPixmap(checkPixmap)
-        self.checkIcon.setAlignment(Qt.AlignTop | Qt.AlignRight)
-        self.checkIcon.setVisible(False)
+        btnRow = QHBoxLayout()
+        newBtn = QPushButton("New Session")
+        existBtn = QPushButton("Existing Session")
+        for b in (newBtn, existBtn):
+            b.setFixedWidth(160)
+            b.setCursor(Qt.PointingHandCursor)
+        btnRow.addWidget(newBtn)
+        btnRow.addWidget(existBtn)
 
-        self.progressLabel = QLabel("In Progress")
-        self.progressLabel.setAlignment(Qt.AlignCenter)
-        self.progressLabel.setStyleSheet("font-size: 10pt; color: #555;")
+        layout.addWidget(prompt)
+        layout.addLayout(btnRow)
 
-        layout.addWidget(self.checkIcon)
-        layout.addStretch()
-        layout.addWidget(self.titleLabel)
-        layout.addWidget(self.progressLabel)
-        layout.addStretch()
+        newBtn.clicked.connect(self._handle_new_session)
+        existBtn.clicked.connect(self._show_session_list)
 
-        self.setLayout(layout)
+        return w
+    
+    def _build_session_select_widget(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(15)
 
-        # Shadow effect
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15)
-        shadow.setOffset(0, 3)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        self.setGraphicsEffect(shadow)
+        self.sessionDropdown = QComboBox()
+        self.sessionDropdown.setFixedWidth(300)
 
-        # Default appearance
-        self.updateStyle()
+        loadBtn = QPushButton("Load Session")
+        loadBtn.setFixedWidth(180)
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
+        backBtn = QPushButton("Back")
+        backBtn.setFixedWidth(100)
 
-    def setCompleted(self, completed: bool):
-        self.completed = completed
-        self.updateStyle()
+        layout.addWidget(QLabel("Select an existing session:"))
+        layout.addWidget(self.sessionDropdown)
+        layout.addWidget(loadBtn)
+        layout.addWidget(backBtn)
 
-    def updateStyle(self):
-        # Set base appearance
-        if self.completed:
-            bg_color = "#B9F6CA"  # light green
-            border_color = "#43A047"
-            text_color = "#2E7D32"
-            self.checkIcon.setVisible(True)
-            self.progressLabel.setText("Completed")
-        else:
-            bg_color = "#E0E0E0"
-            border_color = "#BDBDBD"
-            text_color = "#333"
-            self.checkIcon.setVisible(False)
-            self.progressLabel.setText("In Progress")
+        loadBtn.clicked.connect(self._load_selected_session)
+        backBtn.clicked.connect(self._return_to_start)
 
-        self.setStyleSheet(f"""
-            ProgressWidget {{
-                background-color: {bg_color};
-                border-radius: 12px;
-                border: 2px solid {border_color};
-            }}
-            ProgressWidget:hover {{
-                background-color: #F0F0F0;
-                border: 2px solid #90CAF9;
-            }}
+        return w
+    
+    def _build_new_session_widget(self):
+        """Sub-scene for creating a new session with a name input."""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(15)
+
+        title = QLabel("Create New Session")
+        title.setStyleSheet("color: #ddd; font-size: 16pt; font-weight: bold;")
+        title.setAlignment(Qt.AlignCenter)
+
+        self.newSessionInput = QComboBox()  # if you want autocompletion from existing names, change to QLineEdit if pure text
+        from PyQt5.QtWidgets import QLineEdit
+        self.newSessionInput = QLineEdit()
+        self.newSessionInput.setPlaceholderText("Enter session name...")
+        self.newSessionInput.setFixedWidth(300)
+        self.newSessionInput.setStyleSheet("""
+            QLineEdit {
+                padding: 6px;
+                font-size: 11pt;
+                border-radius: 6px;
+                border: 1px solid #666;
+                background-color: #2a2a2a;
+                color: #fff;
+            }
+            QLineEdit:focus {
+                border: 1px solid #4CAF50;
+            }
         """)
 
-        # Apply text color separately (so it doesn't change on hover)
-        self.titleLabel.setStyleSheet(f"color: {text_color}; font-weight: bold;")
+        createBtn = QPushButton("Create Session")
+        createBtn.setFixedWidth(180)
+        createBtn.setCursor(Qt.PointingHandCursor)
+
+        backBtn = QPushButton("Back")
+        backBtn.setFixedWidth(100)
+        backBtn.setCursor(Qt.PointingHandCursor)
+
+        layout.addWidget(title)
+        layout.addWidget(self.newSessionInput)
+        layout.addWidget(createBtn)
+        layout.addWidget(backBtn)
+
+        # Connect button signals
+        createBtn.clicked.connect(self._confirm_new_session)
+        backBtn.clicked.connect(self._return_to_start)
+
+        return w
+    
+    def _handle_new_session(self):
+        """Show name input field for creating a new session."""
+        self.startWidget.hide()
+        self.newSessionWidget.show()
+
+    def _confirm_new_session(self):
+        """Validate and emit signal to create new session."""
+        name = self.newSessionInput.text().strip()
+
+        session_names = listdir(SESSIONS_DIR)
+        if f"{name}.json" in session_names:
+            QMessageBox.warning(self, "Name Exists", "A session with this name already exists. Please choose a different name.")
+            return
+        
+        if not name:
+            QMessageBox.warning(self, "Invalid Name", "Please enter a valid session name.")
+            return
+        
+        self.newSessionWidget.hide()
+        self.create_new_session.emit(name)
+
+        self._return_to_start()
+
+    def _show_session_list(self):
+        """Display dropdown of existing sessions."""
+        sessions = [f for f in listdir(SESSIONS_DIR) if f.endswith(".json")]
+
+        if not sessions:
+            QMessageBox.information(
+                self, "No Sessions Found",
+                "No saved sessions found. Proceeding to Config Creation."
+            )
+            self.create_new_session.emit()
+            return
+
+        self.sessionDropdown.clear()
+        self.sessionDropdown.addItems(sessions)
+
+        self.startWidget.hide()
+        self.sessionWidget.show()
+
+    def _load_selected_session(self):
+        """Load session and show configs inside."""
+        selected = self.sessionDropdown.currentText()
+        if not selected:
+            QMessageBox.warning(self, "No Selection", "Please choose a session first.")
+            return
+
+        session_path = path.join(SESSIONS_DIR, selected)
+        self.current_session_path = session_path
+
+        print("Loading session from:", session_path)
+        self.session_selected.emit(session_path)
+
+        self._return_to_start()
+
+    def _return_to_start(self):
+        self.sessionWidget.hide()
+        self.startWidget.show()
+        self.newSessionWidget.hide()

@@ -82,6 +82,11 @@ class ConfigGeneratorScene(QWidget):
             return
 
         try:
+            # adds csv to session
+            if self.current_session is not None:
+                self.current_session.addCSV(self.csv_path)
+                self.current_session.save()
+
             self.bodyparts = generate_json.load_bodyparts_from_csv(self.csv_path)
         except Exception as exc:
             self.feedback_box.setText(f"Error loading CSV:\n{exc}")
@@ -141,8 +146,15 @@ class ConfigGeneratorScene(QWidget):
 
         try:
             generate_json.save_config_json(config, save_path)
+
+            self.current_session.addConfigToCSV(self.csv_path, save_path)
+            self.current_session.save()
         except Exception as exc:
             self.feedback_box.setText(f"Error saving file:\n{exc}")
             return
 
         self.feedback_box.setText(f"Success: Configuration saved to:\n{save_path}")
+
+    def load_session(self, session):
+        """Load previous session data."""
+        self.current_session = session
