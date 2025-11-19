@@ -1,8 +1,0 @@
-{
-    "name": "testSession33",
-    "csvs": {
-        "/Users/jacobwinter/Desktop/workspace/slu/4962/cv_zebrafish/data_schema_validation/sample_inputs/csv/correct_format.csv": {
-            "/Users/jacobwinter/Desktop/test.json": []
-        }
-    }
-}

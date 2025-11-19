@@ -44,3 +44,6 @@ package.json
 *.mp4
 *.avi
 *.mov
+
+# sessions
+sessions
