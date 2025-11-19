@@ -63,6 +63,14 @@ src/
             └── dotplot.py
 ```
 
+## Graph Types (legacy behavior to preserve)
+- **Spine snapshots (`plotSpines`)**: posture frames selected by bout, parallel fins, or fin peaks.
+- **Fin + tail timeline (`plotFinAndTailCombined`)**: synchronized series of left/right fin angles, tail distance, and optional head yaw.
+- **Head orientation (`plotHead`)**: stylized head outlines rotated by yaw at fin peaks to show turning.
+- **Movement track (`plotMovement`)**: head trajectory overlaid on a frame; needs head pixel coordinates and video path.
+- **Movement heatmap (`plotMovementHeatmap`)**: spatial occupancy heatmap; needs head and tail pixel coordinates plus video path.
+- **Dot plots (`showDotPlot`)**: scatter plots for correlations (e.g., tail distance vs fin angles, and their derivatives).
+
 ## Functions to Split Out of `outputDisplay.py` (checklist-ready)
 - [ ] File/output management (`io.py`)
   - [ ] Port `getOutputFile`, `printToOutput`, `saveResultstoExcelFile`.
@@ -105,9 +113,6 @@ src/
 - [ ] `showDotPlot` → `plots/dotplot.py`
   - [ ] Inputs: two numeric series (caller-supplied), labels/units, `openPlots` flag.
   - [ ] Behavior: reusable scatter with optional annotations; supports save/interactive modes.
-- [ ] Interactive/manual tools (`manual_tools.py`)
-  - [ ] Move `getPeaksManual`; keep optional and isolated so headless runs skip it cleanly.
-  - [ ] Signature: accept a series (e.g., `calculatedValues["tailDistances"]`) and return selected indices.
 
 ## Implementation Tasks
 1. **Create module skeletons** under `src/core/graphs/` (or `src/core/graphs/plots/`) that mirror the

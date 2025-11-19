@@ -16,7 +16,11 @@ from .loader_bundle import GraphDataBundle
 Plotter = Callable[[GraphDataBundle, Optional[OutputContext]], Dict[str, Any]]
 
 
-def run_all_graphs(bundle: GraphDataBundle, plotters: Optional[Iterable[Plotter]] = None) -> List[dict]:
+def run_all_graphs(
+    bundle: GraphDataBundle,
+    plotters: Optional[Iterable[Plotter]] = None,
+    ctx: Optional[OutputContext] = None,
+) -> List[dict]:
     """
     Entry point for graph generation in the modular pipeline.
 
@@ -24,18 +28,19 @@ def run_all_graphs(bundle: GraphDataBundle, plotters: Optional[Iterable[Plotter]
         bundle: Structured data from the loader.
         plotters: Iterable of callables (bundle, ctx) -> metadata. Each plotter
                   is responsible for saving its own figures using the ctx.
+        ctx: Optional output context override. If None, a standard results folder is used.
 
     Returns:
         results_list: One dict per bout (initialized empty here, plotters can mutate/extend).
     """
     results_list: List[dict] = [{} for _ in range(len(bundle.time_ranges))]
-    ctx: Optional[OutputContext] = get_output_context(bundle.config)
+    active_ctx: Optional[OutputContext] = ctx or get_output_context(bundle.config)
 
     if not plotters:
         return results_list  # No plots requested yet.
 
     for plot_fn in plotters:
-        plot_fn(bundle, ctx)
+        plot_fn(bundle, active_ctx)
 
     return results_list
 
