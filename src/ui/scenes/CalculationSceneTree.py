@@ -264,5 +264,11 @@ class CalculationSceneTree(QWidget):
                 # Refresh tree to show new additions
                 self.populate_tree()
 
+        payload = {
+            "results_df": results,
+            "config": config,
+            "csv_path": self.csv_path,
+        }
+
         # Emit data to MainWindow
-        self.data_generated.emit(results)
+        self.data_generated.emit(payload)

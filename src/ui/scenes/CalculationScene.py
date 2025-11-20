@@ -200,5 +200,11 @@ class CalculationScene(QWidget):
             print("Calculations completed successfully.")
             self.status_label.setText("Calculation successful.")
 
+            payload = {
+                "results_df": results,
+                "config": config,
+                "csv_path": self.csv_path,
+            }
+
             # Emit the results to signal the main window to start creating the graphs.
-            self.data_generated.emit(results)
+            self.data_generated.emit(payload)

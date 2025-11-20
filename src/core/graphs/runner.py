@@ -20,7 +20,7 @@ def run_all_graphs(
     bundle: GraphDataBundle,
     plotters: Optional[Iterable[Plotter]] = None,
     ctx: Optional[OutputContext] = None,
-) -> List[dict]:
+) -> Dict[str, Any]:
     """
     Entry point for graph generation in the modular pipeline.
 
@@ -31,18 +31,20 @@ def run_all_graphs(
         ctx: Optional output context override. If None, a standard results folder is used.
 
     Returns:
-        results_list: One dict per bout (initialized empty here, plotters can mutate/extend).
+        results: Dict containing metadata from all plotters with keys like 'plot_name_1', 'plot_name_2', etc.
     """
-    results_list: List[dict] = [{} for _ in range(len(bundle.time_ranges))]
+    results: Dict[str, Any] = {}
     active_ctx: Optional[OutputContext] = ctx or get_output_context(bundle.config)
 
     if not plotters:
-        return results_list  # No plots requested yet.
+        return results  # No plots requested yet.
 
-    for plot_fn in plotters:
-        plot_fn(bundle, active_ctx)
+    for idx, plot_fn in enumerate(plotters):
+        metadata = plot_fn(bundle, active_ctx)
+        plot_name = getattr(plot_fn, '__name__', f'plot_{idx}')
+        results[plot_name] = metadata
 
-    return results_list
+    return results
 
 
 __all__ = ["run_all_graphs", "Plotter"]

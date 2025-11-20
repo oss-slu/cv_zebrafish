@@ -94,6 +94,9 @@ python app.py
 ```
 The UI walks through CSV/JSON selection, validation, configuration tweaks, calculation runs, and graph review.
 
+### Plot Preview Dependencies
+- The Graph Viewer scene renders Plotly figures to PNG via Kaleido. Install it alongside the UI dependencies with `pip install kaleido` so in-app dot plots appear correctly.
+
 ### Useful CLI Utilities
 - `pytest` to execute the unit suites
 - `python -m cvzebrafish.core.validation.json_verifier <config.json>` (or run without arguments to be prompted for a path)
