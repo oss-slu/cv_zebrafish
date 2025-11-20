@@ -14,12 +14,18 @@ from src.ui.scenes.CalculationSceneTree import  CalculationSceneTree
 
 from src.session.session import *
 
+from styles.themes import apply_theme, THEMES
+from src.ui.components.ThemeToggle import ThemeToggle
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
         startScene = "Landing"
+
+        # light theme by default
+        self.current_theme = "light"
+        apply_theme(self, THEMES[self.current_theme])
 
         self.currentSession = None
 
@@ -58,6 +64,11 @@ class MainWindow(QMainWindow):
         # Add scenes to stack
         for scene in self.scenes.values():
             self.stack.addWidget(scene)
+
+        # Theme toggle button
+        self.theme_toggle = ThemeToggle(self, on_toggle=self.toggle_theme)
+        self.theme_toggle.reposition()
+        self.theme_toggle.show()
 
         # Toolbar buttons
         for name, scene in self.scenes.items():
@@ -109,3 +120,11 @@ class MainWindow(QMainWindow):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])
+
+    def toggle_theme(self):
+        if self.current_theme == "light":
+            self.current_theme = "dark"
+        else:
+            self.current_theme = "light"
+
+        apply_theme(self, THEMES[self.current_theme])

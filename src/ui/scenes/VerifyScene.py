@@ -40,7 +40,7 @@ class VerifyScene(QWidget):
 
         header = QLabel("Verify Input Files")
         header.setAlignment(Qt.AlignHCenter)
-        header.setStyleSheet("font-size: 24px; font-weight: bold; color: #ddd;")
+        header.setStyleSheet("font-size: 24px; font-weight: bold;")
         main_layout.addWidget(header)
 
         csv_layout = QHBoxLayout()
@@ -80,14 +80,20 @@ class VerifyScene(QWidget):
         main_layout.addLayout(json_layout)
 
         console_label = QLabel("Validation Console:")
-        console_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #eee;")
+        console_label.setStyleSheet("font-size: 16px; font-weight: bold; ")
         main_layout.addWidget(console_label)
 
         self.feedback_box = QTextEdit()
         self.feedback_box.setReadOnly(True)
         self.feedback_box.setMinimumHeight(200)
         self.feedback_box.setStyleSheet(
-            "font-family: Consolas, monospace; font-size: 13px; color: #ddd;"
+            """
+            font-family: Consolas, monospace;
+            font-size: 13px;
+            background-color: #f9f9f9;
+            border: 1px solid #aaa;
+            color: black;
+            """
         )
         main_layout.addWidget(self.feedback_box)
 

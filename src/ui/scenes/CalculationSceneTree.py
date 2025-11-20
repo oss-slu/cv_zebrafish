@@ -41,7 +41,7 @@ class CalculationSceneTree(QWidget):
 
         header = QLabel("Calculation Scene")
         header.setAlignment(Qt.AlignCenter)
-        header.setStyleSheet("font-size: 18pt; font-weight: bold; color: #333;")
+        header.setStyleSheet("font-size: 18pt; font-weight: bold;")
         layout.addWidget(header)
 
         self.status_label = QLabel("Select a CSV and Config to run calculations.")
@@ -58,7 +58,7 @@ class CalculationSceneTree(QWidget):
         self.file_tree.setStyleSheet("""
             QTreeWidget {
                 background-color: #f9f9f9;
-                border: 1px solid #ccc;
+                border: 1px solid #aaa;
                 border-radius: 8px;
                 color: black;
             }

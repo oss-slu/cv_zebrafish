@@ -45,7 +45,7 @@ class CalculationScene(QWidget):
         self.files_panel.setFrameShape(QFrame.StyledPanel)
         self.files_panel.setObjectName("filesPanel")
         self.files_panel.setStyleSheet(
-            "#filesPanel {"
+            "#filesPanel, #filesPanel > * {"
             "border: 1px solid #d0d0d0;"
             "border-radius: 8px;"
             "background-color: #f5f6fa;"
