@@ -1,7 +1,7 @@
 # themes.py
 
 LIGHT_THEME = {
-    "background": "#FFFFFF",
+    "background": "#efefef",
     "body": "#3B3B3B",
     "text": "#222",
     "header": "#333333",
@@ -11,11 +11,11 @@ LIGHT_THEME = {
 }
 
 DARK_THEME = {
-    "background": "#121212",
+    "background": "#333",
     "body": "#eee",
     "text": "#fff",
-    "header": "#ddd",
-    "button": "#1E1E1E",
+    "header": "#fff",
+    "button": "#777",
     "button_text": "#FFFFFF",
     "accent": "#90CAF9",
 }
@@ -28,16 +28,23 @@ THEMES = {
 
 def apply_theme(app, theme):
     qss = f"""
-        .header {{
-            color: {theme['header']};
-        }}
-        QWidget {{
+        QWidget, QLabel {{
             background-color: {theme['background']};
             color: {theme['text']};
         }}
         QPushButton {{
             background-color: {theme['button']};
             color: {theme['button_text']};
+        }}
+
+        QLineEdit, QComboBox {{
+            background-color: {theme['background']};
+            color: {theme['text']};
+            border: 1px solid {theme['accent']};
+        }}
+
+        QToolBar {{
+            background-color: {theme['button']};
         }}
     """
     app.setStyleSheet(qss)

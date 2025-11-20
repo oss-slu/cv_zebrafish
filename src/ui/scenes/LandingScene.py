@@ -8,8 +8,6 @@ from os import listdir, path
 
 from src.app_platform.paths import images_dir, sessions_dir
 
-from styles.themes import THEMES
-
 IMAGES_DIR = images_dir()
 SESSIONS_DIR = sessions_dir() / ""
 
@@ -42,7 +40,7 @@ class LandingScene(QWidget):
         topLayout.addWidget(header)
 
         iconLabel = QLabel()
-        fish_path = IMAGES_DIR / "fish3.png"
+        fish_path = IMAGES_DIR / "fish1.png"
 
         pixmap = QPixmap(str(fish_path)).scaled(
             150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation
@@ -76,7 +74,7 @@ class LandingScene(QWidget):
         # Footer
         footer = QLabel("Created by Finn, Nilesh, and Jacob")
         footer.setAlignment(Qt.AlignCenter)
-        footer.setStyleSheet("color: #FFF; font-size: 10px; margin-top: 15px;")
+        footer.setStyleSheet(f"font-size: 10px; margin-top: 15px;")
         wrapperLayout.addWidget(footer)
 
         # Apply layout
@@ -89,7 +87,7 @@ class LandingScene(QWidget):
         layout.setSpacing(20)
 
         prompt = QLabel("Start a new session or open an existing one?")
-        prompt.setStyleSheet("color: #ddd; font-size: 14pt;")
+        prompt.setStyleSheet(f"font-size: 14pt;")
         prompt.setAlignment(Qt.AlignCenter)
 
         btnRow = QHBoxLayout()
@@ -142,7 +140,7 @@ class LandingScene(QWidget):
         layout.setSpacing(15)
 
         title = QLabel("Create New Session")
-        title.setStyleSheet("color: #ddd; font-size: 16pt; font-weight: bold;")
+        title.setStyleSheet(f"font-size: 16pt; font-weight: bold;")
         title.setAlignment(Qt.AlignCenter)
 
         self.newSessionInput = QComboBox()  # if you want autocompletion from existing names, change to QLineEdit if pure text
@@ -155,9 +153,6 @@ class LandingScene(QWidget):
                 padding: 6px;
                 font-size: 11pt;
                 border-radius: 6px;
-                border: 1px solid #666;
-                background-color: #2a2a2a;
-                color: #fff;
             }
             QLineEdit:focus {
                 border: 1px solid #4CAF50;

@@ -25,7 +25,7 @@ class MainWindow(QMainWindow):
 
         # light theme by default
         self.current_theme = "light"
-        #apply_theme(self, THEMES[self.current_theme])
+        apply_theme(self, THEMES[self.current_theme])
 
         self.currentSession = None
 
