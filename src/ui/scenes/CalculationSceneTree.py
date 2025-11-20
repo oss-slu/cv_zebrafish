@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (
     QMessageBox,
 )
 
-import calculations.utils.Driver as calculations
-import calculations.utils.Parser as parser
+import src.core.calculations.Driver as calculations
+import src.core.parsing.Parser as parser
 
 from src.session.session import save_session_to_json
 
@@ -264,5 +264,11 @@ class CalculationSceneTree(QWidget):
                 # Refresh tree to show new additions
                 self.populate_tree()
 
+        payload = {
+            "results_df": results,
+            "config": config,
+            "csv_path": self.csv_path,
+        }
+
         # Emit data to MainWindow
-        self.data_generated.emit(results)
+        self.data_generated.emit(payload)

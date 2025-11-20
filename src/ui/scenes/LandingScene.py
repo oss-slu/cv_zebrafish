@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QFont
 
-from app_platform.paths import images_dir
+from app_platform.paths import images_dir, sessions_dir
 
 
 IMAGES_DIR = images_dir()
