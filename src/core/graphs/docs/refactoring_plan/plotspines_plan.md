@@ -36,6 +36,12 @@
 - Confidence filter tests using synthetic spine points with varying `conf` values, covering interpolation edge cases (endpoints, long low-confidence runs).
 - Smoke test rendering a small synthetic spine set with split vs combined modes to ensure figures are produced without external IO when ctx=None; include gradient + offset overlap cases and multi-bout sync-peak filtering scenarios.
 
+## Current limitations / gaps
+- GUI viewer only shows multiple bout spine plots if the payload includes multiple time ranges; ensure config supplies multiple `time_ranges` or the calculation DataFrame carries `timeRangeStart_*`/`timeRangeEnd_*` columns for every bout.
+- Graph viewer rebuilds bundles from the calculation output and parsed points; if parsed points are missing from the payload, spines are skipped entirely.
+- Runner wiring includes spines, but head/tail/other plots still rely on legacy pathways; parity/QA with legacy outputDisplay is still pending.
+- Remaining failing tests in `test_data_loader.py` (`BoutRange.start` missing, missing `LeftFin_Peaks` column) are unrelated to spine rendering but block full suite passes.
+
 ## Integration steps
 - Add plotter wiring in the runner when `shown_outputs.show_spines` is true.
 - Optionally surface a GUI hook similar to the dot plot/fin-tail viewer once the plotter is stable.
