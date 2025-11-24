@@ -424,8 +424,8 @@ def _render_figures(
     if split_by_bout:
         for bout_idx, frames in enumerate(per_bout_frames):
             fig = go.Figure()
-            fig.update_yaxes(scaleanchor="x", scaleratio=1, visible=True, title_text="Y")
-            fig.update_xaxes(constrain="domain", visible=True, title_text="X")
+            fig.update_yaxes(scaleanchor="x", scaleratio=1, visible=True, title_text="Aligned Y (head-centered)")
+            fig.update_xaxes(constrain="domain", visible=True, title_text="Aligned X (head-centered)")
             fig.update_layout(showlegend=False, title="Spine Plot")
 
             offset = 0.0
@@ -465,8 +465,21 @@ def _render_figures(
                 bboxes.append(bbox)
                 offset += plot_draw_offset
 
-            fig.update_yaxes(scaleanchor="x", scaleratio=1, visible=True, title_text="Y", row=bout_idx + 1, col=1)
-            fig.update_xaxes(constrain="domain", visible=True, title_text="X", row=bout_idx + 1, col=1)
+            fig.update_yaxes(
+                scaleanchor="x",
+                scaleratio=1,
+                visible=True,
+                title_text="Aligned Y (head-centered)",
+                row=bout_idx + 1,
+                col=1,
+            )
+            fig.update_xaxes(
+                constrain="domain",
+                visible=True,
+                title_text="Aligned X (head-centered)",
+                row=bout_idx + 1,
+                col=1,
+            )
 
             for i in range(len(bboxes)):
                 for j in range(i + 1, len(bboxes)):
