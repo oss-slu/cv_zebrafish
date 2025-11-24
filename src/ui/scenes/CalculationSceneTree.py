@@ -243,7 +243,7 @@ class CalculationSceneTree(QWidget):
             return
 
         self.status_label.setText("Calculation successful.")
-        print("Calculation successful — emitting results.")
+        print("Calculation successful - emitting results.")
 
         # Update session if it's a new CSV/config
         if self.current_session:
@@ -268,6 +268,7 @@ class CalculationSceneTree(QWidget):
             "results_df": results,
             "config": config,
             "csv_path": self.csv_path,
+            "parsed_points": parsed_points,
         }
 
         # Emit data to MainWindow

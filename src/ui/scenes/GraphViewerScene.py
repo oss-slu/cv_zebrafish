@@ -19,7 +19,7 @@ import plotly.graph_objs as go
 import plotly.io as pio
 
 from src.core.graphs.loader_bundle import GraphDataBundle
-from src.core.graphs.plots import render_dot_plot, render_fin_tail
+from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_spines
 
 GraphSource = go.Figure
 
@@ -178,6 +178,10 @@ class GraphViewerScene(QWidget):
         fin_graphs, fin_warnings = build_fin_tail_graphs(results_df, config)
         graphs.update(fin_graphs)
         warnings.extend(fin_warnings)
+
+        spine_graphs, spine_warnings = build_spine_graphs(results_df, config, data.get("parsed_points"))
+        graphs.update(spine_graphs)
+        warnings.extend(spine_warnings)
 
         tooltip = "\n".join(warnings) if warnings else ""
         self.list.setToolTip(tooltip)
@@ -405,5 +409,89 @@ def build_fin_tail_graphs(
         graphs["Fin Angles + Tail Distance"] = result.figures[0]
     else:
         warnings.append("Fin/tail plot produced no figures.")
+
+    return graphs, warnings
+
+
+def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> List[List[int]]:
+    """Derive time ranges from config or DataFrame columns."""
+    cfg_ranges = (config or {}).get("time_ranges") or []
+    if cfg_ranges:
+        return [list(map(int, tr)) for tr in cfg_ranges]
+
+    start_cols = [c for c in results_df.columns if c.startswith("timeRangeStart_")]
+    end_cols = [c for c in results_df.columns if c.startswith("timeRangeEnd_")]
+    ranges: List[List[int]] = []
+    for s_col, e_col in zip(sorted(start_cols), sorted(end_cols)):
+        starts = results_df[s_col]
+        ends = results_df[e_col]
+        if len(starts) == 0 or len(ends) == 0 or pd.isna(starts.iloc[0]) or pd.isna(ends.iloc[0]):
+            continue
+        ranges.append([int(starts.iloc[0]), int(ends.iloc[0])])
+    if ranges:
+        return ranges
+    if len(results_df) > 0:
+        return [[0, len(results_df) - 1]]
+    return []
+
+
+def build_spine_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any], parsed_points: Optional[Dict[str, Any]]
+) -> Tuple[Dict[str, GraphSource], List[str]]:
+    """
+    Build spine snapshot plots using the modular render_spines plotter.
+    Requires parsed_points (spine coordinates) plus the calculation DataFrame for angles.
+    """
+    graphs: Dict[str, GraphSource] = {}
+    warnings: List[str] = []
+
+    cfg = dict(config or {})
+    shown_outputs = cfg.get("shown_outputs") or {}
+    if not shown_outputs.get("show_spines"):
+        return graphs, warnings
+
+    if parsed_points is None or "spine" not in parsed_points:
+        warnings.append("Spine plots skipped: parsed point coordinates are unavailable.")
+        return graphs, warnings
+
+    if "LF_Angle" not in results_df.columns or "RF_Angle" not in results_df.columns:
+        warnings.append("Spine plots skipped: missing LF_Angle/RF_Angle columns.")
+        return graphs, warnings
+
+    # Prevent external plot windows from opening in the GUI.
+    spine_settings = dict(cfg.get("spine_plot_settings") or {})
+    spine_settings["open_plot"] = False
+    cfg["spine_plot_settings"] = spine_settings
+    cfg["open_plots"] = False
+
+    time_ranges = _extract_time_ranges(cfg, results_df)
+
+    bundle = GraphDataBundle(
+        time_ranges=[list(tr) for tr in time_ranges],
+        input_values={"spine": parsed_points["spine"]},
+        calculated_values={
+            "leftFinAngles": results_df["LF_Angle"].to_numpy(),
+            "rightFinAngles": results_df["RF_Angle"].to_numpy(),
+        },
+        config=cfg,
+        dataframe=results_df,
+    )
+
+    try:
+        result = render_spines(bundle, ctx=None)
+    except Exception as exc:
+        warnings.append(f"Spine plot failed: {exc}")
+        return graphs, warnings
+
+    warnings.extend(result.warnings)
+    if not result.figures:
+        warnings.append("Spine plot produced no figures.")
+        return graphs, warnings
+
+    if result.mode == "by_bout":
+        for idx, fig in enumerate(result.figures):
+            graphs[f"Spines Bout {idx}"] = fig
+    else:
+        graphs["Spines Combined"] = result.figures[0]
 
     return graphs, warnings
