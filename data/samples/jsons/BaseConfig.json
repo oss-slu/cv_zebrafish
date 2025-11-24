@@ -25,7 +25,11 @@
         "show_spines": true,
         "show_movement_track": false,
         "show_heatmap": false,
-        "show_head_plot": true
+        "show_head_plot": true,
+        "show_tail_left_fin_angle_dot_plot": true,
+        "show_tail_right_fin_angle_dot_plot": true,
+        "show_tail_left_fin_moving_dot_plot": true,
+        "show_tail_right_fin_moving_dot_plot": true
     },
     "angle_and_distance_plot_settings": {
         "show_left_fin_angle": true,

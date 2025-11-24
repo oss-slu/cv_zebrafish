@@ -38,11 +38,11 @@ def sessions_dir() -> Path:
 
 
 def sample_csv_dir() -> Path:
-    return configs_dir() / "samples" / "csv"
+    return project_root() / "data" / "samples" / "csv"
 
 
 def sample_json_dir() -> Path:
-    return configs_dir() / "samples" / "jsons"
+    return project_root() / "data" / "samples" / "jsons"
 
 
 def default_sample_csv() -> Path:
