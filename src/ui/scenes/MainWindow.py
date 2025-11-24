@@ -5,7 +5,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QKeySequence
 
 from src.ui.scenes.LandingScene import LandingScene
-from src.ui.scenes.ConfigScene import ConfigScene
 from src.ui.scenes.GraphViewerScene import GraphViewerScene
 from src.ui.scenes.CalculationScene import CalculationScene
 from src.ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
@@ -54,7 +53,6 @@ class MainWindow(QMainWindow):
         self.scenes = {
             "Landing":  LandingScene(),
             "Verify": VerifyScene(),
-            "Config": ConfigScene(),
             "Calculation": CalculationScene(),
             "Calculation With Tree": CalculationSceneTree(),
             "Graphs": GraphViewerScene(),
