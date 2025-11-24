@@ -20,6 +20,8 @@ class ConfigGeneratorScene(QWidget):
     def __init__(self, csv_path=None, parent=None):
         super().__init__(parent)
 
+        self.current_session = None
+
         self.csv_path = csv_path
         self.bodyparts = []
 
@@ -146,9 +148,12 @@ class ConfigGeneratorScene(QWidget):
 
         try:
             generate_json.save_config_json(config, save_path)
-
-            self.current_session.addConfigToCSV(self.csv_path, save_path)
-            self.current_session.save()
+            try:
+                self.current_session.addConfigToCSV(self.csv_path, save_path)
+                self.current_session.save()
+            except Exception as exc:
+                pass
+                
         except Exception as exc:
             self.feedback_box.setText(f"Error saving file:\n{exc}")
             return
