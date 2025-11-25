@@ -82,15 +82,12 @@ class Session(QObject):
             json.dump(self.toDict(), f, indent=4)
 
     def checkExists(self, csv_path=None, config_path=None):
-        if csv_path == None and config_path == None:
-            return False
-        if csv_path is None: 
-            return config_path in self.getAllConfigs()
-        if csv_path not in self.csvs:
-            return False
-        if config_path:
-            return config_path in self.csvs[csv_path]
-        return True
+        if csv_path in self.csvs and config_path is None:
+            return True
+        if csv_path and config_path:
+            return config_path in self.csvs.get(csv_path, {})
+
+        return config_path in self.getAllConfigs()
     
     '''
     def removeInvalidEntries(self):
