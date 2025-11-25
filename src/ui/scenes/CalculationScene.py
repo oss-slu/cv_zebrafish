@@ -192,17 +192,13 @@ class CalculationScene(QWidget):
             return
         
         if self.current_session:
-            # adds csv and config to session after checking if the pair doesn't already exist
             if self.current_session.checkExists(self.csv_path, self.config):
-                print("CSV + Config pair already in session, not adding.")
+                print("CSV + Config pair already in session.")
             else:
                 # adds csv to session after checking if it already exists
-                if self.current_session.checkExists(self.csv_path):
-                    print("CSV already in session, not adding.")
-                else:
+                if not self.current_session.checkExists(self.csv_path):
                     self.current_session.addCSV(self.csv_path)
 
-                # config will still need to be added, since the pair wasn't found in the session
                 self.current_session.addConfigToCSV(self.csv_path, self.config)
                 self.current_session.save()
 
@@ -233,4 +229,4 @@ class CalculationScene(QWidget):
 
     def load_session(self, session):
         print("Loading session into CalculationScene.")
-        self.current_ession = session
+        self.current_session = session
