@@ -1,4 +1,4 @@
-from os import path, getcwd
+from os import path
 import json
 
 from PyQt5.QtCore import pyqtSignal, QObject
