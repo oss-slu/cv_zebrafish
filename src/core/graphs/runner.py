@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .io import OutputContext, get_output_context
 from .loader_bundle import GraphDataBundle
+from .plots import render_fin_tail, render_spines
 
 # A plotter accepts the bundle + output context and returns arbitrary metadata.
 Plotter = Callable[[GraphDataBundle, Optional[OutputContext]], Dict[str, Any]]
@@ -36,10 +37,12 @@ def run_all_graphs(
     results: Dict[str, Any] = {}
     active_ctx: Optional[OutputContext] = ctx or get_output_context(bundle.config)
 
-    if not plotters:
-        return results  # No plots requested yet.
+    active_plotters: List[Plotter] = list(plotters) if plotters is not None else get_default_plotters(bundle)
 
-    for idx, plot_fn in enumerate(plotters):
+    if not active_plotters:
+        return results  # No plots requested.
+
+    for idx, plot_fn in enumerate(active_plotters):
         metadata = plot_fn(bundle, active_ctx)
         plot_name = getattr(plot_fn, '__name__', f'plot_{idx}')
         results[plot_name] = metadata
@@ -47,4 +50,21 @@ def run_all_graphs(
     return results
 
 
-__all__ = ["run_all_graphs", "Plotter"]
+def get_default_plotters(bundle: GraphDataBundle) -> List[Plotter]:
+    """
+    Determine which plotters to run based on the bundle's config.
+
+    Currently wires angle/distance plots and spine snapshots. Extend as new plot
+    modules come online.
+    """
+    config = bundle.config or {}
+    shown = config.get("shown_outputs", {})
+    plotters: List[Plotter] = []
+    if shown.get("show_angle_and_distance_plot", False):
+        plotters.append(render_fin_tail)
+    if shown.get("show_spines", False):
+        plotters.append(render_spines)
+    return plotters
+
+
+__all__ = ["run_all_graphs", "Plotter", "get_default_plotters"]
