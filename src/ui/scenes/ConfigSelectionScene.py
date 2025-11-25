@@ -39,7 +39,7 @@ class ConfigSelectionScene(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
 
-        header = QLabel("Calculation Scene")
+        header = QLabel("Select Configuration")
         header.setAlignment(Qt.AlignCenter)
         header.setStyleSheet("font-size: 18pt; font-weight: bold;")
         layout.addWidget(header)
@@ -69,26 +69,6 @@ class ConfigSelectionScene(QWidget):
         """)
         self.file_tree.itemClicked.connect(self.handle_tree_click)
         layout.addWidget(self.file_tree)
-
-        # ===============================
-        # Manual File Selection
-        # ===============================
-        manual_layout = QVBoxLayout()
-        manual_layout.setSpacing(8)
-
-        manual_header = QLabel("Or select files manually:")
-        manual_header.setAlignment(Qt.AlignCenter)
-        manual_layout.addWidget(manual_header)
-
-        self.csv_button = QPushButton("Select CSV File")
-        self.csv_button.clicked.connect(self.select_csv)
-        manual_layout.addWidget(self.csv_button, alignment=Qt.AlignCenter)
-
-        self.config_button = QPushButton("Select Config File (JSON)")
-        self.config_button.clicked.connect(self.select_config)
-        manual_layout.addWidget(self.config_button, alignment=Qt.AlignCenter)
-
-        layout.addLayout(manual_layout)
 
         # ===============================
         # Calculation Button
@@ -178,33 +158,6 @@ class ConfigSelectionScene(QWidget):
                 f"Selected: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
             )
 
-        self.update_calc_ready()
-
-    # ==============================================================
-    # Manual File Selection
-    # ==============================================================
-
-    def select_csv(self):
-        """Manual CSV selection."""
-        path_, _ = QFileDialog.getOpenFileName(
-            self, "Select CSV File", getcwd(), "CSV Files (*.csv)"
-        )
-        if path_:
-            self.csv_path = path_
-            self.status_label.setText(f"Selected CSV: {path.basename(self.csv_path)}")
-            self.update_calc_ready()
-
-    def select_config(self):
-        """Manual Config selection."""
-        path_, _ = QFileDialog.getOpenFileName(
-            self, "Select Config File", getcwd(), "JSON Files (*.json)"
-        )
-        if path_:
-            self.config_path = path_
-            self.status_label.setText(f"Selected Config: {path.basename(self.config_path)}")
-            self.update_calc_ready()
-
-    def update_calc_ready(self):
         """Update button state based on current selections."""
         if self.csv_path and self.config_path:
             self.calc_button.setEnabled(True)
