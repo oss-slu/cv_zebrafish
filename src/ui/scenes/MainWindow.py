@@ -102,11 +102,6 @@ class MainWindow(QMainWindow):
 
         self.stack.setCurrentWidget(self.scenes["Select Configuration"])
 
-    def broadcastSession(self):
-        self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Select Configuration"].load_session(self.currentSession)
-        self.scenes["Calculation"].load_session(self.currentSession)
-        
     def createSession(self, session_name):
         print("Creating new session with config.")
 
@@ -117,6 +112,11 @@ class MainWindow(QMainWindow):
 
         self.stack.setCurrentWidget(self.scenes["Generate Config"])
 
+    def broadcastSession(self):
+        self.scenes["Generate Config"].load_session(self.currentSession)
+        self.scenes["Select Configuration"].load_session(self.currentSession)
+        self.scenes["Calculation"].load_session(self.currentSession)
+        
     def handle_data(self, data):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
