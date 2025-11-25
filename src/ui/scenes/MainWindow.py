@@ -97,20 +97,23 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Bad Session", "Please choose a session.")
 
             return
-
-        self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Select Configuration"].load_session(self.currentSession)
+        
+        self.broadcastSession()
 
         self.stack.setCurrentWidget(self.scenes["Select Configuration"])
 
+    def broadcastSession(self):
+        self.scenes["Generate Config"].load_session(self.currentSession)
+        self.scenes["Select Configuration"].load_session(self.currentSession)
+        self.scenes["Calculation"].load_session(self.currentSession)
+        
     def createSession(self, session_name):
         print("Creating new session with config.")
 
         self.currentSession = Session(session_name)
         self.currentSession.save()
 
-        self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Select Configuration"].load_session(self.currentSession)
+        self.broadcastSession()
 
         self.stack.setCurrentWidget(self.scenes["Generate Config"])
 
