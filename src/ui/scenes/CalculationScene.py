@@ -191,19 +191,20 @@ class CalculationScene(QWidget):
             QMessageBox.warning(self, "Missing Files", "Please select both a CSV and Config.")
             return
         
-        # adds csv and config to session after checking if the pair doesn't already exist
-        if self.current_session.checkExists(self.csv_path, self.config):
-            print("CSV + Config pair already in session, not adding.")
-        else:
-            # adds csv to session after checking if it already exists
-            if self.current_session.checkExists(self.csv_path):
-                print("CSV already in session, not adding.")
+        if self.current_session:
+            # adds csv and config to session after checking if the pair doesn't already exist
+            if self.current_session.checkExists(self.csv_path, self.config):
+                print("CSV + Config pair already in session, not adding.")
             else:
-                self.current_session.addCSV(self.csv_path)
+                # adds csv to session after checking if it already exists
+                if self.current_session.checkExists(self.csv_path):
+                    print("CSV already in session, not adding.")
+                else:
+                    self.current_session.addCSV(self.csv_path)
 
-            # config will still need to be added, since the pair wasn't found in the session
-            self.current_session.addConfigToCSV(self.csv_path, self.config)
-            self.current_session.save()
+                # config will still need to be added, since the pair wasn't found in the session
+                self.current_session.addConfigToCSV(self.csv_path, self.config)
+                self.current_session.save()
 
         with open(self.config, "r", encoding="utf-8") as handle:
             config = json.load(handle)
@@ -231,4 +232,5 @@ class CalculationScene(QWidget):
             self.data_generated.emit(payload)
 
     def load_session(self, session):
+        print("Loading session into CalculationScene.")
         self.current_ession = session
