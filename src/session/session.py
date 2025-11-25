@@ -75,7 +75,9 @@ class Session(QObject):
             json.dump(self.toDict(), f, indent=4)
 
     def checkExists(self, csv_path=None, config_path=None):
-        if csv_path == None: 
+        if csv_path == None and config_path == None:
+            return False
+        if csv_path is None: 
             return config_path in self.getAllConfigs()
         if csv_path not in self.csvs:
             return False
