@@ -9,7 +9,7 @@ from src.ui.scenes.GraphViewerScene import GraphViewerScene
 from src.ui.scenes.CalculationScene import CalculationScene
 from src.ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
 from src.ui.scenes.VerifyScene import VerifyScene
-from src.ui.scenes.CalculationSceneTree import  CalculationSceneTree
+from ui.scenes.ConfigSelectionScene import  ConfigSelectionScene
 
 from src.session.session import *
 
@@ -54,7 +54,7 @@ class MainWindow(QMainWindow):
             "Landing":  LandingScene(),
             "Verify": VerifyScene(),
             "Calculation": CalculationScene(),
-            "Calculation With Tree": CalculationSceneTree(),
+            "Select Configuration": ConfigSelectionScene(),
             "Graphs": GraphViewerScene(),
             "Generate Config": ConfigGeneratorScene()
         }
@@ -99,9 +99,9 @@ class MainWindow(QMainWindow):
             return
 
         self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Calculation With Tree"].load_session(self.currentSession)
+        self.scenes["Select Configuration"].load_session(self.currentSession)
 
-        self.stack.setCurrentWidget(self.scenes["Calculation With Tree"])
+        self.stack.setCurrentWidget(self.scenes["Select Configuration"])
 
     def createSession(self, session_name):
         print("Creating new session with config.")
@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         self.currentSession.save()
 
         self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Calculation With Tree"].load_session(self.currentSession)
+        self.scenes["Select Configuration"].load_session(self.currentSession)
 
         self.stack.setCurrentWidget(self.scenes["Generate Config"])
 

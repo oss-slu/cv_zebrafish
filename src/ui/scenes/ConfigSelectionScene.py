@@ -21,7 +21,7 @@ from src.session.session import save_session_to_json
 from src.app_platform.paths import sessions_dir
 
 
-class CalculationSceneTree(QWidget):
+class ConfigSelectionScene(QWidget):
     """
     Scene that allows users to run calculations on zebrafish data.
     Displays saved CSVs/configs from the current session and allows new ones to be added.
