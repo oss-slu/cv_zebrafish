@@ -173,55 +173,10 @@ class ConfigSelectionScene(QWidget):
     # Calculation Logic
     # ==============================================================
 
+    def setCalculationScene(self, calculation_scene):
+        self.calculation_scene = calculation_scene
+
     def calculate(self):
-        """Run calculations and update session if new pair is used."""
-        if not self.csv_path or not self.config_path:
-            QMessageBox.warning(self, "Missing Files", "Please select both a CSV and Config.")
-            return
-
-        print(f"Running calculations on:\n CSV: {self.csv_path}\n Config: {self.config_path}")
-
-        try:
-            config = json.load(open(self.config_path, "r"))
-            parsed_points = parser.parse_dlc_csv(self.csv_path, config)
-            results = calculations.run_calculations(parsed_points, config)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Calculation failed:\n{e}")
-            self.data_generated.emit(None)
-            return
-
-        if results is None:
-            self.status_label.setText("Calculation failed.")
-            self.data_generated.emit(None)
-            return
-
-        self.status_label.setText("Calculation successful.")
-        print("Calculation successful — emitting results.")
-
-        # Update session if it's a new CSV/config
-        if self.current_session:
-            added = False
-            if self.csv_path not in self.current_session.csvs:
-                self.current_session.addCSV(self.csv_path)
-                added = True
-            if self.config_path not in self.current_session.csvs[self.csv_path]:
-                self.current_session.addConfigToCSV(self.csv_path, self.config_path)
-                added = True
-
-            if added:
-                # Save updated session
-                save_path = path.join(sessions_dir(), f"{self.current_session.name}.json")
-                save_session_to_json(self.current_session, save_path)
-                print(f"Session updated and saved to: {save_path}")
-
-                # Refresh tree to show new additions
-                self.populate_tree()
-
-        payload = {
-            "results_df": results,
-            "config": config,
-            "csv_path": self.csv_path,
-        }
-
-        # Emit data to MainWindow
-        self.data_generated.emit(payload)
+        self.calculation_scene.set_csv_path(self.csv_path)
+        self.calculation_scene.set_config(self.config_path)
+        self.calculation_scene.calculate()

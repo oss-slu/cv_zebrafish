@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
+        self.scenes["Select Configuration"].setCalculationScene(self.scenes["Calculation"])
 
     def loadSession(self, path):
         print("Loading session from:", path)
