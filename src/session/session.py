@@ -74,6 +74,15 @@ class Session(QObject):
         with open(file_path, 'w') as f:
             json.dump(self.toDict(), f, indent=4)
 
+    def checkExists(self, csv_path=None, config_path=None):
+        if csv_path == None: 
+            return config_path in self.getAllConfigs()
+        if csv_path not in self.csvs:
+            return False
+        if config_path:
+            return config_path in self.csvs[csv_path]
+        return True
+
 def load_session_from_json(json_path):
     """Load a session from a JSON file."""
     try:
