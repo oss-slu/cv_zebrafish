@@ -52,11 +52,11 @@ class MainWindow(QMainWindow):
         # initializes scenes
         self.scenes = {
             "Landing":  LandingScene(),
-            "Verify": VerifyScene(),
-            "Calculation": CalculationScene(),
+            "Generate Config": ConfigGeneratorScene(),
             "Select Configuration": ConfigSelectionScene(),
+            "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene(),
-            "Generate Config": ConfigGeneratorScene()
+            "Verify": VerifyScene(),
         }
 
         # Add scenes to stack
