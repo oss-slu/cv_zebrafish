@@ -1,6 +1,6 @@
 {
     "file_inputs": {
-    "data": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\input_data\\input.csv",
+    "data": "data/samples/csv/calculated_data_enriched.csv",
     "video": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Zebrafish_vid_3.avi",
     "bulk_input_path": "C:\\Users\\Finn\\Downloads\\SLU\\Fall_2025\\CSCI_4961\\CV_Zebrafish\\bruce\\codes\\input_data\\Multiple_Input"
     },
@@ -21,7 +21,7 @@
         "print_tail_freq": false,
         "print_travel_distance": false,
         "print_travel_velocity": false,
-        "show_angle_and_distance_plot": false,
+        "show_angle_and_distance_plot": true,
         "show_spines": true,
         "show_movement_track": false,
         "show_heatmap": false,
@@ -35,7 +35,13 @@
         "show_left_fin_angle": true,
         "show_right_fin_angle": true,
         "show_tail_distance": true,
-        "show_head_yaw": true
+        "show_head_yaw": true,
+        "combine_plots": true,
+        "open_plot": false,
+        "left_fin_color": "blue",
+        "right_fin_color": "red",
+        "tail_distance_color": "green",
+        "head_yaw_color": "black"
     },
     "spine_plot_settings": {
         "select_by_bout": true,
