@@ -48,20 +48,22 @@ CSV upload -> validation -> config selection/generation -> calculations -> graph
 
 ## Technology Stack
 - Python 3.10, PyQt5/WebEngine for desktop UI, NumPy/Pandas/SciPy for computation, Plotly (+ Kaleido) for visualization, OpenCV where needed for image ops, SQLite for persistence, DeepLabCut compatibility.
-- Environment management via `environment.yml` or `python -m venv` with `requirements.txt`.
+- Environment management via `environment.yml` (conda) or `python -m venv` + `pip install -r environment.yml` equivalent; PyQt5, pandas, numpy, scipy, plotly, kaleido, opencv, matplotlib, pillow, openpyxl, pytest/pytest-qt included.
 
-## Current State (November 2025)
+## Current State (December 2025)
 - Multi-scene PyQt UI wired end-to-end from file selection through calculations and graph viewing.
 - CSV/JSON validation flows integrated with sample inputs and unit coverage.
 - Calculation pipeline (Parser -> Metrics -> Driver) produces fin, tail, spine, yaw, bout, and peak metrics with scaling and enriched export helpers.
 - Modular graph pipeline online with default plotters for fin/tail angle-distance timelines and spine snapshots (plus dot-plot helper for reuse); config-driven shown_outputs toggles plot selection; runner and output context manage saving.
 - Documentation refreshed (README, architecture notes, how-tos); product overview prepared for presentations.
+- Latest client asks captured in `docs/product/meeting_minutes/client_request_notes.md` (graph editing/local extrema, ranged exports, clickable points, multi-CSV overlays, tabular-format normalization, zebrafish silhouette, installable UX).
 
 ### In progress / next up
-- Broader plot coverage (movement tracks, heatmaps) and UI affordances for choosing plots.
-- Export UX for graph images and calculation CSVs directly from the UI.
-- Usability polish from lab feedback; accessibility tweaks for non-technical users.
-- Batch processing and cross-dataset comparisons.
+- Broader plot coverage (movement tracks, heatmaps) and UI affordances for choosing plots; zebra fish silhouette/art integration.
+- Export UX for graph images and calculation CSVs directly from the UI, including ranged-export to Excel and downloadable graphs.
+- Usability polish (installable launcher/icon, student-friendly styling) from lab feedback; accessibility tweaks for non-technical users.
+- Foundations for multi-CSV sessions and graph overlays (color-keyed), clickable point capture, and configurable inclusion of fin/spine series in the GUI/JSON.
+- Exploration of format normalization (CSV/XLS/XLSX) and schema mapping to generalize beyond the current DLC layout.
 
 ## Business Value and ROI
 - Time saved: ~2.5 hours per dataset (validation + metrics + plotting) translating to ~$100 saved per dataset at $40/hour; 50 datasets/year yields ~$5k annual labor savings for a single lab.
@@ -78,11 +80,11 @@ CSV upload -> validation -> config selection/generation -> calculations -> graph
 - Workflow: Agile-style iterations, feature branches with code review, unit tests on core modules, documented contribution and runbooks.
 
 ## Roadmap
-- **Short term (next iteration):** Finish plot suite, finalize export pipeline (CSV + PNG/SVG), add report summary generation, incorporate beta feedback.
-- **Medium term (6-12 months):** Batch runs, comparative stats, advanced visualizations (heatmaps, movement tracks), usability automation, packaged installer.
-- **Long term (1-3 years):** Multi-species support, behavior classification with ML, cloud/shared datasets, plugin ecosystem and community contributions.
+- **Short term (next iteration):** Finish plot suite, finalize export pipeline (CSV + PNG/SVG + ranged Excel), clickable point capture/local extrema tools, client parameter list export, incorporate beta feedback; keep two-sprint target for interactive downloadable graphs.
+- **Medium term (6-12 months):** Multi-CSV sessions with overlays, batch runs, comparative stats, advanced visualizations (heatmaps, movement tracks), packaged installer/app icon, UX polish with zebrafish silhouette/art.
+- **Long term (1-3 years):** Format/schema normalization for arbitrary tabular inputs, multi-species support, behavior classification with ML, cloud/shared datasets, plugin ecosystem and community contributions.
 
 ## Appendix
 - **System requirements:** Python 3.10; Windows 10+/macOS 10.14+/Ubuntu 20.04+; 4 GB RAM (8 GB recommended); ~500 MB disk plus dataset storage.
 - **Inputs/outputs:** Inputs: DLC CSV, JSON config; Outputs: enriched metric CSVs, Plotly PNG/SVG (via Kaleido), future report files.
-- **Repository snapshot:** `app.py`, `src/` (app_platform, core/{calculations, config, graphs, parsing, validation}, data, ui, session), `docs/`, `assets/`, `tests/`, `legacy/`, `requirements*.txt`, `environment.yml`.
+- **Repository snapshot:** `app.py`, `src/` (app_platform, core/{calculations, config, graphs, parsing, validation}, data, ui, session), `docs/`, `assets/`, `tests/`, `legacy/`, `environment.yml`.
