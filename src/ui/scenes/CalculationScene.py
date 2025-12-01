@@ -204,6 +204,7 @@ class CalculationScene(QWidget):
                 "results_df": results,
                 "config": config,
                 "csv_path": self.csv_path,
+                "parsed_points": parsed_points,
             }
 
             # Emit the results to signal the main window to start creating the graphs.
