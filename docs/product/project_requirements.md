@@ -20,12 +20,12 @@
     run/test instructions.
 - [~] Maintainable
   - Evidence: Modular separation across `src/core`, `src/ui`, and `src/data`; unit tests cover key
-    modules.
-  - Gaps: No packaging/config files (`pyproject.toml`, `setup.cfg`), no dependency pins, no tooling
-    config (lint/format/type), and no automated build/test workflow.
+    modules; `environment.yml` provides a reproducible dependency set.
+  - Gaps: No packaging/config files (`pyproject.toml`, `setup.cfg`), no dependency pins beyond Conda,
+    no tooling config (lint/format/type), and no automated build/test workflow.
 - [~] Follows open source standards
-  - Evidence: `LICENSE` (MIT), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, and PR
-    template added.
+  - Evidence: `LICENSE` (MIT), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, PR
+    template, and `environment.yml`.
   - Gaps: No CI, no package metadata, and no contribution automation.
 - [~] Deployable
   - Evidence: `environment.yml` and README run instructions.
