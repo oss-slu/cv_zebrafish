@@ -277,23 +277,21 @@ class GraphViewerScene(QWidget):
             return None
         
     def _load_html_graphs_from_session(self):
-        """Load previously saved HTML graphs from the session directory, including subfolders."""
+        """Load previously saved HTML graphs from the session directory (placeholder)."""
         if not self.current_session:
             return {}
 
         graphs = {}
         session_dir = sessions_dir() / self.current_session.getName()
-
         if not session_dir.exists():
             return graphs
 
-        # Recursive glob: find all .html files
+        # Recursive glob for all .html files
         for html_file in session_dir.rglob("*.html"):
             try:
-                fig = pio.read_html(str(html_file))  # load figure from HTML
-                # Use relative path from session dir for uniqueness, convert to string for display
+                # Use relative path from session dir for uniqueness
                 relative_name = html_file.relative_to(session_dir).with_suffix("").as_posix()
-                graphs[relative_name] = fig
+                graphs[relative_name] = str(html_file)  # just store path as placeholder
             except Exception as e:
                 print(f"Could not load graph {html_file}: {e}")
 
