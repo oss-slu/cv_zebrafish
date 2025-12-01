@@ -1,8 +1,10 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
+import re
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
@@ -19,6 +21,8 @@ import plotly.graph_objs as go
 import plotly.io as pio
 
 from src.core.graphs.plots import render_dot_plot
+
+from src.app_platform.paths import sessions_dir
 
 GraphSource = go.Figure
 
@@ -88,9 +92,11 @@ class GraphViewerScene(QWidget):
         super().__init__()
 
         self._graphs: Dict[str, GraphSource] = {}
+        self._out_dir: Optional[Path] = None
         self._current_name: Optional[str] = None
         self._original_pixmap: Optional[QPixmap] = None
         self._data = None
+        self.current_session = None
 
         # Sidebar
         self.list = QListWidget()
@@ -167,7 +173,7 @@ class GraphViewerScene(QWidget):
             self._show_empty_state("Missing config dictionary; cannot determine requested plots.")
             return
 
-        graphs, warnings = build_dot_plot_graphs(results_df, config)
+        graphs, warnings = build_dot_plot_graphs(results_df, config, out=self._out_dir)
 
         tooltip = "\n".join(warnings) if warnings else ""
         self.list.setToolTip(tooltip)
@@ -253,16 +259,26 @@ class GraphViewerScene(QWidget):
                 f"Error: {e}"
             )
             return None
+        
+    def load_session(self, session):
+        """Load previous session data."""
+        self.current_session = session
 
+        self._out_dir = sessions_dir() / (self.current_session.getName())
+        self._out_dir.mkdir(parents=True, exist_ok=True)
 
 def _as_numeric_array(series: pd.Series) -> np.ndarray:
     """Convert a pandas Series to a numeric numpy array, coercing failures to NaN."""
     numeric = pd.to_numeric(series, errors="coerce")
     return numeric.to_numpy()
 
+def _safe_filename(title: str) -> str:
+    """Make a filesystem-safe filename from a title (keeps extension to add later)."""
+    # Replace any character not in this set with underscore
+    return re.sub(r"[^A-Za-z0-9._-]", "_", title).strip("_")
 
 def build_dot_plot_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any]
+    results_df: pd.DataFrame, config: Dict[str, Any], out: Optional[Path] = None
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
     """
     Build all requested dot plot figures based on the config flags.
@@ -325,6 +341,17 @@ def build_dot_plot_graphs(
         except Exception as exc:  # pragma: no cover - defensive guard
             warnings.append(f"Failed to render '{spec['title']}': {exc}")
             continue
+            
+        # Save interactive HTML to disk (best-effort)
+        if out is not None:
+            try:
+                fname = _safe_filename(spec["title"]) or "dot_plot"
+                html_path = out / f"{fname}.html"
+                
+                # Use CDN for plotly JS to keep file size smaller and consistent
+                pio.write_html(result.figure, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
+            except Exception as e:
+                warnings.append(f"Could not save '{spec['title']}' as HTML: {e}")
 
         graphs[spec["title"]] = result.figure
 
