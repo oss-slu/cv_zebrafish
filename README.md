@@ -9,17 +9,12 @@ Desktop toolkit for validating DeepLabCut zebrafish CSVs, generating JSON config
 - Git
 - System packages for Qt (Windows: included with PyQt5 wheels; macOS/Linux may need Qt libraries)
 
-### Setup (venv)
+### Setup (Conda)
 ```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
-
-pip install pyqt5 pandas numpy scipy plotly kaleido matplotlib opencv-python
+conda env create -f environment.yml
+conda activate cvzebrafish
 ```
-> There is no `requirements.txt` or lockfile yet; the list above covers what the app and tests import today.
+> `environment.yml` declares Python 3.10 and all app/test dependencies; prefer this over ad-hoc pip installs.
 
 ### Run the UI
 ```bash
@@ -73,6 +68,5 @@ tests/
 - **Legacy parity:** Legacy pipeline kept under `legacy/` for comparison.
 
 ## Known Gaps / Next Steps
-- No dependency lockfile or installer; add `requirements.txt`/`environment.yml`.
+- No dependency lockfile; add `requirements.txt`/`conda-lock` if needed.
 - No CI or lint/type tooling; add GitHub Actions to run pytest.
-- Repository lacks LICENSE and contributor docs.
