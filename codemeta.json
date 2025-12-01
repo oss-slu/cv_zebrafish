@@ -1,0 +1,50 @@
+{
+  "name": "cv_zebrafish",
+  "@context": "https://w3id.org/codemeta/3.0",
+  "author": [
+    {
+      "familyName": "Winter",
+      "id": "_:author_1",
+      "givenName": "Jacob",
+      "type": "Person"
+    },
+    {
+      "familyName": "Jung",
+      "id": "_:author_2",
+      "givenName": "Gihwan",
+      "type": "Person"
+    },
+    {
+      "id": "_:author_3",
+      "givenName": "Madhuritha Alle",
+      "type": "Person"
+    },
+    {
+      "familyName": "Gupta",
+      "id": "_:author_4",
+      "givenName": "Nilesh",
+      "type": "Person"
+    }
+  ],
+  "codeRepository": "https://github.com/oss-slu/cv_zebrafish",
+  "dateCreated": "2025-08-11",
+  "description": "CV Zebrafish — a modular software tool to track and analyze zebrafish movements from high-speed imaging. It integrates with DeepLabCut outputs to compute metrics like fin angles, movement timing, speed, and behavior classification",
+  "developmentStatus": "active",
+  "issueTracker": "https://github.com/oss-slu/cv_zebrafish/issues",
+  "keywords": [
+    "deeplabcut",
+    "hacktoberfest",
+    "python",
+    "zebrafish"
+  ],
+  "license": "https://spdx.org/licenses/MIT",
+  "programmingLanguage": [
+    "HTML",
+    "Python",
+    "Rich Text Format"
+  ],
+  "softwareRequirements": [
+    ""
+  ],
+  "type": "SoftwareSourceCode"
+}
