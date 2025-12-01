@@ -1,8 +1,8 @@
 # CV Zebrafish Boardroom Presentation — Slide-by-Slide Outline
 
-Use this as a prompt/structure for the AI agent to build a polished, 10–30 minute deck that satisfies the presentation requirements. Each slide lists purpose, key content, and evidence/assets to include.
+Goal: build a polished, 10–30 minute deck that satisfies the presentation requirements. Each slide lists purpose, key content, and evidence/assets to include.
 
-## Style Guide (AI-Friendly)
+## Style Guide
 - **Tone:** Confident, concise, plain-English for mixed technical/non-technical audience.
 - **Visuals:** Product screenshots only; clean white/light background; consistent accent color (deep blue/teal) matching zebrafish theme; minimal text per slide.
 - **Typography:** Sans-serif, large headings, short bullets (≤ 6 words where possible).
