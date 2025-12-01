@@ -107,7 +107,6 @@ class ConfigSelectionScene(QWidget):
 
         print(f"[populate_tree] Populating for session: {self.current_session.name}")
         csvs = self.current_session.getAllCSVs()
-        print(f"[populate_tree] CSV count: {self.current_session.length()}")
 
         if self.current_session.length() == 0:
             item = QTreeWidgetItem(["(No saved CSVs)", ""])
@@ -135,8 +134,6 @@ class ConfigSelectionScene(QWidget):
 
             self.file_tree.addTopLevelItem(csv_item)
             csv_item.setExpanded(True)
-
-        print("[populate_tree] Tree population complete.")
 
     def handle_tree_click(self, item, column):
         """Handle user clicking a CSV or config in the tree."""
