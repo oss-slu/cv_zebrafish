@@ -204,6 +204,8 @@ class CalculationScene(QWidget):
 
         with open(self.config, "r", encoding="utf-8") as handle:
             config = json.load(handle)
+            config["config_path"] = self.config  # add config path to config dict
+            
         parsed_points = parse_dlc_csv(self.csv_path, config)
 
         self.status_label.setText("CSV parsed successfully, running calculations...")

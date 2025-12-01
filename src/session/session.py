@@ -32,6 +32,10 @@ class Session(QObject):
             self.session_updated.emit()
 
     def addGraphToConfig(self, config_path, graph_path):
+        if not path.exists(graph_path):
+            print(f"[Session] Graph path does not exist: {graph_path}")
+            return
+        
         for _, configs in self.csvs.items():
             if config_path in configs:
                 configs[config_path].append(graph_path)
@@ -122,18 +126,18 @@ def load_session_from_json(json_path):
         raise ValueError(f"Could not read session file: {e}")
 
     session_name = data.get("name", "UnnamedSession")
-
     if session_name == "UnnamedSession":
         raise ValueError("Session file is missing a valid name.")
 
     session = Session(session_name)
 
     csvs = data.get("csvs", {})
-    for csv_path, cfgs in (csvs or {}).items():
+    for csv_path, configs in csvs.items():
         session.addCSV(csv_path)
-        configs = cfgs or []
-        for config in configs:
-            session.addConfigToCSV(csv_path, config)
+        for config_path, graphs in configs.items():
+            session.addConfigToCSV(csv_path, config_path)
+            for graph_path in graphs:
+                session.addGraphToConfig(config_path, graph_path)
 
     return session
 

@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 import plotly.graph_objs as go
 import plotly.io as pio
 
+from session import session
 from src.core.graphs.plots import render_dot_plot
 
 from src.app_platform.paths import sessions_dir
@@ -230,6 +231,21 @@ class GraphViewerScene(QWidget):
         if self._original_pixmap:
             self._update_scaled_pixmap()
 
+    def load_session(self, session):
+        """Load previous session data."""
+        self.current_session = session
+
+        # creates directory for saving graphs if it doesn't exist
+        self._out_dir = sessions_dir() / (self.current_session.getName())
+        self._out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Restore previously saved HTML graphs
+        restored_graphs = self._load_html_graphs_from_session()
+        if restored_graphs:
+            self.set_graphs(restored_graphs)
+        else:
+            self._show_empty_state("No saved graphs yet for this session.")
+
     def _update_scaled_pixmap(self):
         """Scale the original pixmap to fit the viewport width while keeping aspect ratio."""
         if not self._original_pixmap:
@@ -260,12 +276,29 @@ class GraphViewerScene(QWidget):
             )
             return None
         
-    def load_session(self, session):
-        """Load previous session data."""
-        self.current_session = session
+    def _load_html_graphs_from_session(self):
+        """Load previously saved HTML graphs from the session directory, including subfolders."""
+        if not self.current_session:
+            return {}
 
-        self._out_dir = sessions_dir() / (self.current_session.getName())
-        self._out_dir.mkdir(parents=True, exist_ok=True)
+        graphs = {}
+        session_dir = sessions_dir() / self.current_session.getName()
+
+        if not session_dir.exists():
+            return graphs
+
+        # Recursive glob: find all .html files
+        for html_file in session_dir.rglob("*.html"):
+            try:
+                fig = pio.read_html(str(html_file))  # load figure from HTML
+                # Use relative path from session dir for uniqueness, convert to string for display
+                relative_name = html_file.relative_to(session_dir).with_suffix("").as_posix()
+                graphs[relative_name] = fig
+            except Exception as e:
+                print(f"Could not load graph {html_file}: {e}")
+
+        return graphs
+
 
 def _as_numeric_array(series: pd.Series) -> np.ndarray:
     """Convert a pandas Series to a numeric numpy array, coercing failures to NaN."""
@@ -346,10 +379,14 @@ def build_dot_plot_graphs(
         if out is not None:
             try:
                 fname = _safe_filename(spec["title"]) or "dot_plot"
+
                 html_path = out / f"{fname}.html"
                 
                 # Use CDN for plotly JS to keep file size smaller and consistent
                 pio.write_html(result.figure, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
+
+                session.addGraphToConfig(config["config_path"], str(html_path))
+                session.save()
             except Exception as e:
                 warnings.append(f"Could not save '{spec['title']}' as HTML: {e}")
 
