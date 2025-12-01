@@ -28,7 +28,7 @@
     template added.
   - Gaps: No CI, no package metadata, and no contribution automation.
 - [~] Deployable
-  - Evidence: `environment.yml` (planned/assumed) and README run instructions.
+  - Evidence: `environment.yml` and README run instructions.
   - Gaps: No installer or packaging/release process beyond `python app.py`.
                                                                                                    
   ## Evaluation Criteria                                                                           
