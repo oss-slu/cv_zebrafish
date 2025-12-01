@@ -2,9 +2,16 @@
 
 Use this as a prompt/structure for the AI agent to build a polished, 10–30 minute deck that satisfies the presentation requirements. Each slide lists purpose, key content, and evidence/assets to include.
 
-## 1. Title & Team
+## Style Guide (AI-Friendly)
+- **Tone:** Confident, concise, plain-English for mixed technical/non-technical audience.
+- **Visuals:** Product screenshots only; clean white/light background; consistent accent color (deep blue/teal) matching zebrafish theme; minimal text per slide.
+- **Typography:** Sans-serif, large headings, short bullets (≤ 6 words where possible).
+- **Narrative Flow:** Problem → Value → Demo → Proof → Roadmap → Ask.
+- **Fallbacks:** If live demo is risky, rely on pre-captured screenshots for each key scene.
+
+## 1. Title & Team (+ Brief Project Description)
 - **Purpose:** Establish credibility and audience context.
-- **Content:** Project name, team members/roles, client/advisor, date.
+- **Content:** Project name, brief description (“Python/PyQt app that validates DLC zebrafish CSVs, auto-builds configs, runs kinematic metrics, and renders Plotly graphs in minutes”), team members/roles, client/advisor, date.
 - **Evidence/Assets:** Concise subtitle (“Automating DeepLabCut zebrafish analysis in minutes”).
 - **Images:** Single product screenshot (Landing scene) as subtle background or sidebar.
 
