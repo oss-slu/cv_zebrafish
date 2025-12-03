@@ -19,6 +19,7 @@ import plotly.graph_objs as go
 import plotly.io as pio
 
 from src.core.graphs.plots import render_dot_plot
+from src.core.graphs.plots.headplot import plot_head
 
 GraphSource = go.Figure
 
@@ -68,6 +69,20 @@ DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
         "moving": True,
     },
 )
+
+HEAD_PLOT_SPEC: Dict[str, Any] = {
+    "flag": "show_head_plot",
+    "title_prefix": "Head Plot",
+    "required_df_cols": ["HeadYaw", "LF_Angle", "RF_Angle"],
+    "settings_key": "head_plot_settings",
+    "default_settings": {
+        "plot_draw_offset": 15,
+        "ignore_synchronized_fin_peaks": True,
+        "sync_fin_peaks_range": 3,
+        "fin_peaks_for_right_fin": False,
+        "split_plots_by_bout": True,
+    },
+}
 
 class GraphViewerScene(QWidget):
     """
@@ -144,7 +159,7 @@ class GraphViewerScene(QWidget):
                 self.list.setCurrentRow(0)
 
     def set_data(self, data):
-        """Consume calculation payload and build the requested dot plots."""
+        """Consume calculation payload and build the requested dot plots and head plots."""
         self._data = data
         self._graphs.clear()
         self.list.clear()
@@ -159,26 +174,38 @@ class GraphViewerScene(QWidget):
 
         results_df = data.get("results_df")
         config = data.get("config")
+        csv_path = data.get("csv_path")
 
         if not isinstance(results_df, pd.DataFrame):
-            self._show_empty_state("Dot plots require a pandas DataFrame payload.")
+            self._show_empty_state("Graphs require a pandas DataFrame payload.")
             return
         if not isinstance(config, dict):
             self._show_empty_state("Missing config dictionary; cannot determine requested plots.")
             return
 
-        graphs, warnings = build_dot_plot_graphs(results_df, config)
+        all_graphs = {}
+        all_warnings = []
 
-        tooltip = "\n".join(warnings) if warnings else ""
+        # Build dot plots
+        dot_graphs, dot_warnings = build_dot_plot_graphs(results_df, config)
+        all_graphs.update(dot_graphs)
+        all_warnings.extend(dot_warnings)
+
+        # Build head plots (extracts data directly from DataFrame)
+        head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
+        all_graphs.update(head_graphs)
+        all_warnings.extend(head_warnings)
+
+        tooltip = "\n".join(all_warnings) if all_warnings else ""
         self.list.setToolTip(tooltip)
         self.image_label.setToolTip(tooltip)
 
-        if not graphs:
-            message = warnings[0] if warnings else "No dot plots were requested in the config."
+        if not all_graphs:
+            message = all_warnings[0] if all_warnings else "No plots were requested in the config."
             self._show_empty_state(message)
             return
 
-        self.set_graphs(graphs)
+        self.set_graphs(all_graphs)
 
     # Internal functions
     def _on_selection_changed(self):
@@ -327,5 +354,85 @@ def build_dot_plot_graphs(
             continue
 
         graphs[spec["title"]] = result.figure
+
+    return graphs, warnings
+
+
+def build_head_plot_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any]
+) -> Tuple[Dict[str, GraphSource], List[str]]:
+    """
+    Build head plot figures if requested in config flags.
+    Extracts data directly from the DataFrame.
+
+    Returns the generated figures and any warnings explaining skipped plots.
+    """
+    graphs: Dict[str, GraphSource] = {}
+    warnings: List[str] = []
+
+    shown_outputs = (config or {}).get("shown_outputs") or {}
+    
+    # Check if head plot is requested
+    if not shown_outputs.get(HEAD_PLOT_SPEC["flag"], False):
+        return graphs, warnings
+
+    # Validate DataFrame has required columns
+    missing_cols = [col for col in HEAD_PLOT_SPEC["required_df_cols"] if col not in results_df.columns]
+    if missing_cols:
+        warnings.append(
+            f"Head plot skipped: missing DataFrame columns {', '.join(missing_cols)}."
+        )
+        return graphs, warnings
+
+    if results_df.shape[0] == 0:
+        warnings.append("Head plot skipped: DataFrame is empty.")
+        return graphs, warnings
+
+    # Extract data directly from DataFrame (no loader needed!)
+    head_yaw = _as_numeric_array(results_df["HeadYaw"])
+    left_fin_angles = _as_numeric_array(results_df["LF_Angle"])
+    right_fin_angles = _as_numeric_array(results_df["RF_Angle"])
+
+    # Get time ranges from config or use full dataset
+    time_ranges = config.get("time_ranges")
+    if not time_ranges:
+        # Default: treat entire dataset as one bout
+        time_ranges = [(0, len(head_yaw) - 1)]
+
+    # Get head plot settings from config
+    head_settings = config.get(HEAD_PLOT_SPEC["settings_key"], {})
+    head_settings = {**HEAD_PLOT_SPEC["default_settings"], **head_settings}
+
+    # Get cutoffs
+    cutoffs = config.get("graph_cutoffs", {})
+    if "left_fin_angle" not in cutoffs:
+        cutoffs["left_fin_angle"] = 10
+    if "right_fin_angle" not in cutoffs:
+        cutoffs["right_fin_angle"] = 10
+
+    # Generate head plot (ctx=None means no file output, GUI-only)
+    try:
+        result = plot_head(
+            head_yaw=head_yaw,
+            left_fin_values=left_fin_angles,
+            right_fin_values=right_fin_angles,
+            time_ranges=time_ranges,
+            head_settings=head_settings,
+            cutoffs=cutoffs,
+            ctx=None,  # No file output for GUI
+            open_plot=False,
+        )
+    except Exception as exc:
+        warnings.append(f"Failed to generate head plot: {exc}")
+        return graphs, warnings
+
+    # Add figures to graphs dict
+    # If split by bout, we get multiple figures with labels
+    # Otherwise, we get a single figure
+    if result.labels:
+        for fig, label in zip(result.figures, result.labels):
+            graphs[f"{HEAD_PLOT_SPEC['title_prefix']}: {label}"] = fig
+    elif result.figures:
+        graphs[HEAD_PLOT_SPEC["title_prefix"]] = result.figures[0]
 
     return graphs, warnings
