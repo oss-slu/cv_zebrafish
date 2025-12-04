@@ -92,30 +92,6 @@ class Session(QObject):
             return config_path in self.csvs.get(csv_path, {})
 
         return config_path in self.getAllConfigs()
-    
-    '''
-    def removeInvalidEntries(self):
-        removedFiles = []
-
-        for csv_path, configs in self.csvs.items():
-            if not path.exists(csv_path):
-                print(f"[Session] Removing missing CSV: {csv_path}")
-                removedFiles.append(csv_path)
-                del self.csvs[csv_path]
-
-                continue
-            
-            for config_path in list(configs.keys()):
-                if not path.exists(config_path):
-                    print(f"[Session] Removing missing Config: {config_path} from CSV: {csv_path}")
-                    removedFiles.append(config_path)
-                    del configs[config_path]
-        
-        if len(removedFiles) > 0:
-            print(f"[Session] Removed missing files: {removedFiles}")
-            self.session_updated.emit()
-            QMessageBox.information(self.parent(), "Session Update", f"Found missing files in session:\n" + "\n".join(removedFiles) + "\nThey have been removed from the session.")
-    '''
 
 def load_session_from_json(json_path):
     """Load a session from a JSON file."""
