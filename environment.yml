@@ -1,0 +1,19 @@
+name: cv-zebrafish
+channels:
+  - conda-forge
+dependencies:
+  # Core runtime
+  - python=3.10
+  - numpy
+  - pandas
+  - scipy
+  - pyqt=5
+  - plotly
+  - python-kaleido  # Plotly static image export used in the UI
+  - opencv
+  - matplotlib
+  - pillow
+  - openpyxl        # pandas Excel export in graph IO helpers
+  # Tooling / tests
+  - pytest
+  - pytest-qt
