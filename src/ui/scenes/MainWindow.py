@@ -9,7 +9,7 @@ from src.ui.scenes.GraphViewerScene import GraphViewerScene
 from src.ui.scenes.CalculationScene import CalculationScene
 from src.ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
 from src.ui.scenes.VerifyScene import VerifyScene
-from src.ui.scenes.CalculationSceneTree import  CalculationSceneTree
+from ui.scenes.ConfigSelectionScene import  ConfigSelectionScene
 
 from src.session.session import *
 
@@ -52,11 +52,11 @@ class MainWindow(QMainWindow):
         # initializes scenes
         self.scenes = {
             "Landing":  LandingScene(),
-            "Verify": VerifyScene(),
+            "Generate Config": ConfigGeneratorScene(),
+            "Select Configuration": ConfigSelectionScene(),
             "Calculation": CalculationScene(),
-            "Calculation With Tree": CalculationSceneTree(),
             "Graphs": GraphViewerScene(),
-            "Generate Config": ConfigGeneratorScene()
+            "Verify": VerifyScene(),
         }
 
         # Add scenes to stack
@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
+        self.scenes["Select Configuration"].setCalculationScene(self.scenes["Calculation"])
 
     def loadSession(self, path):
         print("Loading session from:", path)
@@ -97,11 +98,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Bad Session", "Please choose a session.")
 
             return
+        
+        self.broadcastSession()
 
-        self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Calculation With Tree"].load_session(self.currentSession)
-
-        self.stack.setCurrentWidget(self.scenes["Calculation With Tree"])
+        self.stack.setCurrentWidget(self.scenes["Select Configuration"])
 
     def createSession(self, session_name):
         print("Creating new session with config.")
@@ -109,11 +109,16 @@ class MainWindow(QMainWindow):
         self.currentSession = Session(session_name)
         self.currentSession.save()
 
-        self.scenes["Generate Config"].load_session(self.currentSession)
-        self.scenes["Calculation With Tree"].load_session(self.currentSession)
+        self.broadcastSession()
 
         self.stack.setCurrentWidget(self.scenes["Generate Config"])
 
+    def broadcastSession(self):
+        self.scenes["Generate Config"].load_session(self.currentSession)
+        self.scenes["Select Configuration"].load_session(self.currentSession)
+        self.scenes["Calculation"].load_session(self.currentSession)
+        self.scenes["Graphs"].load_session(self.currentSession)
+        
     def handle_data(self, data):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)

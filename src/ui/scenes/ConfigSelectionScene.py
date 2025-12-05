@@ -21,7 +21,7 @@ from src.session.session import save_session_to_json
 from src.app_platform.paths import sessions_dir
 
 
-class CalculationSceneTree(QWidget):
+class ConfigSelectionScene(QWidget):
     """
     Scene that allows users to run calculations on zebrafish data.
     Displays saved CSVs/configs from the current session and allows new ones to be added.
@@ -39,7 +39,7 @@ class CalculationSceneTree(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
 
-        header = QLabel("Calculation Scene")
+        header = QLabel("Select Configuration")
         header.setAlignment(Qt.AlignCenter)
         header.setStyleSheet("font-size: 18pt; font-weight: bold;")
         layout.addWidget(header)
@@ -69,26 +69,6 @@ class CalculationSceneTree(QWidget):
         """)
         self.file_tree.itemClicked.connect(self.handle_tree_click)
         layout.addWidget(self.file_tree)
-
-        # ===============================
-        # Manual File Selection
-        # ===============================
-        manual_layout = QVBoxLayout()
-        manual_layout.setSpacing(8)
-
-        manual_header = QLabel("Or select files manually:")
-        manual_header.setAlignment(Qt.AlignCenter)
-        manual_layout.addWidget(manual_header)
-
-        self.csv_button = QPushButton("Select CSV File")
-        self.csv_button.clicked.connect(self.select_csv)
-        manual_layout.addWidget(self.csv_button, alignment=Qt.AlignCenter)
-
-        self.config_button = QPushButton("Select Config File (JSON)")
-        self.config_button.clicked.connect(self.select_config)
-        manual_layout.addWidget(self.config_button, alignment=Qt.AlignCenter)
-
-        layout.addLayout(manual_layout)
 
         # ===============================
         # Calculation Button
@@ -127,7 +107,6 @@ class CalculationSceneTree(QWidget):
 
         print(f"[populate_tree] Populating for session: {self.current_session.name}")
         csvs = self.current_session.getAllCSVs()
-        print(f"[populate_tree] CSV count: {self.current_session.length()}")
 
         if self.current_session.length() == 0:
             item = QTreeWidgetItem(["(No saved CSVs)", ""])
@@ -156,8 +135,6 @@ class CalculationSceneTree(QWidget):
             self.file_tree.addTopLevelItem(csv_item)
             csv_item.setExpanded(True)
 
-        print("[populate_tree] Tree population complete.")
-
     def handle_tree_click(self, item, column):
         """Handle user clicking a CSV or config in the tree."""
         csv_data = item.data(0, Qt.UserRole)
@@ -178,33 +155,6 @@ class CalculationSceneTree(QWidget):
                 f"Selected: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
             )
 
-        self.update_calc_ready()
-
-    # ==============================================================
-    # Manual File Selection
-    # ==============================================================
-
-    def select_csv(self):
-        """Manual CSV selection."""
-        path_, _ = QFileDialog.getOpenFileName(
-            self, "Select CSV File", getcwd(), "CSV Files (*.csv)"
-        )
-        if path_:
-            self.csv_path = path_
-            self.status_label.setText(f"Selected CSV: {path.basename(self.csv_path)}")
-            self.update_calc_ready()
-
-    def select_config(self):
-        """Manual Config selection."""
-        path_, _ = QFileDialog.getOpenFileName(
-            self, "Select Config File", getcwd(), "JSON Files (*.json)"
-        )
-        if path_:
-            self.config_path = path_
-            self.status_label.setText(f"Selected Config: {path.basename(self.config_path)}")
-            self.update_calc_ready()
-
-    def update_calc_ready(self):
         """Update button state based on current selections."""
         if self.csv_path and self.config_path:
             self.calc_button.setEnabled(True)
@@ -220,56 +170,10 @@ class CalculationSceneTree(QWidget):
     # Calculation Logic
     # ==============================================================
 
+    def setCalculationScene(self, calculation_scene):
+        self.calculation_scene = calculation_scene
+
     def calculate(self):
-        """Run calculations and update session if new pair is used."""
-        if not self.csv_path or not self.config_path:
-            QMessageBox.warning(self, "Missing Files", "Please select both a CSV and Config.")
-            return
-
-        print(f"Running calculations on:\n CSV: {self.csv_path}\n Config: {self.config_path}")
-
-        try:
-            config = json.load(open(self.config_path, "r"))
-            parsed_points = parser.parse_dlc_csv(self.csv_path, config)
-            results = calculations.run_calculations(parsed_points, config)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Calculation failed:\n{e}")
-            self.data_generated.emit(None)
-            return
-
-        if results is None:
-            self.status_label.setText("Calculation failed.")
-            self.data_generated.emit(None)
-            return
-
-        self.status_label.setText("Calculation successful.")
-        print("Calculation successful - emitting results.")
-
-        # Update session if it's a new CSV/config
-        if self.current_session:
-            added = False
-            if self.csv_path not in self.current_session.csvs:
-                self.current_session.addCSV(self.csv_path)
-                added = True
-            if self.config_path not in self.current_session.csvs[self.csv_path]:
-                self.current_session.addConfigToCSV(self.csv_path, self.config_path)
-                added = True
-
-            if added:
-                # Save updated session
-                save_path = path.join(sessions_dir(), f"{self.current_session.name}.json")
-                save_session_to_json(self.current_session, save_path)
-                print(f"Session updated and saved to: {save_path}")
-
-                # Refresh tree to show new additions
-                self.populate_tree()
-
-        payload = {
-            "results_df": results,
-            "config": config,
-            "csv_path": self.csv_path,
-            "parsed_points": parsed_points,
-        }
-
-        # Emit data to MainWindow
-        self.data_generated.emit(payload)
+        self.calculation_scene.set_csv_path(self.csv_path)
+        self.calculation_scene.set_config(self.config_path)
+        self.calculation_scene.calculate()

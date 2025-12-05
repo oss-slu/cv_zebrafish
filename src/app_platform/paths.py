@@ -34,7 +34,7 @@ def configs_dir() -> Path:
 
 
 def sessions_dir() -> Path:
-    return project_root() / "sessions"
+    return project_root() / "data" / "sessions"
 
 
 def sample_csv_dir() -> Path:
