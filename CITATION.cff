@@ -1,0 +1,23 @@
+title: cv_zebrafish
+authors:
+  - given-names: Jacob
+    family-names: Winter
+  - given-names: Gihwan
+    family-names: Jung
+  - given-names: Madhuritha Alle
+  - given-names: Nilesh
+    family-names: Gupta
+cff-version: 1.2.0
+message: If you use this software, please cite it using the metadata from this file.
+type: software
+abstract: CV Zebrafish — a modular software tool to track and analyze zebrafish
+  movements from high-speed imaging. It integrates with DeepLabCut outputs to
+  compute metrics like fin angles, movement timing, speed, and behavior
+  classification
+keywords:
+  - deeplabcut
+  - hacktoberfest
+  - python
+  - zebrafish
+license: MIT
+repository-code: https://github.com/oss-slu/cv_zebrafish
