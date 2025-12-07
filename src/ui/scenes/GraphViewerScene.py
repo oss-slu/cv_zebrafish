@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
 import plotly.graph_objs as go
 import plotly.io as pio
 
+from src.core.graphs.plots import render_dot_plot
+from src.core.graphs.plots.headplot import plot_head
 from src.core.graphs.loader_bundle import GraphDataBundle
 from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_spines
 
@@ -69,6 +71,20 @@ DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
         "moving": True,
     },
 )
+
+HEAD_PLOT_SPEC: Dict[str, Any] = {
+    "flag": "show_head_plot",
+    "title_prefix": "Head Plot",
+    "required_df_cols": ["HeadYaw", "LF_Angle", "RF_Angle"],
+    "settings_key": "head_plot_settings",
+    "default_settings": {
+        "plot_draw_offset": 15,
+        "ignore_synchronized_fin_peaks": True,
+        "sync_fin_peaks_range": 3,
+        "fin_peaks_for_right_fin": False,
+        "split_plots_by_bout": True,
+    },
+}
 
 class GraphViewerScene(QWidget):
     """
@@ -145,7 +161,7 @@ class GraphViewerScene(QWidget):
                 self.list.setCurrentRow(0)
 
     def set_data(self, data):
-        """Consume calculation payload and build the requested dot plots."""
+        """Consume calculation payload and build the requested dot plots and head plots."""
         self._data = data
         self._graphs.clear()
         self.list.clear()
@@ -160,16 +176,25 @@ class GraphViewerScene(QWidget):
 
         results_df = data.get("results_df")
         config = data.get("config")
+        csv_path = data.get("csv_path")
 
         if not isinstance(results_df, pd.DataFrame):
-            self._show_empty_state("Dot plots require a pandas DataFrame payload.")
+            self._show_empty_state("Graphs require a pandas DataFrame payload.")
             return
         if not isinstance(config, dict):
             self._show_empty_state("Missing config dictionary; cannot determine requested plots.")
             return
 
+      
+
+     
         graphs: Dict[str, GraphSource] = {}
         warnings: List[str] = []
+          
+        # Build head plots (extracts data directly from DataFrame)
+        head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
+        all_graphs.update(head_graphs)
+        all_warnings.extend(head_warnings)
 
         dot_graphs, dot_warnings = build_dot_plot_graphs(results_df, config)
         graphs.update(dot_graphs)
@@ -183,16 +208,16 @@ class GraphViewerScene(QWidget):
         graphs.update(spine_graphs)
         warnings.extend(spine_warnings)
 
-        tooltip = "\n".join(warnings) if warnings else ""
+        tooltip = "\n".join(all_warnings) if all_warnings else ""
         self.list.setToolTip(tooltip)
         self.image_label.setToolTip(tooltip)
 
-        if not graphs:
-            message = warnings[0] if warnings else "No dot plots were requested in the config."
+        if not all_graphs:
+            message = all_warnings[0] if all_warnings else "No plots were requested in the config."
             self._show_empty_state(message)
             return
 
-        self.set_graphs(graphs)
+        self.set_graphs(all_graphs)
 
     # Internal functions
     def _on_selection_changed(self):
@@ -345,6 +370,14 @@ def build_dot_plot_graphs(
     return graphs, warnings
 
 
+def build_head_plot_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any]
+) -> Tuple[Dict[str, GraphSource], List[str]]:
+    """
+    Build head plot figures if requested in config flags.
+    Extracts data directly from the DataFrame.
+
+    Returns the generated figures and any warnings explaining skipped plots.
 def build_fin_tail_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
