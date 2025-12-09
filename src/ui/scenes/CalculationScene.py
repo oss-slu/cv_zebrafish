@@ -1,4 +1,5 @@
 import json
+from os import path
 from pathlib import Path
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
@@ -9,6 +10,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QMessageBox
 )
 
 from core.calculations.Driver import run_calculations
@@ -27,6 +29,7 @@ class CalculationScene(QWidget):
         self.csv_path = None
         self.config = None
         self.previous_settings = {"csv_path": None, "config": None}
+        self.current_session = None
 
         layout = QVBoxLayout()
         layout.setSpacing(16)
@@ -181,11 +184,28 @@ class CalculationScene(QWidget):
             self.calc_button.setStyleSheet("background-color: lightgrey;")
 
     def calculate(self):
-        # Placeholder for the actual calculation logic
         print("Running calculations...")
+
+        # makes sure the files are there. this is redundant but just in case
+        if not self.csv_path or not self.config:
+            QMessageBox.warning(self, "Missing Files", "Please select both a CSV and Config.")
+            return
+        
+        if self.current_session:
+            if self.current_session.checkExists(self.csv_path, self.config):
+                print("CSV + Config pair already in session.")
+            else:
+                # adds csv to session after checking if it already exists
+                if not self.current_session.checkExists(self.csv_path):
+                    self.current_session.addCSV(self.csv_path)
+
+                self.current_session.addConfigToCSV(self.csv_path, self.config)
+                self.current_session.save()
 
         with open(self.config, "r", encoding="utf-8") as handle:
             config = json.load(handle)
+            config["config_path"] = self.config  # add config path to config dict
+            
         parsed_points = parse_dlc_csv(self.csv_path, config)
 
         self.status_label.setText("CSV parsed successfully, running calculations...")
@@ -209,3 +229,7 @@ class CalculationScene(QWidget):
 
             # Emit the results to signal the main window to start creating the graphs.
             self.data_generated.emit(payload)
+
+    def load_session(self, session):
+        print("Loading session into CalculationScene.")
+        self.current_session = session

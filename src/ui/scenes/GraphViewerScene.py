@@ -1,8 +1,10 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
+import re
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
@@ -20,6 +22,9 @@ import plotly.io as pio
 
 from src.core.graphs.loader_bundle import GraphDataBundle
 from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_spines
+
+from src.session import session
+from src.app_platform.paths import sessions_dir
 
 GraphSource = go.Figure
 
@@ -89,9 +94,11 @@ class GraphViewerScene(QWidget):
         super().__init__()
 
         self._graphs: Dict[str, GraphSource] = {}
+        self._out_dir: Optional[Path] = None
         self._current_name: Optional[str] = None
         self._original_pixmap: Optional[QPixmap] = None
         self._data = None
+        self.current_session = None
 
         # Sidebar
         self.list = QListWidget()
@@ -122,7 +129,7 @@ class GraphViewerScene(QWidget):
         self._show_empty_state("No graphs available.")
 
     # Public functions to call to construct the viewer
-    def set_graphs(self, graphs: Dict[str, GraphSource]):
+    def set_graphs(self, graphs: Dict[str, GraphSource], config: Dict[str, Any] = None):
         """Replace all graphs."""
         self._graphs.clear()
         self._graphs.update(graphs)
@@ -133,6 +140,11 @@ class GraphViewerScene(QWidget):
             self.list.setCurrentRow(0)
         else:
             self._show_empty_state("No graphs available.")
+
+        # saves graphs to session
+        if config and self.current_session is not None and self._out_dir is not None:
+            for name, fig in self._graphs.items():
+                save_to_html(fig, name, self._out_dir, config, self.current_session)
 
     def add_graph(self, name: str, graph: GraphSource):
         """Add or replace a single graph."""
@@ -192,7 +204,7 @@ class GraphViewerScene(QWidget):
             self._show_empty_state(message)
             return
 
-        self.set_graphs(graphs)
+        self.set_graphs(graphs, config=config)
 
     # Internal functions
     def _on_selection_changed(self):
@@ -238,6 +250,21 @@ class GraphViewerScene(QWidget):
         if self._original_pixmap:
             self._update_scaled_pixmap()
 
+    def load_session(self, session):
+        """Load previous session data."""
+        self.current_session = session
+
+        # creates directory for saving graphs if it doesn't exist
+        self._out_dir = sessions_dir() / (self.current_session.getName())
+        self._out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Restore previously saved HTML graphs
+        restored_graphs = self._load_html_graphs_from_session()
+        if restored_graphs:
+            self.set_graphs(restored_graphs)
+        else:
+            self._show_empty_state("No saved graphs yet for this session.")
+
     def _update_scaled_pixmap(self):
         """Scale the original pixmap to fit the viewport width while keeping aspect ratio."""
         if not self._original_pixmap:
@@ -267,6 +294,30 @@ class GraphViewerScene(QWidget):
                 f"Error: {e}"
             )
             return None
+        
+    def _load_html_graphs_from_session(self):
+        """Load previously saved HTML graphs from the session directory (placeholder)."""
+        if not self.current_session:
+            return {}
+
+        graphs = {}
+        session_dir = sessions_dir() / self.current_session.getName()
+        if not session_dir.exists():
+            return graphs
+
+        # Recursive glob for all .html files
+        for html_file in session_dir.rglob("*.html"):
+            try:
+                # Use relative path from session dir for uniqueness
+                relative_name = html_file.relative_to(session_dir).with_suffix("").as_posix()
+                
+                # graphs[relative_name] = str(html_file) 
+                # just store path as placeholder. this should be replaced with actual loading logic when pyqt webengine is used
+                # and the app is capable of rendering html files directly.
+            except Exception as e:
+                print(f"Could not load graph {html_file}: {e}")
+
+        return graphs
 
 
 def _as_numeric_array(series: pd.Series) -> np.ndarray:
@@ -274,6 +325,10 @@ def _as_numeric_array(series: pd.Series) -> np.ndarray:
     numeric = pd.to_numeric(series, errors="coerce")
     return numeric.to_numpy()
 
+def _safe_filename(title: str) -> str:
+    """Make a filesystem-safe filename from a title (keeps extension to add later)."""
+    # Replace any character not in this set with underscore
+    return re.sub(r"[^A-Za-z0-9._-]", "_", title).strip("_")
 
 def build_dot_plot_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
@@ -339,7 +394,7 @@ def build_dot_plot_graphs(
         except Exception as exc:  # pragma: no cover - defensive guard
             warnings.append(f"Failed to render '{spec['title']}': {exc}")
             continue
-
+            
         graphs[spec["title"]] = result.figure
 
     return graphs, warnings
@@ -495,3 +550,23 @@ def build_spine_graphs(
         graphs["Spines Combined"] = result.figures[0]
 
     return graphs, warnings
+
+
+def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session: Session = None) -> None:
+    """
+    Save a Plotly figure as an interactive HTML file in the given directory (best-effort).
+    Uses CDN for plotly JS to keep file size smaller and consistent.
+    """
+    try:
+        fname = _safe_filename(title) or "graph"
+
+        html_path = out_dir / f"{fname}.html"
+                
+        # Use CDN for plotly JS to keep file size smaller and consistent
+        pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
+
+        if session is not None:
+            session.addGraphToConfig(config["config_path"], str(html_path))
+            session.save()
+    except Exception as e:
+        print(f"Could not save '{title}' as HTML: {e}")

@@ -1,7 +1,8 @@
-from os import path, getcwd
+from os import path
 import json
 
 from PyQt5.QtCore import pyqtSignal, QObject
+from PyQt5.QtWidgets import QMessageBox
 
 from src.app_platform.paths import sessions_dir
 
@@ -14,17 +15,27 @@ class Session(QObject):
         self.csvs = {}
     
     def addCSV(self, csv_path):
+        if not path.exists(csv_path):
+            print(f"[Session] CSV path does not exist: {csv_path}")
+            return
+        
         self.csvs[csv_path] = {}
-
         self.session_updated.emit()
-
+        
     def addConfigToCSV(self, csv_path, config_path):
+        if not path.exists(config_path):
+            print(f"[Session] Config path does not exist: {config_path}")
+            return
+        
         if csv_path in self.csvs:
             self.csvs[csv_path][config_path] = []
-        
-        self.session_updated.emit()
+            self.session_updated.emit()
 
     def addGraphToConfig(self, config_path, graph_path):
+        if not path.exists(graph_path):
+            print(f"[Session] Graph path does not exist: {graph_path}")
+            return
+        
         for _, configs in self.csvs.items():
             if config_path in configs:
                 configs[config_path].append(graph_path)
@@ -74,6 +85,14 @@ class Session(QObject):
         with open(file_path, 'w') as f:
             json.dump(self.toDict(), f, indent=4)
 
+    def checkExists(self, csv_path=None, config_path=None):
+        if csv_path in self.csvs and config_path is None:
+            return True
+        if csv_path and config_path:
+            return config_path in self.csvs.get(csv_path, {})
+
+        return config_path in self.getAllConfigs()
+
 def load_session_from_json(json_path):
     """Load a session from a JSON file."""
     try:
@@ -83,18 +102,18 @@ def load_session_from_json(json_path):
         raise ValueError(f"Could not read session file: {e}")
 
     session_name = data.get("name", "UnnamedSession")
-
     if session_name == "UnnamedSession":
         raise ValueError("Session file is missing a valid name.")
 
     session = Session(session_name)
 
     csvs = data.get("csvs", {})
-    for csv_path, cfgs in (csvs or {}).items():
+    for csv_path, configs in csvs.items():
         session.addCSV(csv_path)
-        configs = cfgs or []
-        for config in configs:
-            session.addConfigToCSV(csv_path, config)
+        for config_path, graphs in configs.items():
+            session.addConfigToCSV(csv_path, config_path)
+            for graph_path in graphs:
+                session.addGraphToConfig(config_path, graph_path)
 
     return session
 
