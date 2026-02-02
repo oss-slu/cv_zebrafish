@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -17,6 +17,9 @@ from core.validation import generate_json
 
 
 class ConfigGeneratorScene(QWidget):
+
+    config_generated = pyqtSignal()
+
     def __init__(self, csv_path=None, parent=None):
         super().__init__(parent)
 
@@ -159,6 +162,7 @@ class ConfigGeneratorScene(QWidget):
             return
 
         self.feedback_box.setText(f"Success: Configuration saved to:\n{save_path}")
+        self.config_generated.emit()
 
     def load_session(self, session):
         """Load previous session data."""

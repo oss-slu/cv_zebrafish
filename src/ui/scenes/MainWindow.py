@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         self.scenes["Calculation"].data_generated.connect(self.handle_data)
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
+        self.scenes["Generate Config"].config_generated.connect(self.goToSelectConfig)
         self.scenes["Select Configuration"].setCalculationScene(self.scenes["Calculation"])
 
     def loadSession(self, path):
@@ -123,6 +124,9 @@ class MainWindow(QMainWindow):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
         self.stack.setCurrentWidget(self.scenes["Graphs"])
+
+    def goToSelectConfig(self):
+        self.stack.setCurrentWidget(self.scenes["Select Configuration"])
 
     def toggle_theme(self):
         if self.current_theme == "light":
