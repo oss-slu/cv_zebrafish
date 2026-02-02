@@ -1,6 +1,7 @@
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtWidgets import (
-    QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut, QMessageBox
+    QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut, QMessageBox,
+    QWidget, QVBoxLayout
 )
 from PyQt5.QtGui import QKeySequence
 
@@ -15,6 +16,9 @@ from src.session.session import *
 
 from styles.themes import apply_theme, THEMES
 from src.ui.components.ThemeToggle import ThemeToggle
+
+from src.ui.components.ProgressIndicator import ProgressIndicator
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -46,8 +50,34 @@ class MainWindow(QMainWindow):
         ### adds scenes ###
 
         # QStackedWidget to hold scenes
+
+
+
+        ##CHANGED _______________________
+        #self.stack = QStackedWidget()
+        #self.setCentralWidget(self.stack)
+        ## ADDED
+        # QStackedWidget to hold scenes
         self.stack = QStackedWidget()
-        self.setCentralWidget(self.stack)
+
+        # Create progress indicator
+        self.progress_indicator = ProgressIndicator()
+
+        # Create a container widget to hold both progress indicator and stack
+        container = QWidget()
+        container_layout = QVBoxLayout()
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self.progress_indicator)
+        container_layout.addWidget(self.stack)
+        container.setLayout(container_layout)
+
+        # Set the container as central widget
+        self.setCentralWidget(container)
+        #_______________________________
+
+
+
 
         # initializes scenes
         self.scenes = {
@@ -72,7 +102,7 @@ class MainWindow(QMainWindow):
         for name, scene in self.scenes.items():
             action = QAction(name, self)
             action.triggered.connect(
-                lambda checked, s=scene: self.stack.setCurrentWidget(s))
+                lambda checked, s=scene, n=name: self._switch_to_scene(s, n))
             toolbar.addAction(action)
 
             # sets cursor to hand for valid toolbar actions
@@ -81,7 +111,7 @@ class MainWindow(QMainWindow):
                 widget.setCursor(Qt.PointingHandCursor)
 
         # Show first scene
-        self.stack.setCurrentWidget(self.scenes[startScene])
+        self._switch_to_scene(self.scenes[startScene], startScene)
 
         ### signal handlers ###
 
@@ -101,7 +131,7 @@ class MainWindow(QMainWindow):
         
         self.broadcastSession()
 
-        self.stack.setCurrentWidget(self.scenes["Select Configuration"])
+        self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
 
     def createSession(self, session_name):
         print("Creating new session with config.")
@@ -111,7 +141,7 @@ class MainWindow(QMainWindow):
 
         self.broadcastSession()
 
-        self.stack.setCurrentWidget(self.scenes["Generate Config"])
+        self._switch_to_scene(self.scenes["Generate Config"], "Generate Config")
 
     def broadcastSession(self):
         self.scenes["Generate Config"].load_session(self.currentSession)
@@ -122,7 +152,7 @@ class MainWindow(QMainWindow):
     def handle_data(self, data):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
-        self.stack.setCurrentWidget(self.scenes["Graphs"])
+        self._switch_to_scene(self.scenes["Graphs"], "Graphs")
 
     def toggle_theme(self):
         if self.current_theme == "light":
@@ -131,3 +161,8 @@ class MainWindow(QMainWindow):
             self.current_theme = "light"
 
         apply_theme(self, THEMES[self.current_theme])
+
+    def _switch_to_scene(self, scene, scene_name):
+        """Switch to a scene and update the progress indicator."""
+        self.stack.setCurrentWidget(scene)
+        self.progress_indicator.set_current_step(scene_name)
