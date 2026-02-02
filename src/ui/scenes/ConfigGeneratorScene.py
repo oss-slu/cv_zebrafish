@@ -1,3 +1,5 @@
+import re
+
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -11,9 +13,12 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QLineEdit,
 )
 
 from core.validation import generate_json
+from app_platform.paths import sessions_dir
+
 
 
 class ConfigGeneratorScene(QWidget):
@@ -70,6 +75,11 @@ class ConfigGeneratorScene(QWidget):
         self.tail_list.setSelectionMode(QListWidget.MultiSelection)
         layout.addWidget(self.tail_list)
 
+        layout.addWidget(QLabel("Config Name"))
+        self.config_name_input = QLineEdit()
+        self.config_name_input.setPlaceholderText("config")
+        layout.addWidget(self.config_name_input)
+
         self.gen_btn = QPushButton("Generate Config")
         self.gen_btn.clicked.connect(self.generate_config)
         layout.addWidget(self.gen_btn)
@@ -119,10 +129,46 @@ class ConfigGeneratorScene(QWidget):
             self.spine_list.addItem(QListWidgetItem(bodypart))
             self.tail_list.addItem(QListWidgetItem(bodypart))
 
+    def _validate_config_name(self, name: str) -> tuple[bool, str]:
+        name = (name or "").strip()
+
+        if not name:
+            return False, "Config name can’t be empty."
+
+        if not re.fullmatch(r"[A-Za-z0-9_\-\. ]+", name):
+            return False, "Config name may only contain letters, numbers, spaces, underscore (_), dash (-), and dot (.)"
+
+        if any(ch in name for ch in '<>:"/\\|?*'):
+            return False, 'Config name contains invalid characters: <>:"/\\|?*'
+
+        return True, ""
+
+    def _next_available_path(self, folder: Path, base: str) -> Path:
+        # ensure .json extension
+        if not base.lower().endswith(".json"):
+            base = base + ".json"
+
+        candidate = folder / base
+        if not candidate.exists():
+            return candidate
+
+        stem = candidate.stem
+        suffix = candidate.suffix
+        i = 2
+        while True:
+            cand = folder / f"{stem}_{i}{suffix}"
+            if not cand.exists():
+                return cand
+            i += 1
+
     def generate_config(self):
         """Collect selections and write JSON config."""
         if not self.bodyparts:
             self.feedback_box.setText("Warning: Load a CSV first.")
+            return
+
+        if self.current_session is None:
+            self.feedback_box.setText("Warning: No session loaded. Start or load a session first.")
             return
 
         spine_points = [item.text() for item in self.spine_list.selectedItems()]
@@ -143,11 +189,19 @@ class ConfigGeneratorScene(QWidget):
         }
 
         config = generate_json.build_config(points, generate_json.BASE_CONFIG)
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Config JSON", str(Path.cwd()), "JSON Files (*.json)"
-        )
-        if not save_path:
+
+        session_name = self.current_session.getName()
+        session_folder = Path(sessions_dir()) / session_name
+        session_folder.mkdir(parents=True, exist_ok=True)
+
+        config_name = self.config_name_input.text().strip()
+        ok, msg = self._validate_config_name(config_name)
+        if not ok:
+            self.feedback_box.setText(f"Warning: {msg}")
             return
+
+        save_path = self._next_available_path(session_folder, self.config_name_input.text())
+        save_path = str(save_path)
 
         try:
             generate_json.save_config_json(config, save_path)
