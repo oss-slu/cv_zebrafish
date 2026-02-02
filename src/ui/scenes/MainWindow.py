@@ -185,10 +185,11 @@ class MainWindow(QMainWindow):
     def handle_data(self, data):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
-        self.setScene(self.scenes["Graphs"])
+        self._switch_to_scene(self.scenes["Graphs"], "Graphs")
 
     def goToSelectConfig(self):
-        self.setScene(self.scenes["Select Configuration"])
+        self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
+
 
     def toggle_theme(self):
         if self.current_theme == "light":
@@ -199,9 +200,8 @@ class MainWindow(QMainWindow):
         apply_theme(self, THEMES[self.current_theme])
 
     def _switch_to_scene(self, scene, scene_name):
-        for s, action in self.scene_actions.items():
-            action.setChecked(s is scene)
-        self._switch_to_scene(self.scenes["Graphs"], "Graphs")
         """Switch to a scene and update the progress indicator."""
         self.stack.setCurrentWidget(scene)
+        for s, action in self.scene_actions.items():
+            action.setChecked(s is scene)
         self.progress_indicator.set_current_step(scene_name)
