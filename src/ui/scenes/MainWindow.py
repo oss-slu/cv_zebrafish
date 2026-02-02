@@ -16,6 +16,31 @@ from src.session.session import *
 from styles.themes import apply_theme, THEMES
 from src.ui.components.ThemeToggle import ThemeToggle
 
+toolbarStyleInfoText = """
+    /* Toolbar background */
+    QToolBar {
+        background: #2b2b2b;
+        border: none;
+    }
+
+    /* Default (unselected) buttons */
+    QToolButton {
+        color: #cfcfcf;
+        background: transparent;
+    }
+
+    /* Hover */
+    QToolButton:hover {
+        background: #3a3a3a;
+    }
+
+    /* Selected (current page) */
+    QToolButton:checked {
+        background: #ffffff;
+        color: #000000;
+    }
+"""
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -39,6 +64,10 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setIconSize(QSize(32, 32))
         self.addToolBar(toolbar)
+        toolbar.setMovable(False)          # optional: keep it fixed
+        toolbar.setFloatable(False)        # optional
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        toolbar.setStyleSheet(toolbarStyleInfoText)
 
         # shortcut to close the window
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
@@ -69,11 +98,16 @@ class MainWindow(QMainWindow):
         self.theme_toggle.show()
 
         # Toolbar buttons
+        self.scene_actions = {}
+
         for name, scene in self.scenes.items():
             action = QAction(name, self)
+            action.setCheckable(True)
+
             action.triggered.connect(
-                lambda checked, s=scene: self.stack.setCurrentWidget(s))
+                lambda checked, s=scene: self.setScene(s))
             toolbar.addAction(action)
+            self.scene_actions[scene] = action
 
             # sets cursor to hand for valid toolbar actions
             widget = toolbar.widgetForAction(action)
@@ -81,7 +115,7 @@ class MainWindow(QMainWindow):
                 widget.setCursor(Qt.PointingHandCursor)
 
         # Show first scene
-        self.stack.setCurrentWidget(self.scenes[startScene])
+        self.setScene(self.scenes[startScene])
 
         ### signal handlers ###
 
@@ -102,7 +136,7 @@ class MainWindow(QMainWindow):
         
         self.broadcastSession()
 
-        self.stack.setCurrentWidget(self.scenes["Select Configuration"])
+        self.setScene(self.scenes["Select Configuration"])
 
     def createSession(self, session_name):
         print("Creating new session with config.")
@@ -112,7 +146,7 @@ class MainWindow(QMainWindow):
 
         self.broadcastSession()
 
-        self.stack.setCurrentWidget(self.scenes["Generate Config"])
+        self.setScene(self.scenes["Generate Config"])
 
     def broadcastSession(self):
         self.scenes["Generate Config"].load_session(self.currentSession)
@@ -123,10 +157,16 @@ class MainWindow(QMainWindow):
     def handle_data(self, data):
         print("Data received in MainWindow")
         self.scenes["Graphs"].set_data(data)
-        self.stack.setCurrentWidget(self.scenes["Graphs"])
+        self.setScene(self.scenes["Graphs"])
 
     def goToSelectConfig(self):
-        self.stack.setCurrentWidget(self.scenes["Select Configuration"])
+        self.setScene(self.scenes["Select Configuration"])
+
+    def setScene(self, scene):
+        self.stack.setCurrentWidget(scene)
+
+        for s, action in self.scene_actions.items():
+            action.setChecked(s is scene)
 
     def toggle_theme(self):
         if self.current_theme == "light":
