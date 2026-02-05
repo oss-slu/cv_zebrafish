@@ -17,31 +17,7 @@ from src.session.session import *
 from styles.themes import apply_theme, THEMES
 from src.ui.components.ThemeToggle import ThemeToggle
 from src.ui.components.ProgressIndicator import ProgressIndicator
-
-toolbarStyleInfoText = """
-    /* Toolbar background */
-    QToolBar {
-        background: #2b2b2b;
-        border: none;
-    }
-
-    /* Default (unselected) buttons */
-    QToolButton {
-        color: #cfcfcf;
-        background: transparent;
-    }
-
-    /* Hover */
-    QToolButton:hover {
-        background: #3a3a3a;
-    }
-
-    /* Selected (current page) */
-    QToolButton:checked {
-        background: #ffffff;
-        color: #000000;
-    }
-"""
+from src.ui.components.SceneNavigator import SceneNavigator
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -62,15 +38,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(QSize(900, 350))
         self.resize(QSize(1000, 700))
 
-        # Create toolbar
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setIconSize(QSize(32, 32))
-        self.addToolBar(toolbar)
-        toolbar.setMovable(False)          # optional: keep it fixed
-        toolbar.setFloatable(False)        # optional
-        toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        toolbar.setStyleSheet(toolbarStyleInfoText)
-
         # shortcut to close the window
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
 
@@ -90,11 +57,19 @@ class MainWindow(QMainWindow):
         # Create progress indicator
         self.progress_indicator = ProgressIndicator()
 
-        # Create a container widget to hold both progress indicator and stack
+        self.scene_navigator = SceneNavigator(
+            steps=self.progress_indicator.steps,
+            on_back=self.go_previous_scene,
+            on_forward=self.go_next_scene
+        )
+
+
+        # Create a container widget to hold both progress indicator, navigator, and stack
         container = QWidget()
         container_layout = QVBoxLayout()
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
+        container_layout.addWidget(self.scene_navigator)
         container_layout.addWidget(self.progress_indicator)
         container_layout.addWidget(self.stack)
         container.setLayout(container_layout)
@@ -124,23 +99,6 @@ class MainWindow(QMainWindow):
         self.theme_toggle = ThemeToggle(self, on_toggle=self.toggle_theme)
         self.theme_toggle.reposition()
         self.theme_toggle.show()
-
-        # Toolbar buttons
-        self.scene_actions = {}
-
-        for name, scene in self.scenes.items():
-            action = QAction(name, self)
-            action.setCheckable(True)
-
-            action.triggered.connect(
-                lambda checked, s=scene, n=name: self._switch_to_scene(s, n))
-            toolbar.addAction(action)
-            self.scene_actions[scene] = action
-
-            # sets cursor to hand for valid toolbar actions
-            widget = toolbar.widgetForAction(action)
-            if widget:
-                widget.setCursor(Qt.PointingHandCursor)
 
         # Show first scene
         self._switch_to_scene(self.scenes[startScene], startScene)
@@ -190,7 +148,6 @@ class MainWindow(QMainWindow):
     def goToSelectConfig(self):
         self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
 
-
     def toggle_theme(self):
         if self.current_theme == "light":
             self.current_theme = "dark"
@@ -198,10 +155,39 @@ class MainWindow(QMainWindow):
             self.current_theme = "light"
 
         apply_theme(self, THEMES[self.current_theme])
+    
+    """Scene Switch Functions"""
+    def go_previous_scene(self):
+        steps = self.progress_indicator.steps
+        current_name = self.progress_indicator.steps[self.progress_indicator.current_step_index]
+
+        if current_name not in steps:
+            return
+
+        i = steps.index(current_name)
+        if i <= 0:
+            return
+
+        prev_name = steps[i - 1]
+        self._switch_to_scene(self.scenes[prev_name], prev_name)
+
+
+    def go_next_scene(self):
+        steps = self.progress_indicator.steps
+        current_name = self.progress_indicator.steps[self.progress_indicator.current_step_index]
+
+        if current_name not in steps:
+            return
+
+        i = steps.index(current_name)
+        if i >= len(steps) - 1:
+            return
+
+        next_name = steps[i + 1]
+        self._switch_to_scene(self.scenes[next_name], next_name)
 
     def _switch_to_scene(self, scene, scene_name):
         """Switch to a scene and update the progress indicator."""
         self.stack.setCurrentWidget(scene)
-        for s, action in self.scene_actions.items():
-            action.setChecked(s is scene)
         self.progress_indicator.set_current_step(scene_name)
+        self.scene_navigator.set_current_step(scene_name)
