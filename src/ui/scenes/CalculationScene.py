@@ -2,7 +2,7 @@ import json
 from os import path
 from pathlib import Path
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal, QThread
 from PyQt5.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -18,6 +18,36 @@ from core.parsing.Parser import parse_dlc_csv
 from app_platform.paths import default_sample_config, default_sample_csv
 
 
+class CalculationWorker(QThread):
+    """Worker thread to run calculations without blocking the UI."""
+    
+    def __init__(self, csv_path, config, parent=None):
+        super().__init__(parent)
+        self.csv_path = csv_path
+        self.config = config
+        self.results = None
+        self.parsed_points = None
+        self.error = None
+    
+    def run(self):
+        """This runs in a separate thread."""
+        try:
+            print("[Worker] Starting CSV parsing...")
+            # Parse CSV
+            self.parsed_points = parse_dlc_csv(self.csv_path, self.config)
+            
+            print("[Worker] CSV parsed, running calculations...")
+            # Run calculations
+            self.results = run_calculations(self.parsed_points, self.config)
+            
+            print("[Worker] Calculations completed successfully.")
+            
+        except Exception as e:
+            print(f"[Worker] Error during calculation: {e}")
+            self.error = str(e)
+            self.results = None
+
+
 class CalculationScene(QWidget):
     data_generated = pyqtSignal(object)  # Signal to emit calculation results
 
@@ -30,6 +60,7 @@ class CalculationScene(QWidget):
         self.config = None
         self.previous_settings = {"csv_path": None, "config": None}
         self.current_session = None
+        self.worker = None  # Track the worker thread
 
         layout = QVBoxLayout()
         layout.setSpacing(16)
@@ -92,6 +123,15 @@ class CalculationScene(QWidget):
         self.calc_button.clicked.connect(self.calculate)
         layout.addWidget(self.calc_button)
 
+        # Progress indicator label (hidden by default)
+        self.progress_label = QLabel("")
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        self.progress_label.setStyleSheet(
+            "color: #2196F3; font-weight: bold; font-size: 14px; padding: 10px;"
+        )
+        self.progress_label.hide()
+        layout.addWidget(self.progress_label)
+
         # adds toggle to switch between using default config or test config
         layout.addWidget(QLabel("Toggle to use test config"), alignment=Qt.AlignCenter)
         self.toggle_button = QPushButton()
@@ -100,8 +140,6 @@ class CalculationScene(QWidget):
         self.toggle_button.setToolTip("Use Default Config")
         self.toggle_button.clicked.connect(self.toggle_test)
         layout.addWidget(self.toggle_button, alignment=Qt.AlignCenter)
-
-        self.setLayout(layout)
 
         # buttons to select csv file to be used for calculation
         self.csv_button = QPushButton("Select CSV File")
@@ -112,6 +150,8 @@ class CalculationScene(QWidget):
         self.config_button = QPushButton("Select Config File (JSON)")
         self.config_button.clicked.connect(self.select_config)
         layout.addWidget(self.config_button)
+
+        self.setLayout(layout)
 
     def select_csv(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -184,11 +224,21 @@ class CalculationScene(QWidget):
             self.calc_button.setStyleSheet("background-color: lightgrey;")
 
     def calculate(self):
+        """Start calculation in background thread."""
         print("Running calculations...")
 
         # makes sure the files are there. this is redundant but just in case
         if not self.csv_path or not self.config:
             QMessageBox.warning(self, "Missing Files", "Please select both a CSV and Config.")
+            return
+        
+        # Prevent starting a new calculation if one is already running
+        if self.worker is not None and self.worker.isRunning():
+            QMessageBox.warning(
+                self, 
+                "Calculation in Progress", 
+                "A calculation is already running. Please wait for it to complete."
+            )
             return
         
         if self.current_session:
@@ -202,34 +252,88 @@ class CalculationScene(QWidget):
                 self.current_session.addConfigToCSV(self.csv_path, self.config)
                 self.current_session.save()
 
+        # Load config
         with open(self.config, "r", encoding="utf-8") as handle:
             config = json.load(handle)
             config["config_path"] = self.config  # add config path to config dict
-            
-        parsed_points = parse_dlc_csv(self.csv_path, config)
 
-        self.status_label.setText("CSV parsed successfully, running calculations...")
+        # Show progress indicators
+        self.status_label.setText("🔄 Parsing CSV and running calculations...")
+        self.progress_label.setText("⏳ Processing... Please wait. This may take a moment.")
+        self.progress_label.show()
+        
+        # Disable the calculate button while processing
+        self.calc_button.setEnabled(False)
+        self.calc_button.setText("Calculating...")
+        self.calc_button.setStyleSheet("background-color: #FFA726; color: white;")
+        
+        # Disable file selection buttons during calculation
+        self.csv_button.setEnabled(False)
+        self.config_button.setEnabled(False)
+        self.toggle_button.setEnabled(False)
+        
+        # Create and start worker thread
+        self.worker = CalculationWorker(self.csv_path, config, self)
+        self.worker.finished.connect(self.on_calculation_finished)
+        self.worker.start()
 
-        results = run_calculations(parsed_points, config)
-
-        if results is None:
-            print("Calculations failed.")
-            self.status_label.setText("Calculation failed.")
+    def on_calculation_finished(self):
+        """Called when calculation thread completes."""
+        print("[CalculationScene] Calculation thread finished.")
+        
+        # Hide progress indicators
+        self.progress_label.hide()
+        
+        # Re-enable the calculate button and file selection buttons
+        self.calc_button.setEnabled(True)
+        self.calc_button.setText("Run Calculation")
+        self.calc_button.setStyleSheet("")
+        
+        self.csv_button.setEnabled(True)
+        self.config_button.setEnabled(True)
+        self.toggle_button.setEnabled(True)
+        
+        # Check for errors
+        if self.worker.error:
+            print(f"Calculations failed: {self.worker.error}")
+            self.status_label.setText(f"❌ Calculation failed: {self.worker.error}")
+            QMessageBox.critical(
+                self, 
+                "Calculation Error", 
+                f"An error occurred during calculation:\n\n{self.worker.error}"
+            )
+            self.data_generated.emit(None)
+            self.worker = None
+            return
+        
+        if self.worker.results is None:
+            print("Calculations failed with no error message.")
+            self.status_label.setText("❌ Calculation failed.")
+            QMessageBox.warning(
+                self, 
+                "Calculation Failed", 
+                "Calculation completed but returned no results."
+            )
             self.data_generated.emit(None)
         else:
             print("Calculations completed successfully.")
-            self.status_label.setText("Calculation successful.")
+            self.status_label.setText("✅ Calculation successful! Results ready.")
 
+            # Prepare payload with all necessary data
             payload = {
-                "results_df": results,
-                "config": config,
+                "results_df": self.worker.results,
+                "config": self.worker.config,
                 "csv_path": self.csv_path,
-                "parsed_points": parsed_points,
+                "parsed_points": self.worker.parsed_points,
             }
 
-            # Emit the results to signal the main window to start creating the graphs.
+            # Emit the results to signal the main window to start creating the graphs
             self.data_generated.emit(payload)
+        
+        # Clean up worker
+        self.worker = None
 
     def load_session(self, session):
         print("Loading session into CalculationScene.")
         self.current_session = session
+
