@@ -15,11 +15,11 @@ class ProgressIndicator(QWidget):
         # Define the workflow steps in order
         self.steps = [
             "Landing",
+            "Verify",
             "Generate Config",
             "Select Configuration",
             "Calculation",
             "Graphs",
-            "Verify"
         ]
         
         self.current_step_index = 0

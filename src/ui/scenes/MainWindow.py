@@ -104,12 +104,19 @@ class MainWindow(QMainWindow):
         self._switch_to_scene(self.scenes[startScene], startScene)
 
         ### signal handlers ###
+        self._verify_last_csv_path = None
 
-        self.scenes["Calculation"].data_generated.connect(self.handle_data)
+
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
+        self.scenes["Verify"].csv_selected.connect(self.on_verify_csv_selected)
+        self.scenes["Verify"].json_selected.connect(self.on_verify_json_selected)
+        self.scenes["Verify"].generate_json_requested.connect(self.goToGenerateConfig)
         self.scenes["Generate Config"].config_generated.connect(self.goToSelectConfig)
         self.scenes["Select Configuration"].setCalculationScene(self.scenes["Calculation"])
+        self.scenes["Calculation"].data_generated.connect(self.handle_data)
+
+
 
     def loadSession(self, path):
         print("Loading session from:", path)
@@ -145,8 +152,44 @@ class MainWindow(QMainWindow):
         self.scenes["Graphs"].set_data(data)
         self._switch_to_scene(self.scenes["Graphs"], "Graphs")
 
+    def on_verify_csv_selected(self, csv_path):
+        if not self.currentSession:
+            QMessageBox.warning(self, "No Session", "Create or load a session first.")
+            return
+
+        # Store for later JSON attachment
+        self._verify_last_csv_path = csv_path
+
+        # Only add if not already present
+        if not self.currentSession.checkExists(csv_path=csv_path):
+            self.currentSession.addCSV(csv_path)
+            self.currentSession.save()
+
+    def on_verify_json_selected(self, json_path):
+        if not self.currentSession:
+            QMessageBox.warning(self, "No Session", "Create or load a session first.")
+            return
+
+        if not self._verify_last_csv_path:
+            QMessageBox.warning(
+                self,
+                "Upload CSV First",
+                "Upload a CSV before adding a JSON config."
+            )
+            return
+
+        csv_path = self._verify_last_csv_path
+
+        if not self.currentSession.checkExists(csv_path=csv_path, config_path=json_path):
+            self.currentSession.addConfigToCSV(csv_path, json_path)
+            self.currentSession.save()
+
+
     def goToSelectConfig(self):
         self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
+
+    def goToGenerateConfig(self):
+        self._switch_to_scene(self.scenes["Generate Config"], "Generate Config")
 
     def toggle_theme(self):
         if self.current_theme == "light":

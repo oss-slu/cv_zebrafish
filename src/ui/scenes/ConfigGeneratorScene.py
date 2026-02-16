@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QLineEdit,
+    QHBoxLayout,
 )
 
 from core.validation import generate_json
@@ -38,14 +39,24 @@ class ConfigGeneratorScene(QWidget):
         header.setAlignment(Qt.AlignHCenter)
         layout.addWidget(header)
 
+        top_row = QHBoxLayout()
+
         self.feedback_box = QTextEdit()
         self.feedback_box.setReadOnly(True)
         self.feedback_box.setMinimumHeight(150)
-        layout.addWidget(self.feedback_box)
+        top_row.addWidget(self.feedback_box, 2)  # stretch: 2
 
-        self.load_btn = QPushButton("Load CSV")
-        self.load_btn.clicked.connect(self.load_csv)
-        layout.addWidget(self.load_btn)
+        right_panel = QVBoxLayout()
+        right_panel.addWidget(QLabel("Session CSVs"))
+
+        self.csv_list = QListWidget()
+        self.csv_list.setMinimumHeight(150)
+        self.csv_list.itemClicked.connect(self._on_csv_chosen)
+        right_panel.addWidget(self.csv_list)
+
+        top_row.addLayout(right_panel, 1)  # stretch: 1
+
+        layout.addLayout(top_row)
 
         self.fin_r_1 = QComboBox()
         self.fin_r_2 = QComboBox()
@@ -128,6 +139,36 @@ class ConfigGeneratorScene(QWidget):
         for bodypart in self.bodyparts:
             self.spine_list.addItem(QListWidgetItem(bodypart))
             self.tail_list.addItem(QListWidgetItem(bodypart))
+
+    def _refresh_csv_list(self):
+        """Populate the right-side CSV list from the current session."""
+        self.csv_list.clear()
+
+        if self.current_session is None:
+            self.csv_list.addItem(QListWidgetItem("(No session loaded)"))
+            self.csv_list.setEnabled(False)
+            return
+
+        self.csv_list.setEnabled(True)
+        csvs = self.current_session.getAllCSVs()  # Session API :contentReference[oaicite:4]{index=4}
+
+        if not csvs:
+            self.csv_list.addItem(QListWidgetItem("(No CSVs in session yet)"))
+            self.csv_list.setEnabled(False)
+            return
+
+        for p in csvs:
+            item = QListWidgetItem(p)
+            self.csv_list.addItem(item)
+
+    def _on_csv_chosen(self, item: QListWidgetItem):
+        """User picked a CSV from the session list; load it."""
+        p = (item.text() or "").strip()
+        if not p or p.startswith("("):
+            return
+        self.csv_path = p
+        self.load_csv()
+
 
     def _validate_config_name(self, name: str) -> tuple[bool, str]:
         name = (name or "").strip()
@@ -221,3 +262,10 @@ class ConfigGeneratorScene(QWidget):
     def load_session(self, session):
         """Load previous session data."""
         self.current_session = session
+        self._refresh_csv_list()
+
+        # keep list in sync when session changes
+        try:
+            self.current_session.session_updated.connect(self._refresh_csv_list)  # :contentReference[oaicite:7]{index=7}
+        except Exception:
+            pass

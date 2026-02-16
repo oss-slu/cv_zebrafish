@@ -31,6 +31,8 @@ class VerifyScene(QWidget):
     csv_selected = pyqtSignal(str)
     json_selected = pyqtSignal(str)
 
+    generate_json_requested = pyqtSignal()
+
     def __init__(self):
         super().__init__()
 
@@ -78,6 +80,11 @@ class VerifyScene(QWidget):
         self.json_button.clicked.connect(self.select_json_file)
         json_layout.addWidget(self.json_button)
         main_layout.addLayout(json_layout)
+
+        self.generate_json_button = QPushButton("Generate JSON")
+        self.generate_json_button.setCursor(Qt.PointingHandCursor)
+        self.generate_json_button.clicked.connect(self.generate_json_requested.emit)
+        json_layout.addWidget(self.generate_json_button)
 
         console_label = QLabel("Validation Console:")
         console_label.setStyleSheet("font-size: 16px; font-weight: bold; ")
