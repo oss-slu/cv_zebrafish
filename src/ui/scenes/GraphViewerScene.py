@@ -195,6 +195,10 @@ class GraphViewerScene(QWidget):
         graphs.update(spine_graphs)
         warnings.extend(spine_warnings)
 
+        head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
+        graphs.update(head_graphs)
+        warnings.extend(head_warnings)
+
         tooltip = "\n".join(warnings) if warnings else ""
         self.list.setToolTip(tooltip)
         self.image_label.setToolTip(tooltip)
@@ -319,7 +323,6 @@ class GraphViewerScene(QWidget):
 
         return graphs
 
-
 def _as_numeric_array(series: pd.Series) -> np.ndarray:
     """Convert a pandas Series to a numeric numpy array, coercing failures to NaN."""
     numeric = pd.to_numeric(series, errors="coerce")
@@ -399,7 +402,6 @@ def build_dot_plot_graphs(
 
     return graphs, warnings
 
-
 def build_fin_tail_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
@@ -467,7 +469,6 @@ def build_fin_tail_graphs(
 
     return graphs, warnings
 
-
 def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> List[List[int]]:
     """Derive time ranges from config or DataFrame columns."""
     cfg_ranges = (config or {}).get("time_ranges") or []
@@ -477,19 +478,6 @@ def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> Li
     start_cols = [c for c in results_df.columns if c.startswith("timeRangeStart_")]
     end_cols = [c for c in results_df.columns if c.startswith("timeRangeEnd_")]
     ranges: List[List[int]] = []
-    for s_col, e_col in zip(sorted(start_cols), sorted(end_cols)):
-        starts = results_df[s_col]
-        ends = results_df[e_col]
-        if len(starts) == 0 or len(ends) == 0 or pd.isna(starts.iloc[0]) or pd.isna(ends.iloc[0]):
-            continue
-        ranges.append([int(starts.iloc[0]), int(ends.iloc[0])])
-    if ranges:
-        return ranges
-    if len(results_df) > 0:
-        return [[0, len(results_df) - 1]]
-    return []
-
-
 def build_spine_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], parsed_points: Optional[Dict[str, Any]]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
@@ -552,7 +540,61 @@ def build_spine_graphs(
     return graphs, warnings
 
 
-def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session: Session = None) -> None:
+def build_head_plot_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any]
+) -> Tuple[Dict[str, GraphSource], List[str]]:
+    """
+    Build the head orientation (head yaw) plot using the modular render_headplot plotter.
+    """
+    graphs: Dict[str, GraphSource] = {}
+    warnings: List[str] = []
+
+    cfg = dict(config or {})
+    shown_outputs = cfg.get("shown_outputs") or {}
+    if not shown_outputs.get("show_head_plot"):
+        return graphs, warnings
+
+    if "HeadYaw" not in results_df.columns:
+        warnings.append("Head plot skipped: missing HeadYaw column.")
+        return graphs, warnings
+
+    # Prevent external plot windows from opening in the GUI
+    head_settings = dict(cfg.get("head_plot_settings") or {})
+    head_settings["open_plot"] = False
+    cfg["head_plot_settings"] = head_settings
+    cfg["open_plots"] = False
+
+    time_ranges = _extract_time_ranges(cfg, results_df)
+
+    calculated_values: Dict[str, Any] = {
+        "headYaw": results_df["HeadYaw"].to_numpy(),
+    }
+
+    bundle = GraphDataBundle(
+        time_ranges=[list(tr) for tr in time_ranges],
+        input_values={},
+        calculated_values=calculated_values,
+        config=cfg,
+        dataframe=results_df,
+    )
+
+    try:
+        from src.core.graphs.plots import render_headplot
+        result = render_headplot(bundle, ctx=None)
+    except Exception as exc:
+        warnings.append(f"Head plot failed: {exc}")
+        return graphs, warnings
+
+    warnings.extend(result.warnings)
+    if result.figures:
+        graphs["Head Orientation"] = result.figures[0]
+    else:
+        warnings.append("Head plot produced no figures.")
+
+    return graphs, warnings
+
+
+def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session=None) -> None:
     """
     Save a Plotly figure as an interactive HTML file in the given directory (best-effort).
     Uses CDN for plotly JS to keep file size smaller and consistent.
