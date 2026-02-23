@@ -1,7 +1,8 @@
 import json
 from os import getcwd, path
+from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtWidgets import (
     QFileDialog,
     QLabel,
@@ -18,7 +19,7 @@ import src.core.parsing.Parser as parser
 
 from src.session.session import save_session_to_json
 
-from src.app_platform.paths import sessions_dir
+from src.app_platform.paths import sessions_dir, default_sample_config, default_sample_csv
 
 
 class ConfigSelectionScene(QWidget):
@@ -34,6 +35,7 @@ class ConfigSelectionScene(QWidget):
         self.current_session = None
         self.csv_path = None
         self.config_path = None
+        self.previous_settings = {"csv_path": None, "config_path": None}
 
         # --- Layout setup ---
         layout = QVBoxLayout(self)
@@ -78,6 +80,15 @@ class ConfigSelectionScene(QWidget):
         self.calc_button.setStyleSheet("background-color: lightgrey;")
         self.calc_button.clicked.connect(self.calculate)
         layout.addWidget(self.calc_button, alignment=Qt.AlignCenter)
+
+        # Toggle to use test config (default sample CSV + config)
+        layout.addWidget(QLabel("Toggle to use test config"), alignment=Qt.AlignCenter)
+        self.toggle_button = QPushButton()
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setIconSize(QSize(40, 40))
+        self.toggle_button.setToolTip("Use Default Config")
+        self.toggle_button.clicked.connect(self.toggle_test)
+        layout.addWidget(self.toggle_button, alignment=Qt.AlignCenter)
 
         self.setLayout(layout)
 
@@ -166,14 +177,77 @@ class ConfigSelectionScene(QWidget):
             self.calc_button.setEnabled(False)
             self.calc_button.setStyleSheet("background-color: lightgrey;")
 
+    def toggle_test(self):
+        """Switch between test config (default sample files) and tree selection."""
+        if self.toggle_button.isChecked():
+            self.toggle_button.setToolTip("Using Test Config")
+            self.previous_settings["csv_path"] = self.csv_path
+            self.previous_settings["config_path"] = self.config_path
+            self.csv_path = str(default_sample_csv())
+            self.config_path = str(default_sample_config())
+            self.status_label.setText(
+                "Using test config: correct_format.csv + BaseConfig.json"
+            )
+            self.calc_button.setEnabled(True)
+            self.calc_button.setStyleSheet("")
+        else:
+            self.toggle_button.setToolTip("Use Default Config")
+            self.csv_path = self.previous_settings["csv_path"]
+            self.config_path = self.previous_settings["config_path"]
+            if self.csv_path and self.config_path:
+                self.status_label.setText(
+                    f"Ready: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
+                )
+                self.calc_button.setEnabled(True)
+                self.calc_button.setStyleSheet("")
+            else:
+                self.status_label.setText("Select a CSV and Config to run calculations.")
+                self.calc_button.setEnabled(False)
+                self.calc_button.setStyleSheet("background-color: lightgrey;")
+
     # ==============================================================
     # Calculation Logic
     # ==============================================================
 
-    def setCalculationScene(self, calculation_scene):
-        self.calculation_scene = calculation_scene
-
     def calculate(self):
-        self.calculation_scene.set_csv_path(self.csv_path)
-        self.calculation_scene.set_config(self.config_path)
-        self.calculation_scene.calculate()
+        """Run the calculation pipeline and emit data_generated with the payload."""
+        if not self.csv_path or not self.config_path:
+            QMessageBox.warning(
+                self, "Missing Files", "Please select both a CSV and Config."
+            )
+            return
+
+        if self.current_session:
+            if self.current_session.checkExists(
+                csv_path=self.csv_path, config_path=self.config_path
+            ):
+                print("CSV + Config pair already in session.")
+            else:
+                if not self.current_session.checkExists(self.csv_path):
+                    self.current_session.addCSV(self.csv_path)
+                self.current_session.addConfigToCSV(self.csv_path, self.config_path)
+                self.current_session.save()
+
+        with open(self.config_path, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+        config["config_path"] = self.config_path
+
+        self.status_label.setText("CSV parsed successfully, running calculations...")
+
+        parsed_points = parser.parse_dlc_csv(self.csv_path, config)
+        results = calculations.run_calculations(parsed_points, config)
+
+        if results is None:
+            print("Calculations failed.")
+            self.status_label.setText("Calculation failed.")
+            self.data_generated.emit(None)
+        else:
+            print("Calculations completed successfully.")
+            self.status_label.setText("Calculation successful.")
+            payload = {
+                "results_df": results,
+                "config": config,
+                "csv_path": self.csv_path,
+                "parsed_points": parsed_points,
+            }
+            self.data_generated.emit(payload)

@@ -7,7 +7,6 @@ from PyQt5.QtGui import QKeySequence
 
 from src.ui.scenes.LandingScene import LandingScene
 from src.ui.scenes.GraphViewerScene import GraphViewerScene
-from src.ui.scenes.CalculationScene import CalculationScene
 from src.ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
 from src.ui.scenes.VerifyScene import VerifyScene
 from ui.scenes.ConfigSelectionScene import  ConfigSelectionScene
@@ -86,7 +85,6 @@ class MainWindow(QMainWindow):
             "Landing":  LandingScene(),
             "Generate Config": ConfigGeneratorScene(),
             "Select Configuration": ConfigSelectionScene(),
-            "Calculation": CalculationScene(),
             "Graphs": GraphViewerScene(),
             "Verify": VerifyScene(),
         }
@@ -113,8 +111,7 @@ class MainWindow(QMainWindow):
         self.scenes["Verify"].json_selected.connect(self.on_verify_json_selected)
         self.scenes["Verify"].generate_json_requested.connect(self.goToGenerateConfig)
         self.scenes["Generate Config"].config_generated.connect(self.goToSelectConfig)
-        self.scenes["Select Configuration"].setCalculationScene(self.scenes["Calculation"])
-        self.scenes["Calculation"].data_generated.connect(self.handle_data)
+        self.scenes["Select Configuration"].data_generated.connect(self.handle_data)
 
 
 
@@ -144,7 +141,6 @@ class MainWindow(QMainWindow):
     def broadcastSession(self):
         self.scenes["Generate Config"].load_session(self.currentSession)
         self.scenes["Select Configuration"].load_session(self.currentSession)
-        self.scenes["Calculation"].load_session(self.currentSession)
         self.scenes["Graphs"].load_session(self.currentSession)
         
     def handle_data(self, data):

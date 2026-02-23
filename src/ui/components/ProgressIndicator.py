@@ -18,7 +18,6 @@ class ProgressIndicator(QWidget):
             "Verify",
             "Generate Config",
             "Select Configuration",
-            "Calculation",
             "Graphs",
         ]
         
