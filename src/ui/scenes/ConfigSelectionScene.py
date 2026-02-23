@@ -1,5 +1,5 @@
 import json
-from os import getcwd, path
+from os import path
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
@@ -19,8 +19,6 @@ from PyQt5.QtWidgets import (
 
 import src.core.calculations.Driver as calculations
 import src.core.parsing.Parser as parser
-
-from src.session.session import save_session_to_json
 
 from src.app_platform.paths import sessions_dir, default_sample_config, default_sample_csv
 
@@ -188,7 +186,6 @@ class ConfigSelectionScene(QWidget):
                 f"Selected: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
             )
 
-        """Update button state based on current selections."""
         if self.csv_path and self.config_path:
             self.calc_button.setEnabled(True)
             self.calc_button.setStyleSheet("")

@@ -42,18 +42,7 @@ class MainWindow(QMainWindow):
 
         ### adds scenes ###
 
-        # QStackedWidget to hold scenes
-
-
-
-        ##CHANGED _______________________
-        #self.stack = QStackedWidget()
-        #self.setCentralWidget(self.stack)
-        ## ADDED
-        # QStackedWidget to hold scenes
         self.stack = QStackedWidget()
-
-        # Create progress indicator
         self.progress_indicator = ProgressIndicator()
 
         self.scene_navigator = SceneNavigator(
@@ -75,10 +64,6 @@ class MainWindow(QMainWindow):
 
         # Set the container as central widget
         self.setCentralWidget(container)
-        #_______________________________
-
-
-
 
         # initializes scenes
         self.scenes = {
@@ -100,12 +85,10 @@ class MainWindow(QMainWindow):
 
         # Show first scene
         self._switch_to_scene(self.scenes[startScene], startScene)
-        self._update_navigator()
 
         ### signal handlers ###
         self._verify_last_csv_path = None
         self._calculation_has_run = False
-        self._generate_config_visited = False
 
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
@@ -129,7 +112,6 @@ class MainWindow(QMainWindow):
         self.broadcastSession()
 
         self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
-        self._update_navigator()
 
     def createSession(self, session_name):
         print("Creating new session with config.")
@@ -140,14 +122,11 @@ class MainWindow(QMainWindow):
         self.broadcastSession()
 
         self._switch_to_scene(self.scenes["Generate Config"], "Generate Config")
-        self._generate_config_visited = True
-        self._update_navigator()
 
     def broadcastSession(self):
         self.scenes["Generate Config"].load_session(self.currentSession)
         self.scenes["Select Configuration"].load_session(self.currentSession)
         self.scenes["Graphs"].load_session(self.currentSession)
-        self._update_navigator()
 
     def _has_csv_and_config(self):
         """True if current session has at least one CSV with at least one config."""
@@ -208,7 +187,6 @@ class MainWindow(QMainWindow):
             graphs_scene.set_data(data)
             self._switch_to_scene(graphs_scene, "Graphs")
         config_scene.set_progress(0, 0, "")
-        self._update_navigator()
 
     def on_verify_csv_selected(self, csv_path):
         if not self.currentSession:
