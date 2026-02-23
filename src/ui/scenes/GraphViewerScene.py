@@ -21,7 +21,7 @@ import plotly.graph_objs as go
 import plotly.io as pio
 
 from src.core.graphs.loader_bundle import GraphDataBundle
-from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_spines
+from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headplot, render_spines
 
 from src.session import session
 from src.app_platform.paths import sessions_dir
@@ -195,6 +195,10 @@ class GraphViewerScene(QWidget):
         graphs.update(spine_graphs)
         warnings.extend(spine_warnings)
 
+        head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
+        graphs.update(head_graphs)
+        warnings.extend(head_warnings)
+
         tooltip = "\n".join(warnings) if warnings else ""
         self.list.setToolTip(tooltip)
         self.image_label.setToolTip(tooltip)
@@ -234,6 +238,12 @@ class GraphViewerScene(QWidget):
             progress_callback(index, total, name)
             graphs[name] = fig
         for name, fig in _iter_spine_graphs(results_df, config, parsed_points, warnings):
+            index += 1
+            progress_callback(index, total, name)
+            graphs[name] = fig
+        head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
+        warnings.extend(head_warnings)
+        for name, fig in head_graphs.items():
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
@@ -352,7 +362,6 @@ class GraphViewerScene(QWidget):
 
         return graphs
 
-
 def _as_numeric_array(series: pd.Series) -> np.ndarray:
     """Convert a pandas Series to a numeric numpy array, coercing failures to NaN."""
     numeric = pd.to_numeric(series, errors="coerce")
@@ -407,6 +416,10 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
                 names.extend(f"Spines Bout {i}" for i in range(len(time_ranges)))
             elif not split_by_bout or not time_ranges:
                 names.append("Spines Combined")
+
+    # Head orientation
+    if shown_outputs.get("show_head_plot") and "HeadYaw" in results_df.columns:
+        names.append("Head Orientation")
 
     return names
 
@@ -579,7 +592,6 @@ def build_fin_tail_graphs(
         graphs[name] = fig
     return graphs, warnings
 
-
 def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> List[List[int]]:
     """Derive time ranges from config or DataFrame columns."""
     cfg_ranges = (config or {}).get("time_ranges") or []
@@ -587,21 +599,29 @@ def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> Li
         return [list(map(int, tr)) for tr in cfg_ranges]
 
     start_cols = [c for c in results_df.columns if c.startswith("timeRangeStart_")]
-    end_cols = [c for c in results_df.columns if c.startswith("timeRangeEnd_")]
     ranges: List[List[int]] = []
-    for s_col, e_col in zip(sorted(start_cols), sorted(end_cols)):
-        starts = results_df[s_col]
-        ends = results_df[e_col]
-        if len(starts) == 0 or len(ends) == 0 or pd.isna(starts.iloc[0]) or pd.isna(ends.iloc[0]):
+    for start_col in sorted(start_cols):
+        suffix = start_col.split("timeRangeStart_", 1)[-1]
+        end_col = f"timeRangeEnd_{suffix}"
+        if end_col not in results_df.columns:
             continue
-        ranges.append([int(starts.iloc[0]), int(ends.iloc[0])])
+
+        start_val = pd.to_numeric(results_df[start_col].iloc[0], errors="coerce")
+        end_val = pd.to_numeric(results_df[end_col].iloc[0], errors="coerce")
+        if pd.isna(start_val) or pd.isna(end_val):
+            continue
+
+        start_idx = int(start_val)
+        end_idx = int(end_val)
+        if end_idx < start_idx:
+            start_idx, end_idx = end_idx, start_idx
+        ranges.append([max(0, start_idx), max(0, end_idx)])
+
     if ranges:
         return ranges
     if len(results_df) > 0:
         return [[0, len(results_df) - 1]]
     return []
-
-
 def build_spine_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], parsed_points: Optional[Dict[str, Any]]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
@@ -613,7 +633,60 @@ def build_spine_graphs(
     return graphs, warnings
 
 
-def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session: Session = None) -> None:
+def build_head_plot_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any]
+) -> Tuple[Dict[str, GraphSource], List[str]]:
+    """
+    Build the head orientation (head yaw) plot using the modular render_headplot plotter.
+    """
+    graphs: Dict[str, GraphSource] = {}
+    warnings: List[str] = []
+
+    cfg = dict(config or {})
+    shown_outputs = cfg.get("shown_outputs") or {}
+    if not shown_outputs.get("show_head_plot"):
+        return graphs, warnings
+
+    if "HeadYaw" not in results_df.columns:
+        warnings.append("Head plot skipped: missing HeadYaw column.")
+        return graphs, warnings
+
+    # Prevent external plot windows from opening in the GUI
+    head_settings = dict(cfg.get("head_plot_settings") or {})
+    head_settings["open_plot"] = False
+    cfg["head_plot_settings"] = head_settings
+    cfg["open_plots"] = False
+
+    time_ranges = _extract_time_ranges(cfg, results_df)
+
+    calculated_values: Dict[str, Any] = {
+        "headYaw": results_df["HeadYaw"].to_numpy(),
+    }
+
+    bundle = GraphDataBundle(
+        time_ranges=[list(tr) for tr in time_ranges],
+        input_values={},
+        calculated_values=calculated_values,
+        config=cfg,
+        dataframe=results_df,
+    )
+
+    try:
+        result = render_headplot(bundle, ctx=None)
+    except Exception as exc:
+        warnings.append(f"Head plot failed: {exc}")
+        return graphs, warnings
+
+    warnings.extend(result.warnings)
+    if result.figures:
+        graphs["Head Orientation"] = result.figures[0]
+    else:
+        warnings.append("Head plot produced no figures.")
+
+    return graphs, warnings
+
+
+def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session=None) -> None:
     """
     Save a Plotly figure as an interactive HTML file in the given directory (best-effort).
     Uses CDN for plotly JS to keep file size smaller and consistent.
