@@ -100,6 +100,13 @@ class MainWindow(QMainWindow):
 
 
 
+    def resizeEvent(self, event):
+        """Keep floating controls anchored when window size changes."""
+        super().resizeEvent(event)
+        if hasattr(self, "theme_toggle") and self.theme_toggle is not None:
+            self.theme_toggle.reposition()
+            self.theme_toggle.raise_()
+
     def loadSession(self, path):
         print("Loading session from:", path)
 
