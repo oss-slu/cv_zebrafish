@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .io import OutputContext, get_output_context
 from .loader_bundle import GraphDataBundle
-from .plots import render_fin_tail, render_spines
+from .plots import render_fin_tail, render_spines, render_headplot
 
 # A plotter accepts the bundle + output context and returns arbitrary metadata.
 Plotter = Callable[[GraphDataBundle, Optional[OutputContext]], Dict[str, Any]]
@@ -44,7 +44,7 @@ def run_all_graphs(
 
     for idx, plot_fn in enumerate(active_plotters):
         metadata = plot_fn(bundle, active_ctx)
-        plot_name = getattr(plot_fn, '__name__', f'plot_{idx}')
+        plot_name = getattr(plot_fn, "__name__", f"plot_{idx}")
         results[plot_name] = metadata
 
     return results
@@ -64,6 +64,8 @@ def get_default_plotters(bundle: GraphDataBundle) -> List[Plotter]:
         plotters.append(render_fin_tail)
     if shown.get("show_spines", False):
         plotters.append(render_spines)
+    if shown.get("show_head_plot", False):
+        plotters.append(render_headplot)
     return plotters
 
 
