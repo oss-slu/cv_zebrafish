@@ -5,13 +5,16 @@ from pathlib import Path
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtWidgets import (
     QFileDialog,
+    QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QMessageBox,
+    QApplication,
 )
 
 import src.core.calculations.Driver as calculations
@@ -73,22 +76,41 @@ class ConfigSelectionScene(QWidget):
         layout.addWidget(self.file_tree)
 
         # ===============================
-        # Calculation Button
+        # Calculation Button + Toggle (same row, centered)
         # ===============================
         self.calc_button = QPushButton("Run Calculation")
         self.calc_button.setEnabled(False)
         self.calc_button.setStyleSheet("background-color: lightgrey;")
         self.calc_button.clicked.connect(self.calculate)
-        layout.addWidget(self.calc_button, alignment=Qt.AlignCenter)
-
-        # Toggle to use test config (default sample CSV + config)
-        layout.addWidget(QLabel("Toggle to use test config"), alignment=Qt.AlignCenter)
         self.toggle_button = QPushButton()
         self.toggle_button.setCheckable(True)
         self.toggle_button.setIconSize(QSize(40, 40))
         self.toggle_button.setToolTip("Use Default Config")
         self.toggle_button.clicked.connect(self.toggle_test)
-        layout.addWidget(self.toggle_button, alignment=Qt.AlignCenter)
+        toggle_label = QLabel("Toggle to use test config")
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(self.calc_button)
+        button_row.addWidget(self.toggle_button)
+        button_row.addWidget(toggle_label)
+        button_row.addStretch()
+        layout.addLayout(button_row)
+
+        # ===============================
+        # Progress bar (under button row)
+        # ===============================
+        progress_row = QHBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_label = QLabel("")
+        progress_row.addWidget(self.progress_bar, stretch=1)
+        progress_row.addWidget(self.progress_label)
+        layout.addLayout(progress_row)
+        self.progress_bar.hide()
+        self.progress_label.hide()
 
         self.setLayout(layout)
 
@@ -204,6 +226,24 @@ class ConfigSelectionScene(QWidget):
                 self.status_label.setText("Select a CSV and Config to run calculations.")
                 self.calc_button.setEnabled(False)
                 self.calc_button.setStyleSheet("background-color: lightgrey;")
+
+    def set_progress(self, n, total, graph_name):
+        """Update progress bar and label: [N]/[Total] - [Graph Name]. Call with total=0 to hide."""
+        if total <= 0:
+            self.progress_bar.hide()
+            self.progress_label.hide()
+            self.progress_bar.setValue(0)
+            self.progress_label.setText("")
+            return
+        self.progress_bar.show()
+        self.progress_label.show()
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(int(100 * n / total) if total else 0)
+        if graph_name == "Loading graphs...":
+            self.progress_label.setText("Loading Graphs...")
+        else:
+            self.progress_label.setText(f"{n}/{total} - {graph_name}")
+        QApplication.processEvents()
 
     # ==============================================================
     # Calculation Logic

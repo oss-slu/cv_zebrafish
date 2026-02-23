@@ -1,12 +1,12 @@
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtWidgets import (
     QMainWindow, QToolBar, QAction, QStackedWidget, QShortcut, QMessageBox,
-    QWidget, QVBoxLayout
+    QWidget, QVBoxLayout, QApplication
 )
 from PyQt5.QtGui import QKeySequence
 
 from src.ui.scenes.LandingScene import LandingScene
-from src.ui.scenes.GraphViewerScene import GraphViewerScene
+from src.ui.scenes.GraphViewerScene import GraphViewerScene, get_graph_names_to_build
 from src.ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
 from src.ui.scenes.VerifyScene import VerifyScene
 from ui.scenes.ConfigSelectionScene import  ConfigSelectionScene
@@ -145,8 +145,28 @@ class MainWindow(QMainWindow):
         
     def handle_data(self, data):
         print("Data received in MainWindow")
-        self.scenes["Graphs"].set_data(data)
-        self._switch_to_scene(self.scenes["Graphs"], "Graphs")
+        config_scene = self.scenes["Select Configuration"]
+        graphs_scene = self.scenes["Graphs"]
+
+        def progress_callback(n, total, graph_name):
+            config_scene.set_progress(n, total, graph_name)
+
+        if data and isinstance(data, dict) and data.get("results_df") is not None:
+            names = get_graph_names_to_build(data)
+            total = len(names)
+            if total > 0:
+                config_scene.set_progress(0, total, "Loading graphs...")
+        graphs, config = graphs_scene.build_graphs_with_progress(data, progress_callback)
+
+        if graphs is not None and config is not None:
+            config_scene.set_progress(len(graphs), len(graphs), "Loading graphs...")
+            QApplication.processEvents()
+            graphs_scene.set_graphs(graphs, config=config)
+            self._switch_to_scene(graphs_scene, "Graphs")
+        else:
+            graphs_scene.set_data(data)
+            self._switch_to_scene(graphs_scene, "Graphs")
+        config_scene.set_progress(0, 0, "")
 
     def on_verify_csv_selected(self, csv_path):
         if not self.currentSession:

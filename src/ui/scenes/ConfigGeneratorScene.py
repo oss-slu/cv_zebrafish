@@ -15,6 +15,9 @@ from PyQt5.QtWidgets import (
     QWidget,
     QLineEdit,
     QHBoxLayout,
+    QCheckBox,
+    QGroupBox,
+    QGridLayout,
 )
 
 from core.validation import generate_json
@@ -85,6 +88,30 @@ class ConfigGeneratorScene(QWidget):
         self.tail_list = QListWidget()
         self.tail_list.setSelectionMode(QListWidget.MultiSelection)
         layout.addWidget(self.tail_list)
+
+        # Graphs to generate (shown_outputs toggles)
+        graphs_group = QGroupBox("Graphs to generate")
+        graphs_layout = QGridLayout()
+        self.chk_fin_tail = QCheckBox("Fin angles + tail distance")
+        self.chk_fin_tail.setChecked(True)
+        self.chk_spines = QCheckBox("Spines")
+        self.chk_spines.setChecked(True)
+        self.chk_dot_lf = QCheckBox("Dot: Tail vs left fin angle")
+        self.chk_dot_lf.setChecked(True)
+        self.chk_dot_rf = QCheckBox("Dot: Tail vs right fin angle")
+        self.chk_dot_rf.setChecked(True)
+        self.chk_dot_lf_mov = QCheckBox("Dot: Tail vs left fin (moving)")
+        self.chk_dot_lf_mov.setChecked(False)
+        self.chk_dot_rf_mov = QCheckBox("Dot: Tail vs right fin (moving)")
+        self.chk_dot_rf_mov.setChecked(False)
+        graphs_layout.addWidget(self.chk_fin_tail, 0, 0)
+        graphs_layout.addWidget(self.chk_spines, 1, 0)
+        graphs_layout.addWidget(self.chk_dot_lf, 0, 1)
+        graphs_layout.addWidget(self.chk_dot_rf, 1, 1)
+        graphs_layout.addWidget(self.chk_dot_lf_mov, 2, 1)
+        graphs_layout.addWidget(self.chk_dot_rf_mov, 3, 1)
+        graphs_group.setLayout(graphs_layout)
+        layout.addWidget(graphs_group)
 
         layout.addWidget(QLabel("Config Name"))
         self.config_name_input = QLineEdit()
@@ -230,6 +257,15 @@ class ConfigGeneratorScene(QWidget):
         }
 
         config = generate_json.build_config(points, generate_json.BASE_CONFIG)
+
+        # Apply graph toggles to shown_outputs
+        so = config.setdefault("shown_outputs", {})
+        so["show_angle_and_distance_plot"] = self.chk_fin_tail.isChecked()
+        so["show_spines"] = self.chk_spines.isChecked()
+        so["show_tail_left_fin_angle_dot_plot"] = self.chk_dot_lf.isChecked()
+        so["show_tail_right_fin_angle_dot_plot"] = self.chk_dot_rf.isChecked()
+        so["show_tail_left_fin_moving_dot_plot"] = self.chk_dot_lf_mov.isChecked()
+        so["show_tail_right_fin_moving_dot_plot"] = self.chk_dot_rf_mov.isChecked()
 
         session_name = self.current_session.getName()
         session_folder = Path(sessions_dir()) / session_name

@@ -206,6 +206,39 @@ class GraphViewerScene(QWidget):
 
         self.set_graphs(graphs, config=config)
 
+    def build_graphs_with_progress(self, data, progress_callback):
+        """
+        Build graphs one-by-one, calling progress_callback(n, total, graph_name) for each.
+        Returns (graphs_dict, config) for use with set_graphs, or (None, None) if invalid/no graphs.
+        """
+        if not data or not isinstance(data, dict):
+            return None, None
+        results_df = data.get("results_df")
+        config = data.get("config")
+        if not isinstance(results_df, pd.DataFrame) or not isinstance(config, dict):
+            return None, None
+        parsed_points = data.get("parsed_points")
+        names = get_graph_names_to_build(data)
+        total = len(names)
+        if total == 0:
+            return None, None
+        warnings: List[str] = []
+        graphs: Dict[str, GraphSource] = {}
+        index = 0
+        for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
+            index += 1
+            progress_callback(index, total, name)
+            graphs[name] = fig
+        for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
+            index += 1
+            progress_callback(index, total, name)
+            graphs[name] = fig
+        for name, fig in _iter_spine_graphs(results_df, config, parsed_points, warnings):
+            index += 1
+            progress_callback(index, total, name)
+            graphs[name] = fig
+        return graphs, config
+
     # Internal functions
     def _on_selection_changed(self):
         items = self.list.selectedItems()
@@ -330,44 +363,82 @@ def _safe_filename(title: str) -> str:
     # Replace any character not in this set with underscore
     return re.sub(r"[^A-Za-z0-9._-]", "_", title).strip("_")
 
-def build_dot_plot_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any]
-) -> Tuple[Dict[str, GraphSource], List[str]]:
+def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
     """
-    Build all requested dot plot figures based on the config flags.
-
-    Returns the generated figures and any warnings explaining skipped plots.
+    Return the list of graph names that would be built from the payload, in build order.
+    Does not build any figures; used to get total count and order for progress reporting.
     """
-    graphs: Dict[str, GraphSource] = {}
-    warnings: List[str] = []
+    if not data or not isinstance(data, dict):
+        return []
+    results_df = data.get("results_df")
+    config = data.get("config")
+    if not isinstance(results_df, pd.DataFrame) or not isinstance(config, dict):
+        return []
+    parsed_points = data.get("parsed_points")
+    names: List[str] = []
+    shown_outputs = (config or {}).get("shown_outputs") or {}
+    video_params = (config or {}).get("video_parameters") or {}
 
+    # Dot plots (same order as DOT_PLOT_SPECS)
+    if results_df.shape[0] > 0:
+        for spec in DOT_PLOT_SPECS:
+            if not shown_outputs.get(spec["flag"], False):
+                continue
+            missing_cols = [c for c in (spec["x_col"], spec["y_col"]) if c not in results_df.columns]
+            if missing_cols:
+                continue
+            if spec["moving"] and video_params.get("recorded_framerate") is None:
+                continue
+            names.append(spec["title"])
+
+    # Fin/tail
+    if shown_outputs.get("show_angle_and_distance_plot"):
+        required = ["LF_Angle", "RF_Angle", "Tail_Distance"]
+        if all(c in results_df.columns for c in required):
+            names.append("Fin Angles + Tail Distance")
+
+    # Spines
+    if shown_outputs.get("show_spines") and parsed_points and "spine" in parsed_points:
+        if "LF_Angle" in results_df.columns and "RF_Angle" in results_df.columns:
+            time_ranges = _extract_time_ranges(config, results_df)
+            spine_settings = (config or {}).get("spine_plot_settings") or {}
+            split_by_bout = bool(spine_settings.get("split_plots_by_bout", True))
+            if split_by_bout and time_ranges:
+                names.extend(f"Spines Bout {i}" for i in range(len(time_ranges)))
+            elif not split_by_bout or not time_ranges:
+                names.append("Spines Combined")
+
+    return names
+
+
+def _iter_dot_plot_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
+):
+    """Yield (name, figure) for each dot plot built. Appends to warnings list."""
     shown_outputs = (config or {}).get("shown_outputs") or {}
     video_params = (config or {}).get("video_parameters") or {}
     framerate = video_params.get("recorded_framerate")
 
     if results_df.shape[0] == 0:
         warnings.append("The calculation DataFrame is empty; nothing to plot.")
-        return graphs, warnings
+        return
 
     any_flag_enabled = any(shown_outputs.get(spec["flag"], False) for spec in DOT_PLOT_SPECS)
     if not any_flag_enabled:
         warnings.append("No dot plot flags are enabled in the config.")
-        return graphs, warnings
+        return
 
     for spec in DOT_PLOT_SPECS:
         if not shown_outputs.get(spec["flag"], False):
             continue
-
         missing_cols = [col for col in (spec["x_col"], spec["y_col"]) if col not in results_df.columns]
         if missing_cols:
             warnings.append(
                 f"Skipping '{spec['title']}' because columns {', '.join(missing_cols)} are missing."
             )
             continue
-
         values_x = _as_numeric_array(results_df[spec["x_col"]])
         values_y = _as_numeric_array(results_df[spec["y_col"]])
-
         if spec["moving"]:
             if framerate is None:
                 warnings.append(
@@ -381,70 +452,45 @@ def build_dot_plot_graphs(
                 continue
             values_x = np.diff(values_x) * framerate
             values_y = np.diff(values_y) * framerate
-
         try:
             result = render_dot_plot(
-                values_x,
-                values_y,
-                name_x=spec["name_x"],
-                name_y=spec["name_y"],
-                units_x=spec["units_x"],
-                units_y=spec["units_y"],
+                values_x, values_y,
+                name_x=spec["name_x"], name_y=spec["name_y"],
+                units_x=spec["units_x"], units_y=spec["units_y"],
             )
-        except Exception as exc:  # pragma: no cover - defensive guard
+        except Exception as exc:
             warnings.append(f"Failed to render '{spec['title']}': {exc}")
             continue
-            
-        graphs[spec["title"]] = result.figure
-
-    return graphs, warnings
+        yield (spec["title"], result.figure)
 
 
-def build_fin_tail_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any]
-) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """
-    Build the fin/tail timeline plot requested by the config flag.
-    Uses the modular render_fin_tail plotter with an in-memory bundle.
-    """
-    graphs: Dict[str, GraphSource] = {}
-    warnings: List[str] = []
-
+def _iter_fin_tail_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
+):
+    """Yield (name, figure) for the fin/tail plot if enabled. Appends to warnings list."""
     cfg = dict(config or {})
     shown_outputs = cfg.get("shown_outputs") or {}
     if not shown_outputs.get("show_angle_and_distance_plot"):
-        return graphs, warnings
-
-    required_cols = {
-        "leftFinAngles": "LF_Angle",
-        "rightFinAngles": "RF_Angle",
-        "tailDistances": "Tail_Distance",
-    }
+        return
+    required_cols = {"leftFinAngles": "LF_Angle", "rightFinAngles": "RF_Angle", "tailDistances": "Tail_Distance"}
     missing_cols = [col for col in required_cols.values() if col not in results_df.columns]
     if missing_cols:
         warnings.append(f"Fin/tail plot skipped; missing columns: {', '.join(missing_cols)}.")
-        return graphs, warnings
-
-    # Prevent external plot windows from opening in the GUI.
-    settings = cfg.get("angle_and_distance_plot_settings") or {}
-    settings = dict(settings)
+        return
+    settings = dict(cfg.get("angle_and_distance_plot_settings") or {})
     settings["open_plot"] = False
     cfg["angle_and_distance_plot_settings"] = settings
     cfg["open_plots"] = False
-
-    # Build a minimal bundle for the plotter.
     time_ranges = cfg.get("time_ranges") or []
     if not time_ranges and len(results_df) > 0:
         time_ranges = [(0, len(results_df) - 1)]
-
-    calculated_values: Dict[str, Any] = {
+    calculated_values = {
         "leftFinAngles": results_df[required_cols["leftFinAngles"]].to_numpy(),
         "rightFinAngles": results_df[required_cols["rightFinAngles"]].to_numpy(),
         "tailDistances": results_df[required_cols["tailDistances"]].to_numpy(),
     }
     if "HeadYaw" in results_df.columns:
         calculated_values["headYaw"] = results_df["HeadYaw"].to_numpy()
-
     bundle = GraphDataBundle(
         time_ranges=[list(tr) for tr in time_ranges],
         input_values={},
@@ -452,19 +498,85 @@ def build_fin_tail_graphs(
         config=cfg,
         dataframe=results_df,
     )
-
     try:
         result = render_fin_tail(bundle, ctx=None)
     except Exception as exc:
         warnings.append(f"Fin/tail plot failed: {exc}")
-        return graphs, warnings
-
+        return
     warnings.extend(result.warnings)
     if result.figures:
-        graphs["Fin Angles + Tail Distance"] = result.figures[0]
+        yield ("Fin Angles + Tail Distance", result.figures[0])
     else:
         warnings.append("Fin/tail plot produced no figures.")
 
+
+def _iter_spine_graphs(
+    results_df: pd.DataFrame,
+    config: Dict[str, Any],
+    parsed_points: Optional[Dict[str, Any]],
+    warnings: List[str],
+):
+    """Yield (name, figure) for each spine plot. Appends to warnings list."""
+    cfg = dict(config or {})
+    shown_outputs = cfg.get("shown_outputs") or {}
+    if not shown_outputs.get("show_spines"):
+        return
+    if parsed_points is None or "spine" not in parsed_points:
+        warnings.append("Spine plots skipped: parsed point coordinates are unavailable.")
+        return
+    if "LF_Angle" not in results_df.columns or "RF_Angle" not in results_df.columns:
+        warnings.append("Spine plots skipped: missing LF_Angle/RF_Angle columns.")
+        return
+    spine_settings = dict(cfg.get("spine_plot_settings") or {})
+    spine_settings["open_plot"] = False
+    cfg["spine_plot_settings"] = spine_settings
+    cfg["open_plots"] = False
+    time_ranges = _extract_time_ranges(cfg, results_df)
+    bundle = GraphDataBundle(
+        time_ranges=[list(tr) for tr in time_ranges],
+        input_values={"spine": parsed_points["spine"]},
+        calculated_values={
+            "leftFinAngles": results_df["LF_Angle"].to_numpy(),
+            "rightFinAngles": results_df["RF_Angle"].to_numpy(),
+        },
+        config=cfg,
+        dataframe=results_df,
+    )
+    try:
+        result = render_spines(bundle, ctx=None)
+    except Exception as exc:
+        warnings.append(f"Spine plot failed: {exc}")
+        return
+    warnings.extend(result.warnings)
+    if not result.figures:
+        warnings.append("Spine plot produced no figures.")
+        return
+    if result.mode == "by_bout":
+        for idx, fig in enumerate(result.figures):
+            yield (f"Spines Bout {idx}", fig)
+    else:
+        yield ("Spines Combined", result.figures[0])
+
+
+def build_dot_plot_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any]
+) -> Tuple[Dict[str, GraphSource], List[str]]:
+    """Build all requested dot plot figures. Returns (graphs_dict, warnings)."""
+    warnings: List[str] = []
+    graphs: Dict[str, GraphSource] = {}
+    for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
+        graphs[name] = fig
+    return graphs, warnings
+
+
+def build_fin_tail_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any]
+) -> Tuple[Dict[str, GraphSource], List[str]]:
+    """Build the fin/tail timeline plot if enabled. Returns (graphs_dict, warnings)."""
+    warnings: List[str] = []
+    graphs: Dict[str, GraphSource] = {}
+    for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
+        graphs[name] = fig
     return graphs, warnings
 
 
@@ -493,62 +605,11 @@ def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> Li
 def build_spine_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], parsed_points: Optional[Dict[str, Any]]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """
-    Build spine snapshot plots using the modular render_spines plotter.
-    Requires parsed_points (spine coordinates) plus the calculation DataFrame for angles.
-    """
-    graphs: Dict[str, GraphSource] = {}
+    """Build spine snapshot plots if enabled. Returns (graphs_dict, warnings)."""
     warnings: List[str] = []
-
-    cfg = dict(config or {})
-    shown_outputs = cfg.get("shown_outputs") or {}
-    if not shown_outputs.get("show_spines"):
-        return graphs, warnings
-
-    if parsed_points is None or "spine" not in parsed_points:
-        warnings.append("Spine plots skipped: parsed point coordinates are unavailable.")
-        return graphs, warnings
-
-    if "LF_Angle" not in results_df.columns or "RF_Angle" not in results_df.columns:
-        warnings.append("Spine plots skipped: missing LF_Angle/RF_Angle columns.")
-        return graphs, warnings
-
-    # Prevent external plot windows from opening in the GUI.
-    spine_settings = dict(cfg.get("spine_plot_settings") or {})
-    spine_settings["open_plot"] = False
-    cfg["spine_plot_settings"] = spine_settings
-    cfg["open_plots"] = False
-
-    time_ranges = _extract_time_ranges(cfg, results_df)
-
-    bundle = GraphDataBundle(
-        time_ranges=[list(tr) for tr in time_ranges],
-        input_values={"spine": parsed_points["spine"]},
-        calculated_values={
-            "leftFinAngles": results_df["LF_Angle"].to_numpy(),
-            "rightFinAngles": results_df["RF_Angle"].to_numpy(),
-        },
-        config=cfg,
-        dataframe=results_df,
-    )
-
-    try:
-        result = render_spines(bundle, ctx=None)
-    except Exception as exc:
-        warnings.append(f"Spine plot failed: {exc}")
-        return graphs, warnings
-
-    warnings.extend(result.warnings)
-    if not result.figures:
-        warnings.append("Spine plot produced no figures.")
-        return graphs, warnings
-
-    if result.mode == "by_bout":
-        for idx, fig in enumerate(result.figures):
-            graphs[f"Spines Bout {idx}"] = fig
-    else:
-        graphs["Spines Combined"] = result.figures[0]
-
+    graphs: Dict[str, GraphSource] = {}
+    for name, fig in _iter_spine_graphs(results_df, config, parsed_points, warnings):
+        graphs[name] = fig
     return graphs, warnings
 
 
