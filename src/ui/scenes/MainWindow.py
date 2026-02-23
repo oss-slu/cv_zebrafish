@@ -100,10 +100,12 @@ class MainWindow(QMainWindow):
 
         # Show first scene
         self._switch_to_scene(self.scenes[startScene], startScene)
+        self._update_navigator()
 
         ### signal handlers ###
         self._verify_last_csv_path = None
-
+        self._calculation_has_run = False
+        self._generate_config_visited = False
 
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
@@ -127,6 +129,7 @@ class MainWindow(QMainWindow):
         self.broadcastSession()
 
         self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
+        self._update_navigator()
 
     def createSession(self, session_name):
         print("Creating new session with config.")
@@ -137,12 +140,49 @@ class MainWindow(QMainWindow):
         self.broadcastSession()
 
         self._switch_to_scene(self.scenes["Generate Config"], "Generate Config")
+        self._generate_config_visited = True
+        self._update_navigator()
 
     def broadcastSession(self):
         self.scenes["Generate Config"].load_session(self.currentSession)
         self.scenes["Select Configuration"].load_session(self.currentSession)
         self.scenes["Graphs"].load_session(self.currentSession)
-        
+        self._update_navigator()
+
+    def _has_csv_and_config(self):
+        """True if current session has at least one CSV with at least one config."""
+        if not self.currentSession:
+            return False
+        return any(
+            len(configs) > 0
+            for configs in self.currentSession.csvs.values()
+        )
+
+    def _update_navigator(self):
+        """Update Back/Forward button state based on current step and completion state."""
+        steps = self.progress_indicator.steps
+        idx = self.progress_indicator.current_step_index
+        current = steps[idx] if 0 <= idx < len(steps) else None
+
+        has_session = self.currentSession is not None
+        has_csv_and_config = self._has_csv_and_config()
+
+        can_back = idx > 0
+        can_forward = False
+        if current == "Landing":
+            can_forward = has_session
+        elif current == "Verify":
+            can_forward = has_csv_and_config
+        elif current == "Generate Config":
+            can_forward = has_csv_and_config
+        elif current == "Select Configuration":
+            can_forward = self._calculation_has_run
+        elif current == "Graphs":
+            can_forward = False
+
+        self.scene_navigator.set_back_enabled(can_back)
+        self.scene_navigator.set_forward_enabled(can_forward)
+
     def handle_data(self, data):
         print("Data received in MainWindow")
         config_scene = self.scenes["Select Configuration"]
@@ -162,11 +202,13 @@ class MainWindow(QMainWindow):
             config_scene.set_progress(len(graphs), len(graphs), "Loading graphs...")
             QApplication.processEvents()
             graphs_scene.set_graphs(graphs, config=config)
+            self._calculation_has_run = True
             self._switch_to_scene(graphs_scene, "Graphs")
         else:
             graphs_scene.set_data(data)
             self._switch_to_scene(graphs_scene, "Graphs")
         config_scene.set_progress(0, 0, "")
+        self._update_navigator()
 
     def on_verify_csv_selected(self, csv_path):
         if not self.currentSession:
@@ -180,6 +222,7 @@ class MainWindow(QMainWindow):
         if not self.currentSession.checkExists(csv_path=csv_path):
             self.currentSession.addCSV(csv_path)
             self.currentSession.save()
+        self._update_navigator()
 
     def on_verify_json_selected(self, json_path):
         if not self.currentSession:
@@ -199,7 +242,7 @@ class MainWindow(QMainWindow):
         if not self.currentSession.checkExists(csv_path=csv_path, config_path=json_path):
             self.currentSession.addConfigToCSV(csv_path, json_path)
             self.currentSession.save()
-
+        self._update_navigator()
 
     def goToSelectConfig(self):
         self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
@@ -230,19 +273,34 @@ class MainWindow(QMainWindow):
         prev_name = steps[i - 1]
         self._switch_to_scene(self.scenes[prev_name], prev_name)
 
-
     def go_next_scene(self):
         steps = self.progress_indicator.steps
-        current_name = self.progress_indicator.steps[self.progress_indicator.current_step_index]
+        idx = self.progress_indicator.current_step_index
+        current_name = steps[idx]
 
         if current_name not in steps:
             return
 
-        i = steps.index(current_name)
-        if i >= len(steps) - 1:
+        # Forward from Verify goes to Select Configuration (skip Generate Config)
+        if current_name == "Verify":
+            next_name = "Select Configuration"
+        elif idx >= len(steps) - 1:
+            return
+        else:
+            next_name = steps[idx + 1]
+
+        has_session = self.currentSession is not None
+        has_csv_and_config = self._has_csv_and_config()
+
+        if current_name == "Landing" and not has_session:
+            return
+        if current_name == "Verify" and not has_csv_and_config:
+            return
+        if current_name == "Generate Config" and not has_csv_and_config:
+            return
+        if current_name == "Select Configuration" and not self._calculation_has_run:
             return
 
-        next_name = steps[i + 1]
         self._switch_to_scene(self.scenes[next_name], next_name)
 
     def _switch_to_scene(self, scene, scene_name):
@@ -250,3 +308,4 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(scene)
         self.progress_indicator.set_current_step(scene_name)
         self.scene_navigator.set_current_step(scene_name)
+        self._update_navigator()
