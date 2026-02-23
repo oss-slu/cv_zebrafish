@@ -476,7 +476,6 @@ def _iter_dot_plot_graphs(
             continue
         yield (spec["title"], result.figure)
 
-
 def _iter_fin_tail_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
 ):
@@ -521,7 +520,6 @@ def _iter_fin_tail_graphs(
         yield ("Fin Angles + Tail Distance", result.figures[0])
     else:
         warnings.append("Fin/tail plot produced no figures.")
-
 
 def _iter_spine_graphs(
     results_df: pd.DataFrame,
