@@ -1,24 +1,26 @@
 import json
-from os import getcwd, path
+from os import path
+from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtWidgets import (
     QFileDialog,
+    QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QMessageBox,
+    QApplication,
 )
 
 import src.core.calculations.Driver as calculations
 import src.core.parsing.Parser as parser
 
-from src.session.session import save_session_to_json
-
-from src.app_platform.paths import sessions_dir
+from src.app_platform.paths import sessions_dir, default_sample_config, default_sample_csv
 
 
 class ConfigSelectionScene(QWidget):
@@ -34,6 +36,7 @@ class ConfigSelectionScene(QWidget):
         self.current_session = None
         self.csv_path = None
         self.config_path = None
+        self.previous_settings = {"csv_path": None, "config_path": None}
 
         # --- Layout setup ---
         layout = QVBoxLayout(self)
@@ -71,13 +74,41 @@ class ConfigSelectionScene(QWidget):
         layout.addWidget(self.file_tree)
 
         # ===============================
-        # Calculation Button
+        # Calculation Button + Toggle (same row, centered)
         # ===============================
         self.calc_button = QPushButton("Run Calculation")
         self.calc_button.setEnabled(False)
         self.calc_button.setStyleSheet("background-color: lightgrey;")
         self.calc_button.clicked.connect(self.calculate)
-        layout.addWidget(self.calc_button, alignment=Qt.AlignCenter)
+        self.toggle_button = QPushButton()
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setIconSize(QSize(40, 40))
+        self.toggle_button.setToolTip("Use Default Config")
+        self.toggle_button.clicked.connect(self.toggle_test)
+        toggle_label = QLabel("Toggle to use test config")
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(self.calc_button)
+        button_row.addWidget(self.toggle_button)
+        button_row.addWidget(toggle_label)
+        button_row.addStretch()
+        layout.addLayout(button_row)
+
+        # ===============================
+        # Progress bar (under button row)
+        # ===============================
+        progress_row = QHBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_label = QLabel("")
+        progress_row.addWidget(self.progress_bar, stretch=1)
+        progress_row.addWidget(self.progress_label)
+        layout.addLayout(progress_row)
+        self.progress_bar.hide()
+        self.progress_label.hide()
 
         self.setLayout(layout)
 
@@ -155,7 +186,6 @@ class ConfigSelectionScene(QWidget):
                 f"Selected: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
             )
 
-        """Update button state based on current selections."""
         if self.csv_path and self.config_path:
             self.calc_button.setEnabled(True)
             self.calc_button.setStyleSheet("")
@@ -166,14 +196,95 @@ class ConfigSelectionScene(QWidget):
             self.calc_button.setEnabled(False)
             self.calc_button.setStyleSheet("background-color: lightgrey;")
 
+    def toggle_test(self):
+        """Switch between test config (default sample files) and tree selection."""
+        if self.toggle_button.isChecked():
+            self.toggle_button.setToolTip("Using Test Config")
+            self.previous_settings["csv_path"] = self.csv_path
+            self.previous_settings["config_path"] = self.config_path
+            self.csv_path = str(default_sample_csv())
+            self.config_path = str(default_sample_config())
+            self.status_label.setText(
+                "Using test config: correct_format.csv + BaseConfig.json"
+            )
+            self.calc_button.setEnabled(True)
+            self.calc_button.setStyleSheet("")
+        else:
+            self.toggle_button.setToolTip("Use Default Config")
+            self.csv_path = self.previous_settings["csv_path"]
+            self.config_path = self.previous_settings["config_path"]
+            if self.csv_path and self.config_path:
+                self.status_label.setText(
+                    f"Ready: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
+                )
+                self.calc_button.setEnabled(True)
+                self.calc_button.setStyleSheet("")
+            else:
+                self.status_label.setText("Select a CSV and Config to run calculations.")
+                self.calc_button.setEnabled(False)
+                self.calc_button.setStyleSheet("background-color: lightgrey;")
+
+    def set_progress(self, n, total, graph_name):
+        """Update progress bar and label: [N]/[Total] - [Graph Name]. Call with total=0 to hide."""
+        if total <= 0:
+            self.progress_bar.hide()
+            self.progress_label.hide()
+            self.progress_bar.setValue(0)
+            self.progress_label.setText("")
+            return
+        self.progress_bar.show()
+        self.progress_label.show()
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(int(100 * n / total) if total else 0)
+        if graph_name == "Loading graphs...":
+            self.progress_label.setText("Loading Graphs...")
+        else:
+            self.progress_label.setText(f"{n}/{total} - {graph_name}")
+        QApplication.processEvents()
+
     # ==============================================================
     # Calculation Logic
     # ==============================================================
 
-    def setCalculationScene(self, calculation_scene):
-        self.calculation_scene = calculation_scene
-
     def calculate(self):
-        self.calculation_scene.set_csv_path(self.csv_path)
-        self.calculation_scene.set_config(self.config_path)
-        self.calculation_scene.calculate()
+        """Run the calculation pipeline and emit data_generated with the payload."""
+        if not self.csv_path or not self.config_path:
+            QMessageBox.warning(
+                self, "Missing Files", "Please select both a CSV and Config."
+            )
+            return
+
+        if self.current_session:
+            if self.current_session.checkExists(
+                csv_path=self.csv_path, config_path=self.config_path
+            ):
+                print("CSV + Config pair already in session.")
+            else:
+                if not self.current_session.checkExists(self.csv_path):
+                    self.current_session.addCSV(self.csv_path)
+                self.current_session.addConfigToCSV(self.csv_path, self.config_path)
+                self.current_session.save()
+
+        with open(self.config_path, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+        config["config_path"] = self.config_path
+
+        self.status_label.setText("CSV parsed successfully, running calculations...")
+
+        parsed_points = parser.parse_dlc_csv(self.csv_path, config)
+        results = calculations.run_calculations(parsed_points, config)
+
+        if results is None:
+            print("Calculations failed.")
+            self.status_label.setText("Calculation failed.")
+            self.data_generated.emit(None)
+        else:
+            print("Calculations completed successfully.")
+            self.status_label.setText("Calculation successful.")
+            payload = {
+                "results_df": results,
+                "config": config,
+                "csv_path": self.csv_path,
+                "parsed_points": parsed_points,
+            }
+            self.data_generated.emit(payload)

@@ -82,12 +82,17 @@ class SceneNavigator(QWidget):
     def can_go_forward(self):
         return self.current_step_index < (len(self.steps) - 1)
 
-    def _update_state(self):
-        # Buttons enabled/disabled at edges
-        self.back_btn.setEnabled(self.can_go_back())
-        self.forward_btn.setEnabled(self.can_go_forward())
+    def set_back_enabled(self, enabled):
+        """Override Back button enabled state (e.g. from MainWindow)."""
+        self.back_btn.setEnabled(enabled)
 
-        # Status label
+    def set_forward_enabled(self, enabled):
+        """Override Forward button enabled state (e.g. from MainWindow)."""
+        self.forward_btn.setEnabled(enabled)
+
+    def _update_state(self):
+        # Button enabled state is set by MainWindow via set_back_enabled/set_forward_enabled
+        # Only update status label here
         if not self.steps:
             self.status_label.setText("")
             return

@@ -14,6 +14,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QLineEdit,
+    QHBoxLayout,
+    QCheckBox,
+    QGroupBox,
+    QGridLayout,
 )
 
 from core.validation import generate_json
@@ -38,14 +42,24 @@ class ConfigGeneratorScene(QWidget):
         header.setAlignment(Qt.AlignHCenter)
         layout.addWidget(header)
 
+        top_row = QHBoxLayout()
+
         self.feedback_box = QTextEdit()
         self.feedback_box.setReadOnly(True)
         self.feedback_box.setMinimumHeight(150)
-        layout.addWidget(self.feedback_box)
+        top_row.addWidget(self.feedback_box, 2)  # stretch: 2
 
-        self.load_btn = QPushButton("Load CSV")
-        self.load_btn.clicked.connect(self.load_csv)
-        layout.addWidget(self.load_btn)
+        right_panel = QVBoxLayout()
+        right_panel.addWidget(QLabel("Session CSVs"))
+
+        self.csv_list = QListWidget()
+        self.csv_list.setMinimumHeight(150)
+        self.csv_list.itemClicked.connect(self._on_csv_chosen)
+        right_panel.addWidget(self.csv_list)
+
+        top_row.addLayout(right_panel, 1)  # stretch: 1
+
+        layout.addLayout(top_row)
 
         self.fin_r_1 = QComboBox()
         self.fin_r_2 = QComboBox()
@@ -74,6 +88,30 @@ class ConfigGeneratorScene(QWidget):
         self.tail_list = QListWidget()
         self.tail_list.setSelectionMode(QListWidget.MultiSelection)
         layout.addWidget(self.tail_list)
+
+        # Graphs to generate (shown_outputs toggles)
+        graphs_group = QGroupBox("Graphs to generate")
+        graphs_layout = QGridLayout()
+        self.chk_fin_tail = QCheckBox("Fin angles + tail distance")
+        self.chk_fin_tail.setChecked(True)
+        self.chk_spines = QCheckBox("Spines")
+        self.chk_spines.setChecked(True)
+        self.chk_dot_lf = QCheckBox("Dot: Tail vs left fin angle")
+        self.chk_dot_lf.setChecked(True)
+        self.chk_dot_rf = QCheckBox("Dot: Tail vs right fin angle")
+        self.chk_dot_rf.setChecked(True)
+        self.chk_dot_lf_mov = QCheckBox("Dot: Tail vs left fin (moving)")
+        self.chk_dot_lf_mov.setChecked(False)
+        self.chk_dot_rf_mov = QCheckBox("Dot: Tail vs right fin (moving)")
+        self.chk_dot_rf_mov.setChecked(False)
+        graphs_layout.addWidget(self.chk_fin_tail, 0, 0)
+        graphs_layout.addWidget(self.chk_spines, 1, 0)
+        graphs_layout.addWidget(self.chk_dot_lf, 0, 1)
+        graphs_layout.addWidget(self.chk_dot_rf, 1, 1)
+        graphs_layout.addWidget(self.chk_dot_lf_mov, 2, 1)
+        graphs_layout.addWidget(self.chk_dot_rf_mov, 3, 1)
+        graphs_group.setLayout(graphs_layout)
+        layout.addWidget(graphs_group)
 
         layout.addWidget(QLabel("Config Name"))
         self.config_name_input = QLineEdit()
@@ -128,6 +166,36 @@ class ConfigGeneratorScene(QWidget):
         for bodypart in self.bodyparts:
             self.spine_list.addItem(QListWidgetItem(bodypart))
             self.tail_list.addItem(QListWidgetItem(bodypart))
+
+    def _refresh_csv_list(self):
+        """Populate the right-side CSV list from the current session."""
+        self.csv_list.clear()
+
+        if self.current_session is None:
+            self.csv_list.addItem(QListWidgetItem("(No session loaded)"))
+            self.csv_list.setEnabled(False)
+            return
+
+        self.csv_list.setEnabled(True)
+        csvs = self.current_session.getAllCSVs()  # Session API :contentReference[oaicite:4]{index=4}
+
+        if not csvs:
+            self.csv_list.addItem(QListWidgetItem("(No CSVs in session yet)"))
+            self.csv_list.setEnabled(False)
+            return
+
+        for p in csvs:
+            item = QListWidgetItem(p)
+            self.csv_list.addItem(item)
+
+    def _on_csv_chosen(self, item: QListWidgetItem):
+        """User picked a CSV from the session list; load it."""
+        p = (item.text() or "").strip()
+        if not p or p.startswith("("):
+            return
+        self.csv_path = p
+        self.load_csv()
+
 
     def _validate_config_name(self, name: str) -> tuple[bool, str]:
         name = (name or "").strip()
@@ -190,6 +258,15 @@ class ConfigGeneratorScene(QWidget):
 
         config = generate_json.build_config(points, generate_json.BASE_CONFIG)
 
+        # Apply graph toggles to shown_outputs
+        so = config.setdefault("shown_outputs", {})
+        so["show_angle_and_distance_plot"] = self.chk_fin_tail.isChecked()
+        so["show_spines"] = self.chk_spines.isChecked()
+        so["show_tail_left_fin_angle_dot_plot"] = self.chk_dot_lf.isChecked()
+        so["show_tail_right_fin_angle_dot_plot"] = self.chk_dot_rf.isChecked()
+        so["show_tail_left_fin_moving_dot_plot"] = self.chk_dot_lf_mov.isChecked()
+        so["show_tail_right_fin_moving_dot_plot"] = self.chk_dot_rf_mov.isChecked()
+
         session_name = self.current_session.getName()
         session_folder = Path(sessions_dir()) / session_name
         session_folder.mkdir(parents=True, exist_ok=True)
@@ -221,3 +298,10 @@ class ConfigGeneratorScene(QWidget):
     def load_session(self, session):
         """Load previous session data."""
         self.current_session = session
+        self._refresh_csv_list()
+
+        # keep list in sync when session changes
+        try:
+            self.current_session.session_updated.connect(self._refresh_csv_list)  # :contentReference[oaicite:7]{index=7}
+        except Exception:
+            pass
