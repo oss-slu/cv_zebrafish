@@ -185,6 +185,14 @@ class ConfigSelectionScene(QWidget):
             self.status_label.setText(
                 f"Selected: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
             )
+            # Persist last-used pair for session resume.
+            try:
+                if self.current_session is not None and self.csv_path and self.config_path:
+                    self.current_session.last_csv_path = self.csv_path
+                    self.current_session.last_config_path = self.config_path
+                    self.current_session.save()
+            except Exception:
+                pass
 
         if self.csv_path and self.config_path:
             self.calc_button.setEnabled(True)
@@ -255,6 +263,12 @@ class ConfigSelectionScene(QWidget):
             return
 
         if self.current_session:
+            # Persist last-used pair for session resume.
+            try:
+                self.current_session.last_csv_path = self.csv_path
+                self.current_session.last_config_path = self.config_path
+            except Exception:
+                pass
             if self.current_session.checkExists(
                 csv_path=self.csv_path, config_path=self.config_path
             ):
@@ -263,7 +277,7 @@ class ConfigSelectionScene(QWidget):
                 if not self.current_session.checkExists(self.csv_path):
                     self.current_session.addCSV(self.csv_path)
                 self.current_session.addConfigToCSV(self.csv_path, self.config_path)
-                self.current_session.save()
+            self.current_session.save()
 
         with open(self.config_path, "r", encoding="utf-8") as handle:
             config = json.load(handle)

@@ -13,21 +13,35 @@ class Session(QObject):
         super().__init__()
         self.name = name
         self.csvs = {}
+        # Persisted UI resume point (Landing is intentionally not resumable).
+        self.last_scene = "Verify"
+        # Persisted UI capability flag used for navigation enablement on resume.
+        self.calculation_has_run = False
+        # Persisted “last used” calculation inputs (so we can rebuild graphs on reopen).
+        self.last_csv_path = None
+        self.last_config_path = None
     
     def addCSV(self, csv_path):
         if not path.exists(csv_path):
             print(f"[Session] CSV path does not exist: {csv_path}")
             return
-        
-        self.csvs[csv_path] = {}
-        self.session_updated.emit()
+
+        # Idempotent: never overwrite an existing CSV entry, because that would
+        # wipe any configs/graphs already attached to it (losing progress).
+        if csv_path not in self.csvs:
+            self.csvs[csv_path] = {}
+            self.session_updated.emit()
         
     def addConfigToCSV(self, csv_path, config_path):
         if not path.exists(config_path):
             print(f"[Session] Config path does not exist: {config_path}")
             return
-        
-        if csv_path in self.csvs:
+
+        # Be permissive: ensure the CSV node exists, then attach config.
+        if csv_path not in self.csvs:
+            self.csvs[csv_path] = {}
+
+        if config_path not in self.csvs[csv_path]:
             self.csvs[csv_path][config_path] = []
             self.session_updated.emit()
 
@@ -74,6 +88,10 @@ class Session(QObject):
         return {
             "name": self.name,
             "csvs": self.csvs,
+            "last_scene": getattr(self, "last_scene", "Verify"),
+            "calculation_has_run": bool(getattr(self, "calculation_has_run", False)),
+            "last_csv_path": getattr(self, "last_csv_path", None),
+            "last_config_path": getattr(self, "last_config_path", None),
         }
     
     def length(self):
@@ -106,6 +124,12 @@ def load_session_from_json(json_path):
         raise ValueError("Session file is missing a valid name.")
 
     session = Session(session_name)
+    # Optional resume point (older session files won't have this).
+    last_scene = data.get("last_scene") or "Verify"
+    session.last_scene = last_scene
+    session.calculation_has_run = bool(data.get("calculation_has_run", False))
+    session.last_csv_path = data.get("last_csv_path")
+    session.last_config_path = data.get("last_config_path")
 
     csvs = data.get("csvs", {})
     for csv_path, configs in csvs.items():

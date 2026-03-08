@@ -26,7 +26,7 @@ from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headp
 from src.session import session
 from src.app_platform.paths import sessions_dir
 
-GraphSource = go.Figure
+GraphSource = Any  # go.Figure or a saved image path (str/Path)
 
 DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
     {
@@ -99,6 +99,7 @@ class GraphViewerScene(QWidget):
         self._original_pixmap: Optional[QPixmap] = None
         self._data = None
         self.current_session = None
+        self._kaleido_available = _is_kaleido_available()
 
         # Sidebar
         self.list = QListWidget()
@@ -135,6 +136,20 @@ class GraphViewerScene(QWidget):
         self._graphs.update(graphs)
         self.list.clear()
         self.list.addItems(list(self._graphs.keys()))
+
+        # If the graphs are Plotly figures, we need Kaleido to render them as PNGs in the GUI.
+        # Without Kaleido, the scene can look empty/confusing—show an explicit message.
+        needs_kaleido = any(isinstance(src, go.Figure) for src in self._graphs.values())
+        if needs_kaleido and not self._kaleido_available:
+            self._show_empty_state(
+                "Graphs are available, but cannot be displayed because Kaleido is not installed.\n"
+                "Install it and restart the app:\n"
+                "  pip install --upgrade kaleido\n"
+                "or (conda):\n"
+                "  conda install -c conda-forge python-kaleido"
+            )
+            return
+
         if self.list.count() > 0:
             self.list.setEnabled(True)
             self.list.setCurrentRow(0)
@@ -144,6 +159,7 @@ class GraphViewerScene(QWidget):
         # saves graphs to session
         if config and self.current_session is not None and self._out_dir is not None:
             for name, fig in self._graphs.items():
+                # Persist both an interactive HTML and a PNG snapshot (PNG is resumable in this GUI).
                 save_to_html(fig, name, self._out_dir, config, self.current_session)
 
     def add_graph(self, name: str, graph: GraphSource):
@@ -263,12 +279,20 @@ class GraphViewerScene(QWidget):
         self._show_graph(self._current_name)
 
     def _show_graph(self, name: str):
-        fig = self._graphs.get(name)
-        if fig is None:
+        source = self._graphs.get(name)
+        if source is None:
             self._show_empty_state(f"Missing graph: {name}")
             return
 
-        pix = self._figure_to_pixmap(fig)
+        pix: Optional[QPixmap] = None
+        if isinstance(source, go.Figure):
+            pix = self._figure_to_pixmap(source)
+        else:
+            try:
+                pix = QPixmap(str(source))
+            except Exception:
+                pix = None
+
         if pix is None or pix.isNull():
             self._show_empty_state("Unable to render this graph as a static image.")
             return
@@ -301,12 +325,16 @@ class GraphViewerScene(QWidget):
         self._out_dir = sessions_dir() / (self.current_session.getName())
         self._out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Restore previously saved HTML graphs
-        restored_graphs = self._load_html_graphs_from_session()
+        # Restore previously saved graphs (PNGs saved in the session).
+        restored_graphs = self._load_saved_graphs_from_session()
         if restored_graphs:
             self.set_graphs(restored_graphs)
         else:
             self._show_empty_state("No saved graphs yet for this session.")
+
+    def has_graphs(self) -> bool:
+        """True if the viewer currently has any graphs loaded/restored."""
+        return bool(self._graphs)
 
     def _update_scaled_pixmap(self):
         """Scale the original pixmap to fit the viewport width while keeping aspect ratio."""
@@ -325,6 +353,15 @@ class GraphViewerScene(QWidget):
         Convert a Plotly Figure into a QPixmap (static PNG).
         Requires kaleido for PNG export.
         """
+        if not self._kaleido_available:
+            self._show_empty_state(
+                "Cannot render graphs because Kaleido is not installed.\n"
+                "Install it and restart the app:\n"
+                "  pip install --upgrade kaleido\n"
+                "or (conda):\n"
+                "  conda install -c conda-forge python-kaleido"
+            )
+            return None
         try:
             png_bytes = pio.to_image(fig, format="png", scale=2)
             pix = QPixmap()
@@ -338,27 +375,50 @@ class GraphViewerScene(QWidget):
             )
             return None
         
-    def _load_html_graphs_from_session(self):
-        """Load previously saved HTML graphs from the session directory (placeholder)."""
+    def _load_saved_graphs_from_session(self) -> Dict[str, GraphSource]:
+        """
+        Restore previously saved graphs from the session.
+        We save PNG snapshots so the GUI can show graphs after reopening.
+        """
         if not self.current_session:
             return {}
 
-        graphs = {}
+        graphs: Dict[str, GraphSource] = {}
         session_dir = sessions_dir() / self.current_session.getName()
-        if not session_dir.exists():
+
+        # 1) Prefer explicit paths recorded in the session JSON (these should be PNGs).
+        try:
+            saved = self.current_session.getAllGraphs()
+        except Exception:
+            saved = []
+
+        def _unique_name(base: str) -> str:
+            if base not in graphs:
+                return base
+            i = 2
+            while f"{base} ({i})" in graphs:
+                i += 1
+            return f"{base} ({i})"
+
+        for p in saved:
+            try:
+                pp = Path(p)
+            except Exception:
+                continue
+            if pp.suffix.lower() != ".png" or not pp.exists():
+                continue
+            title = pp.stem.replace("_", " ").strip() or pp.name
+            graphs[_unique_name(title)] = pp
+
+        if graphs:
             return graphs
 
-        # Recursive glob for all .html files
-        for html_file in session_dir.rglob("*.html"):
-            try:
-                # Use relative path from session dir for uniqueness
-                relative_name = html_file.relative_to(session_dir).with_suffix("").as_posix()
-                
-                # graphs[relative_name] = str(html_file) 
-                # just store path as placeholder. this should be replaced with actual loading logic when pyqt webengine is used
-                # and the app is capable of rendering html files directly.
-            except Exception as e:
-                print(f"Could not load graph {html_file}: {e}")
+        # 2) Fallback: scan the session folder for PNGs (covers sessions with missing JSON links).
+        if not session_dir.exists():
+            return graphs
+        for png_file in session_dir.rglob("*.png"):
+            title = png_file.stem.replace("_", " ").strip() or png_file.name
+            graphs[_unique_name(title)] = png_file
 
         return graphs
 
@@ -693,12 +753,40 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
         fname = _safe_filename(title) or "graph"
 
         html_path = out_dir / f"{fname}.html"
+        png_path = out_dir / f"{fname}.png"
                 
         # Use CDN for plotly JS to keep file size smaller and consistent
         pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
 
+        # Also persist a PNG snapshot so the GUI can restore graphs on reopen.
+        try:
+            png_bytes = pio.to_image(fig, format="png", scale=2)
+            png_path.write_bytes(png_bytes)
+        except Exception as e:
+            # If kaleido is missing, the GUI can't render figures as PNG anyway.
+            # Keep HTML as a best-effort artifact.
+            png_path = None
+
         if session is not None:
-            session.addGraphToConfig(config["config_path"], str(html_path))
+            graph_asset = None
+            if png_path is not None and png_path.exists():
+                graph_asset = str(png_path)
+            elif html_path.exists():
+                graph_asset = str(html_path)
+            if graph_asset is not None:
+                session.addGraphToConfig(config["config_path"], graph_asset)
             session.save()
     except Exception as e:
         print(f"Could not save '{title}' as HTML: {e}")
+
+
+def _is_kaleido_available() -> bool:
+    """
+    Best-effort check for Kaleido availability.
+    Plotly's PNG export requires Kaleido; if it's missing, to_image() raises.
+    """
+    try:
+        import kaleido  # noqa: F401
+    except Exception:
+        return False
+    return True

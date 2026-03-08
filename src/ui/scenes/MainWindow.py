@@ -34,7 +34,8 @@ class MainWindow(QMainWindow):
 
         # Sets default main window properties
         self.setWindowTitle("CV Zebrafish")
-        self.setMinimumSize(QSize(900, 350))
+        # Minimum height bumped ~45% (350 -> ~510) to avoid UI cramping on small resizes.
+        self.setMinimumSize(QSize(900, 510))
         self.resize(QSize(1000, 700))
 
         # shortcut to close the window
@@ -89,6 +90,9 @@ class MainWindow(QMainWindow):
         ### signal handlers ###
         self._verify_last_csv_path = None
         self._calculation_has_run = False
+        self._current_scene_name = startScene
+        # When the user arrives at Select Configuration, Back should return to where they came from.
+        self._select_config_back_target = "Generate Config"
 
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
@@ -118,7 +122,29 @@ class MainWindow(QMainWindow):
         
         self.broadcastSession()
 
-        self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
+        # Resume to last scene (Landing is not resumable; fall back to Verify).
+        self._calculation_has_run = bool(getattr(self.currentSession, "calculation_has_run", False))
+
+        target = getattr(self.currentSession, "last_scene", None) or "Verify"
+        if target == "Landing" or target not in self.scenes:
+            target = "Verify"
+
+        # If the last scene was Graphs, rebuild graphs on load using the last-used CSV+config.
+        # (This uses the same pipeline as the Select Configuration \"Run Calculation\" button.)
+        if target == "Graphs":
+            last_csv = getattr(self.currentSession, "last_csv_path", None)
+            last_cfg = getattr(self.currentSession, "last_config_path", None)
+            if last_csv and last_cfg:
+                config_scene = self.scenes["Select Configuration"]
+                config_scene.csv_path = last_csv
+                config_scene.config_path = last_cfg
+                self._switch_to_scene(config_scene, "Select Configuration")
+                config_scene.calculate()
+                return
+            # No remembered pair; fall back to Verify.
+            target = "Verify"
+
+        self._switch_to_scene(self.scenes[target], target)
 
     def createSession(self, session_name):
         print("Creating new session with config.")
@@ -128,13 +154,14 @@ class MainWindow(QMainWindow):
 
         self.broadcastSession()
 
-        self._switch_to_scene(self.scenes["Generate Config"], "Generate Config")
+        # New sessions start in Verify (Landing is never resumable).
+        self._calculation_has_run = False
+        self._switch_to_scene(self.scenes["Verify"], "Verify")
 
     def broadcastSession(self):
         self.scenes["Generate Config"].load_session(self.currentSession)
         self.scenes["Select Configuration"].load_session(self.currentSession)
         self.scenes["Graphs"].load_session(self.currentSession)
-
     def _has_csv_and_config(self):
         """True if current session has at least one CSV with at least one config."""
         if not self.currentSession:
@@ -169,6 +196,31 @@ class MainWindow(QMainWindow):
         self.scene_navigator.set_back_enabled(can_back)
         self.scene_navigator.set_forward_enabled(can_forward)
 
+        # Status text should reflect the *actual* forward target (Verify skips Generate Config).
+        if not current or not steps:
+            self.scene_navigator.set_status_override(None)
+            return
+
+        left = steps[idx - 1] if idx > 0 else ""
+        right = steps[idx + 1] if idx < (len(steps) - 1) else ""
+
+        if current == "Verify":
+            right = "Select Configuration"
+        elif current == "Select Configuration":
+            # If we jumped here from Verify, show Verify as the back neighbor.
+            bt = getattr(self, "_select_config_back_target", None)
+            if bt in ("Verify", "Generate Config"):
+                left = bt
+
+        if left and right:
+            self.scene_navigator.set_status_override(f"{left}  ←  {current}  →  {right}")
+        elif left:
+            self.scene_navigator.set_status_override(f"{left}  ←  {current}")
+        elif right:
+            self.scene_navigator.set_status_override(f"{current}  →  {right}")
+        else:
+            self.scene_navigator.set_status_override(current)
+
     def handle_data(self, data):
         print("Data received in MainWindow")
         config_scene = self.scenes["Select Configuration"]
@@ -189,6 +241,13 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             graphs_scene.set_graphs(graphs, config=config)
             self._calculation_has_run = True
+            # Persist navigation enablement for session resume.
+            try:
+                if self.currentSession is not None:
+                    self.currentSession.calculation_has_run = True
+                    self.currentSession.save()
+            except Exception:
+                pass
             self._switch_to_scene(graphs_scene, "Graphs")
         else:
             graphs_scene.set_data(data)
@@ -251,6 +310,13 @@ class MainWindow(QMainWindow):
         if current_name not in steps:
             return
 
+        # Back from Select Configuration should return to the scene we came from (Verify or Generate Config).
+        if current_name == "Select Configuration":
+            target = getattr(self, "_select_config_back_target", None)
+            if target in self.scenes:
+                self._switch_to_scene(self.scenes[target], target)
+                return
+
         i = steps.index(current_name)
         if i <= 0:
             return
@@ -290,7 +356,23 @@ class MainWindow(QMainWindow):
 
     def _switch_to_scene(self, scene, scene_name):
         """Switch to a scene and update the progress indicator."""
+        prev = getattr(self, "_current_scene_name", None)
+        self._current_scene_name = scene_name
+
+        # Remember where we came from when entering Select Configuration.
+        if scene_name == "Select Configuration" and prev in ("Verify", "Generate Config"):
+            self._select_config_back_target = prev
+
         self.stack.setCurrentWidget(scene)
         self.progress_indicator.set_current_step(scene_name)
         self.scene_navigator.set_current_step(scene_name)
         self._update_navigator()
+
+        # Persist resume point "as you go" (Landing is intentionally not resumable).
+        if self.currentSession is not None and scene_name != "Landing":
+            try:
+                if getattr(self.currentSession, "last_scene", None) != scene_name:
+                    self.currentSession.last_scene = scene_name
+                self.currentSession.save()
+            except Exception:
+                pass

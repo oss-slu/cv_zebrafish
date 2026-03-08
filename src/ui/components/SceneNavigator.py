@@ -9,6 +9,7 @@ class SceneNavigator(QWidget):
 
         self.steps = steps or []
         self.current_step_index = 0
+        self._status_override = None
 
         self.on_back = on_back
         self.on_forward = on_forward
@@ -76,6 +77,14 @@ class SceneNavigator(QWidget):
             self.current_step_index = self.steps.index(step_name)
         self._update_state()
 
+    def set_status_override(self, text):
+        """
+        Override the center status label text.
+        Pass None to clear the override and revert to the default step-adjacent display.
+        """
+        self._status_override = text
+        self._update_state()
+
     def can_go_back(self):
         return self.current_step_index > 0
 
@@ -93,6 +102,10 @@ class SceneNavigator(QWidget):
     def _update_state(self):
         # Button enabled state is set by MainWindow via set_back_enabled/set_forward_enabled
         # Only update status label here
+        if self._status_override is not None:
+            self.status_label.setText(self._status_override)
+            return
+
         if not self.steps:
             self.status_label.setText("")
             return
