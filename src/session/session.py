@@ -52,9 +52,11 @@ class Session(QObject):
         
         for _, configs in self.csvs.items():
             if config_path in configs:
-                configs[config_path].append(graph_path)
-
-        self.session_updated.emit()
+                graphs = configs[config_path]
+                # Avoid duplicates when recalculations re-save the same asset path.
+                if graph_path not in graphs:
+                    graphs.append(graph_path)
+                    self.session_updated.emit()
 
     def getConfigsForCSV(self, csv_path):
         return self.csvs.get(csv_path, {})
@@ -75,19 +77,40 @@ class Session(QObject):
         return []
     
     def getAllGraphs(self):
+        # Unique, stable order
         all_graphs = []
+        seen = set()
         for configs in self.csvs.values():
             for graphs in configs.values():
-                all_graphs.extend(graphs)
+                for g in graphs:
+                    if g in seen:
+                        continue
+                    seen.add(g)
+                    all_graphs.append(g)
         return all_graphs
     
     def getName(self):
         return self.name
     
     def toDict(self):
+        # When saving, dedupe graph path lists so session files don't grow endlessly.
+        deduped_csvs = {}
+        for csv_path, configs in (self.csvs or {}).items():
+            deduped_configs = {}
+            for config_path, graphs in (configs or {}).items():
+                unique_graphs = []
+                seen = set()
+                for g in (graphs or []):
+                    if g in seen:
+                        continue
+                    seen.add(g)
+                    unique_graphs.append(g)
+                deduped_configs[config_path] = unique_graphs
+            deduped_csvs[csv_path] = deduped_configs
+
         return {
             "name": self.name,
-            "csvs": self.csvs,
+            "csvs": deduped_csvs,
             "last_scene": getattr(self, "last_scene", "Verify"),
             "calculation_has_run": bool(getattr(self, "calculation_has_run", False)),
             "last_csv_path": getattr(self, "last_csv_path", None),

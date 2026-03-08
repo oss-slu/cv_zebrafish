@@ -384,6 +384,7 @@ class GraphViewerScene(QWidget):
             return {}
 
         graphs: Dict[str, GraphSource] = {}
+        seen_paths = set()
         session_dir = sessions_dir() / self.current_session.getName()
 
         # 1) Prefer explicit paths recorded in the session JSON (these should be PNGs).
@@ -405,10 +406,17 @@ class GraphViewerScene(QWidget):
                 pp = Path(p)
             except Exception:
                 continue
+            try:
+                key = str(pp.resolve())
+            except Exception:
+                key = str(pp)
+            if key in seen_paths:
+                continue
             if pp.suffix.lower() != ".png" or not pp.exists():
                 continue
             title = pp.stem.replace("_", " ").strip() or pp.name
             graphs[_unique_name(title)] = pp
+            seen_paths.add(key)
 
         if graphs:
             return graphs
@@ -417,8 +425,15 @@ class GraphViewerScene(QWidget):
         if not session_dir.exists():
             return graphs
         for png_file in session_dir.rglob("*.png"):
+            try:
+                key = str(png_file.resolve())
+            except Exception:
+                key = str(png_file)
+            if key in seen_paths:
+                continue
             title = png_file.stem.replace("_", " ").strip() or png_file.name
             graphs[_unique_name(title)] = png_file
+            seen_paths.add(key)
 
         return graphs
 
