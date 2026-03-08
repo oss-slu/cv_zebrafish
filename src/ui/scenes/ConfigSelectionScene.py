@@ -3,6 +3,7 @@ from os import path
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -15,12 +16,16 @@ from PyQt5.QtWidgets import (
     QTreeWidgetItem,
     QMessageBox,
     QApplication,
+    QStyle,
 )
 
 import src.core.calculations.Driver as calculations
 import src.core.parsing.Parser as parser
 
 from src.app_platform.paths import sessions_dir, default_sample_config, default_sample_csv
+from src.app_platform.paths import images_dir
+
+FOLDER_ICON = images_dir() / "folder-black.svg"
 
 
 class ConfigSelectionScene(QWidget):
@@ -134,23 +139,53 @@ class ConfigSelectionScene(QWidget):
 
         if not self.current_session:
             print("[populate_tree] No session loaded.")
+            self.set_progress(0, 0, "")
             return
 
         print(f"[populate_tree] Populating for session: {self.current_session.name}")
+        # Show progress while building the tree (large sessions/folders can take time).
+        total_items = 0
+        try:
+            for _csv_path, configs in (self.current_session.csvs or {}).items():
+                total_items += 1  # csv node
+                total_items += len(list((configs or {}).keys()))  # config children
+        except Exception:
+            total_items = 0
+
+        if total_items > 0:
+            self.set_progress(0, total_items, "Loading session items...")
         csvs = self.current_session.getAllCSVs()
 
         if self.current_session.length() == 0:
             item = QTreeWidgetItem(["(No saved CSVs)", ""])
             item.setDisabled(True)
             self.file_tree.addTopLevelItem(item)
+            self.set_progress(0, 0, "")
             return
     
+        done = 0
         for csv_path, configs in self.current_session.csvs.items():
             print(f"  - CSV: {csv_path}, configs: {list(configs.keys())}")
 
-            csv_name = path.basename(csv_path) or csv_path
+            is_folder = False
+            n_files = 0
+            try:
+                is_folder = bool(getattr(self.current_session, "is_folder_csv", lambda _p: False)(csv_path))
+                if is_folder:
+                    files = self.current_session.get_folder_files(csv_path)
+                    n_files = len(files)
+            except Exception:
+                is_folder = False
+
+            if is_folder:
+                folder_name = path.basename(csv_path) or csv_path
+                csv_name = f"{folder_name} ({n_files} files)"
+            else:
+                csv_name = path.basename(csv_path) or csv_path
             csv_item = QTreeWidgetItem([csv_name, ""])
             csv_item.setData(0, Qt.UserRole, csv_path)
+            if is_folder:
+                csv_item.setIcon(0, QIcon(str(FOLDER_ICON)))
 
             if not configs:
                 placeholder = QTreeWidgetItem(["", "(No configs)"])
@@ -162,9 +197,17 @@ class ConfigSelectionScene(QWidget):
                     cfg_item = QTreeWidgetItem(["", cfg_name])
                     cfg_item.setData(1, Qt.UserRole, cfg)
                     csv_item.addChild(cfg_item)
+                    done += 1
+                    if total_items > 0:
+                        self.set_progress(done, total_items, "Loading session items...")
 
             self.file_tree.addTopLevelItem(csv_item)
             csv_item.setExpanded(True)
+            done += 1
+            if total_items > 0:
+                self.set_progress(done, total_items, "Loading session items...")
+
+        self.set_progress(0, 0, "")
 
     def handle_tree_click(self, item, column):
         """Handle user clicking a CSV or config in the tree."""
@@ -282,6 +325,25 @@ class ConfigSelectionScene(QWidget):
         with open(self.config_path, "r", encoding="utf-8") as handle:
             config = json.load(handle)
         config["config_path"] = self.config_path
+
+        # If this CSV is a folder, emit a folder payload and let MainWindow orchestrate
+        # running calculations across all files with aggregated progress.
+        try:
+            if self.current_session is not None and self.current_session.is_folder_csv(self.csv_path):
+                files = self.current_session.get_folder_files(self.csv_path)
+                if not files:
+                    QMessageBox.warning(self, "Empty Folder", "This folder has no CSV files recorded in the session.")
+                    return
+                payload = {
+                    "csv_folder": self.csv_path,
+                    "csv_files": files,
+                    "config": config,
+                    "config_path": self.config_path,
+                }
+                self.data_generated.emit(payload)
+                return
+        except Exception:
+            pass
 
         self.status_label.setText("CSV parsed successfully, running calculations...")
 

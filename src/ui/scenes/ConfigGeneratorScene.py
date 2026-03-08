@@ -35,6 +35,9 @@ class ConfigGeneratorScene(QWidget):
 
         self.current_session = None
 
+        # csv_id is the session key: either a CSV file path or a folder path.
+        self.csv_id = None
+        # csv_path is the actual CSV file path we load bodyparts from.
         self.csv_path = csv_path
         self.bodyparts = []
 
@@ -170,10 +173,18 @@ class ConfigGeneratorScene(QWidget):
             return
 
         try:
-            # adds csv to session
-            if self.current_session is not None:
-                self.current_session.addCSV(self.csv_path)
-                self.current_session.save()
+            # If the selected item is a folder CSV, load bodyparts from the first file in that folder.
+            if self.current_session is not None and self.csv_id and getattr(self.current_session, "is_folder_csv", lambda _p: False)(self.csv_id):
+                files = self.current_session.get_folder_files(self.csv_id)
+                if not files:
+                    self.feedback_box.setText("Warning: This folder has no CSV files recorded in the session.")
+                    return
+                self.csv_path = files[0]
+            else:
+                # adds csv to session (single-file case)
+                if self.current_session is not None:
+                    self.current_session.addCSV(self.csv_path)
+                    self.current_session.save()
 
             self.bodyparts = generate_json.load_bodyparts_from_csv(self.csv_path)
         except Exception as exc:
@@ -228,6 +239,8 @@ class ConfigGeneratorScene(QWidget):
         p = (item.text() or "").strip()
         if not p or p.startswith("("):
             return
+        self.csv_id = p
+        # For folder entries, load_csv() will translate to a real CSV file path.
         self.csv_path = p
         self.load_csv()
 
@@ -318,7 +331,9 @@ class ConfigGeneratorScene(QWidget):
         try:
             generate_json.save_config_json(config, save_path)
             try:
-                self.current_session.addConfigToCSV(self.csv_path, save_path)
+                # Attach config to the session CSV ID (folder or file), not necessarily the file used for loading.
+                csv_target = self.csv_id or self.csv_path
+                self.current_session.addConfigToCSV(csv_target, save_path)
                 self.current_session.save()
             except Exception as exc:
                 pass

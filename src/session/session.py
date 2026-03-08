@@ -13,6 +13,10 @@ class Session(QObject):
         super().__init__()
         self.name = name
         self.csvs = {}
+        # Folder CSVs: folder_path -> [csv_file_paths]
+        self.csv_folders = {}
+        # Folder graph outputs: folder_path -> config_path -> csv_file_path -> [graph_asset_paths]
+        self.folder_graphs = {}
         # Persisted UI resume point (Landing is intentionally not resumable).
         self.last_scene = "Verify"
         # Persisted UI capability flag used for navigation enablement on resume.
@@ -31,6 +35,43 @@ class Session(QObject):
         if csv_path not in self.csvs:
             self.csvs[csv_path] = {}
             self.session_updated.emit()
+
+    def addCSVFolder(self, folder_path: str, csv_files: list[str]):
+        """Register a folder of CSVs as a single CSV input ID."""
+        if not folder_path or not path.exists(folder_path):
+            print(f"[Session] Folder path does not exist: {folder_path}")
+            return
+        # Store file list in stable order
+        files = [f for f in (csv_files or []) if f and path.exists(f)]
+        self.csv_folders[folder_path] = files
+        if folder_path not in self.csvs:
+            self.csvs[folder_path] = {}
+        self.session_updated.emit()
+
+    def is_folder_csv(self, csv_id: str) -> bool:
+        return csv_id in (self.csv_folders or {})
+
+    def get_folder_files(self, csv_id: str) -> list[str]:
+        return list((self.csv_folders or {}).get(csv_id, []) or [])
+
+    def addFolderGraph(self, folder_path: str, config_path: str, csv_file_path: str, graph_asset_path: str):
+        """Record a graph output for one CSV inside a folder run."""
+        if not folder_path or not config_path or not csv_file_path or not graph_asset_path:
+            return
+        if not path.exists(graph_asset_path):
+            print(f"[Session] Graph asset path does not exist: {graph_asset_path}")
+            return
+
+        fg = self.folder_graphs.setdefault(folder_path, {})
+        cfg_bucket = fg.setdefault(config_path, {})
+        assets = cfg_bucket.setdefault(csv_file_path, [])
+        if graph_asset_path not in assets:
+            assets.append(graph_asset_path)
+            self.session_updated.emit()
+
+    def getFolderGraphs(self, folder_path: str, config_path: str):
+        """Return {csv_file_path: [graph_asset_paths]} for this folder+config."""
+        return dict(((self.folder_graphs or {}).get(folder_path, {}) or {}).get(config_path, {}) or {})
         
     def addConfigToCSV(self, csv_path, config_path):
         if not path.exists(config_path):
@@ -108,9 +149,28 @@ class Session(QObject):
                 deduped_configs[config_path] = unique_graphs
             deduped_csvs[csv_path] = deduped_configs
 
+        deduped_folder_graphs = {}
+        for folder_path, cfgs in (self.folder_graphs or {}).items():
+            dedup_cfgs = {}
+            for config_path, per_csv in (cfgs or {}).items():
+                dedup_per_csv = {}
+                for csv_file, assets in (per_csv or {}).items():
+                    uniq = []
+                    seen = set()
+                    for a in (assets or []):
+                        if a in seen:
+                            continue
+                        seen.add(a)
+                        uniq.append(a)
+                    dedup_per_csv[csv_file] = uniq
+                dedup_cfgs[config_path] = dedup_per_csv
+            deduped_folder_graphs[folder_path] = dedup_cfgs
+
         return {
             "name": self.name,
             "csvs": deduped_csvs,
+            "csv_folders": dict(self.csv_folders or {}),
+            "folder_graphs": deduped_folder_graphs,
             "last_scene": getattr(self, "last_scene", "Verify"),
             "calculation_has_run": bool(getattr(self, "calculation_has_run", False)),
             "last_csv_path": getattr(self, "last_csv_path", None),
@@ -153,6 +213,8 @@ def load_session_from_json(json_path):
     session.calculation_has_run = bool(data.get("calculation_has_run", False))
     session.last_csv_path = data.get("last_csv_path")
     session.last_config_path = data.get("last_config_path")
+    session.csv_folders = data.get("csv_folders") or {}
+    session.folder_graphs = data.get("folder_graphs") or {}
 
     csvs = data.get("csvs", {})
     for csv_path, configs in csvs.items():

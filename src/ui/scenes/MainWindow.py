@@ -4,12 +4,16 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QApplication
 )
 from PyQt5.QtGui import QKeySequence
+from pathlib import Path
 
 from src.ui.scenes.LandingScene import LandingScene
 from src.ui.scenes.GraphViewerScene import GraphViewerScene, get_graph_names_to_build
 from src.ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
 from src.ui.scenes.VerifyScene import VerifyScene
 from ui.scenes.ConfigSelectionScene import  ConfigSelectionScene
+
+import src.core.calculations.Driver as calculations
+import src.core.parsing.Parser as parser
 
 from src.session.session import *
 
@@ -97,6 +101,7 @@ class MainWindow(QMainWindow):
         self.scenes["Landing"].session_selected.connect(self.loadSession)
         self.scenes["Landing"].create_new_session.connect(self.createSession)
         self.scenes["Verify"].csv_selected.connect(self.on_verify_csv_selected)
+        self.scenes["Verify"].csv_folder_selected.connect(self.on_verify_folder_selected)
         self.scenes["Verify"].json_selected.connect(self.on_verify_json_selected)
         self.scenes["Verify"].generate_json_requested.connect(self.goToGenerateConfig)
         self.scenes["Generate Config"].config_generated.connect(self.goToSelectConfig)
@@ -229,6 +234,99 @@ class MainWindow(QMainWindow):
         def progress_callback(n, total, graph_name):
             config_scene.set_progress(n, total, graph_name)
 
+        # Folder run: compute graphs across all CSV files and show a CSV dropdown in Graphs.
+        if data and isinstance(data, dict) and data.get("csv_files"):
+            csv_files = list(data.get("csv_files") or [])
+            config = data.get("config") or {}
+            config_path = data.get("config_path") or (config.get("config_path") if isinstance(config, dict) else None)
+            csv_folder_id = data.get("csv_folder")
+            if not csv_files or not isinstance(config, dict):
+                QMessageBox.warning(self, "Bad Input", "Folder payload is missing CSV files or config.")
+                return
+            if not csv_folder_id or not config_path:
+                QMessageBox.warning(self, "Bad Input", "Folder payload is missing folder id or config path.")
+                return
+
+            # Phase 1: calculations across files
+            results_by_csv = {}
+            parsed_by_csv = {}
+
+            total_files = len(csv_files)
+            for idx, csv_path in enumerate(csv_files, start=1):
+                config_scene.set_progress(idx, total_files, f"Calculating: {Path(csv_path).name}")
+                try:
+                    parsed_points = parser.parse_dlc_csv(csv_path, config)
+                    results_df = calculations.run_calculations(parsed_points, config)
+                except Exception as exc:
+                    config_scene.set_progress(0, 0, "")
+                    QMessageBox.warning(self, "Calculation Failed", f"Failed on {csv_path}:\n{exc}")
+                    return
+                results_by_csv[csv_path] = results_df
+                parsed_by_csv[csv_path] = parsed_points
+
+            # Phase 2: build graphs with aggregated progress
+            total_graphs = 0
+            file_payloads = []
+            for csv_path in csv_files:
+                payload = {
+                    "results_df": results_by_csv[csv_path],
+                    "config": config,
+                    "csv_path": csv_path,
+                    "parsed_points": parsed_by_csv[csv_path],
+                }
+                names = get_graph_names_to_build(payload)
+                total_graphs += len(names)
+                file_payloads.append((csv_path, payload))
+
+            if total_graphs <= 0:
+                config_scene.set_progress(0, 0, "")
+                QMessageBox.warning(self, "No Graphs", "No graphs were requested or available for this config.")
+                return
+
+            graphs_by_csv = {}
+            done = 0
+
+            for csv_path, payload in file_payloads:
+                def progress_callback(_n, _total, graph_name, _csv=csv_path):
+                    nonlocal done
+                    done += 1
+                    config_scene.set_progress(done, total_graphs, f"{Path(_csv).name} — {graph_name}")
+
+                graphs, _cfg = graphs_scene.build_graphs_with_progress(payload, progress_callback)
+                if graphs is None:
+                    continue
+                graphs_by_csv[csv_path] = graphs
+
+            if not graphs_by_csv:
+                config_scene.set_progress(0, 0, "")
+                QMessageBox.warning(self, "No Graphs", "Graphs could not be generated for this folder.")
+                return
+
+            # Persist folder graphs in per-CSV subfolders and record assets in the session.
+            try:
+                graphs_scene.save_folder_graphs(
+                    csv_folder_id=csv_folder_id,
+                    csv_files=csv_files,
+                    config_path=config_path,
+                    graphs_by_csv=graphs_by_csv,
+                    config=config,
+                )
+            except Exception:
+                pass
+
+            graphs_scene.set_context(csv_id=csv_folder_id, config_path=config_path, csv_files=csv_files)
+            graphs_scene.set_graphs_by_csv(graphs_by_csv, config=config)
+            self._calculation_has_run = True
+            try:
+                if self.currentSession is not None:
+                    self.currentSession.calculation_has_run = True
+                    self.currentSession.save()
+            except Exception:
+                pass
+            self._switch_to_scene(graphs_scene, "Graphs")
+            config_scene.set_progress(0, 0, "")
+            return
+
         if data and isinstance(data, dict) and data.get("results_df") is not None:
             names = get_graph_names_to_build(data)
             total = len(names)
@@ -240,6 +338,14 @@ class MainWindow(QMainWindow):
             config_scene.set_progress(len(graphs), len(graphs), "Loading graphs...")
             QApplication.processEvents()
             graphs_scene.set_graphs(graphs, config=config)
+            try:
+                graphs_scene.set_context(
+                    csv_id=data.get("csv_path") if isinstance(data, dict) else None,
+                    config_path=(config.get("config_path") if isinstance(config, dict) else None),
+                    csv_files=None,
+                )
+            except Exception:
+                pass
             self._calculation_has_run = True
             # Persist navigation enablement for session resume.
             try:
@@ -266,6 +372,29 @@ class MainWindow(QMainWindow):
         if not self.currentSession.checkExists(csv_path=csv_path):
             self.currentSession.addCSV(csv_path)
             self.currentSession.save()
+        self._update_navigator()
+
+    def on_verify_folder_selected(self, folder_path: str, csv_files):
+        if not self.currentSession:
+            QMessageBox.warning(self, "No Session", "Create or load a session first.")
+            return
+
+        try:
+            files = list(csv_files or [])
+        except Exception:
+            files = []
+
+        if not folder_path or not files:
+            QMessageBox.warning(self, "Invalid Folder", "No CSV files were provided for this folder.")
+            return
+
+        try:
+            self.currentSession.addCSVFolder(folder_path, files)
+            self.currentSession.save()
+        except Exception as exc:
+            QMessageBox.warning(self, "Folder Error", f"Failed to add folder to session:\n{exc}")
+            return
+
         self._update_navigator()
 
     def on_verify_json_selected(self, json_path):

@@ -17,9 +17,11 @@ from PyQt5.QtWidgets import (
 from core.validation import csv_verifier as input_verifier
 from core.validation import json_verifier
 from app_platform.paths import images_dir
+import pandas as pd
 
 
 UPLOAD_ICON = images_dir() / "upload-button.png"
+FOLDER_ICON = images_dir() / "folder-black.svg"
 
 
 class VerifyScene(QWidget):
@@ -29,6 +31,7 @@ class VerifyScene(QWidget):
     """
 
     csv_selected = pyqtSignal(str)
+    csv_folder_selected = pyqtSignal(str, object)  # (folder_path, [csv_files])
     json_selected = pyqtSignal(str)
 
     generate_json_requested = pyqtSignal()
@@ -61,6 +64,13 @@ class VerifyScene(QWidget):
         self.csv_button.setCursor(Qt.PointingHandCursor)
         self.csv_button.clicked.connect(self.select_csv_file)
         csv_layout.addWidget(self.csv_button)
+
+        self.csv_folder_button = QPushButton("Upload Multiple CSV")
+        self.csv_folder_button.setIcon(QIcon(str(FOLDER_ICON)))
+        self.csv_folder_button.setIconSize(QSize(24, 24))
+        self.csv_folder_button.setCursor(Qt.PointingHandCursor)
+        self.csv_folder_button.clicked.connect(self.select_csv_folder)
+        csv_layout.addWidget(self.csv_folder_button)
         main_layout.addLayout(csv_layout)
 
         json_layout = QHBoxLayout()
@@ -147,6 +157,87 @@ class VerifyScene(QWidget):
             self.feedback_box.append("Success: No issues found.\n")
 
         return valid
+
+    def select_csv_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder of CSV Files", "")
+        if not folder:
+            self.feedback_box.append("Warning: Folder selection canceled.\n")
+            return
+
+        folder_path = Path(folder)
+        self.csv_path_field.setText(str(folder_path))
+        self.feedback_box.append(f"\n--- Validating CSV Folder ---\n{folder_path}\n")
+
+        # Reject subfolders
+        subdirs = [p for p in folder_path.iterdir() if p.is_dir()]
+        if subdirs:
+            self.feedback_box.append("Error: Selected folder contains subfolders. Please select a folder with only CSV files.\n")
+            for sd in subdirs:
+                self.feedback_box.append(f" - Subfolder: {sd.name}")
+            return
+
+        csv_files = sorted([p for p in folder_path.iterdir() if p.is_file() and p.suffix.lower() == ".csv"])
+        if not csv_files:
+            self.feedback_box.append("Error: No .csv files found in the selected folder.\n")
+            return
+
+        all_errors: list[str] = []
+        all_warnings: list[str] = []
+
+        base_sig = None
+        base_name = None
+
+        for p in csv_files:
+            try:
+                errors, warnings = input_verifier.verify_deeplabcut_csv(str(p))
+            except Exception as exc:
+                errors, warnings = [f"[ERROR] Failed to read CSV: {exc}"], []
+
+            if errors:
+                all_errors.append(f"{p.name}:")
+                all_errors.extend([f"  {e}" for e in errors])
+            if warnings:
+                all_warnings.append(f"{p.name}:")
+                all_warnings.extend([f"  {w}" for w in warnings])
+
+            # Format signature check (columns + header rows 0/1 like the verifier expects)
+            try:
+                df_head = pd.read_csv(str(p), nrows=2)
+                sig = (
+                    tuple(df_head.columns[1:]),
+                    tuple(df_head.iloc[0, 1:].tolist()),
+                    tuple(df_head.iloc[1, 1:].tolist()),
+                )
+            except Exception as exc:
+                all_errors.append(f"{p.name}:")
+                all_errors.append(f"  [ERROR] Failed to read header rows for format check: {exc}")
+                continue
+
+            if base_sig is None:
+                base_sig = sig
+                base_name = p.name
+            elif sig != base_sig:
+                all_errors.append(f"{p.name}:")
+                all_errors.append(
+                    f"  [ERROR] CSV format does not match the first file ({base_name}). "
+                    "Ensure all CSVs are exported with the same DLC bodyparts/columns."
+                )
+
+        if all_errors:
+            self.feedback_box.append("\nErrors:")
+            for line in all_errors:
+                self.feedback_box.append(f" - {line}" if not line.startswith("  ") else line)
+        if all_warnings:
+            self.feedback_box.append("\nWarnings:")
+            for line in all_warnings:
+                self.feedback_box.append(f" - {line}" if not line.startswith("  ") else line)
+
+        if all_errors:
+            self.feedback_box.append("\nError: Folder failed validation.\n")
+            return
+
+        self.feedback_box.append(f"Success: Folder passed validation. {len(csv_files)} files ready.\n")
+        self.csv_folder_selected.emit(str(folder_path), [str(p) for p in csv_files])
 
     # JSON handling
     def select_json_file(self):
