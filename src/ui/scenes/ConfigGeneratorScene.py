@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QTextEdit,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
     QLineEdit,
@@ -34,32 +35,52 @@ class ConfigGeneratorScene(QWidget):
 
         self.current_session = None
 
+        # csv_id is the session key: either a CSV file path or a folder path.
+        self.csv_id = None
+        # csv_path is the actual CSV file path we load bodyparts from.
         self.csv_path = csv_path
         self.bodyparts = []
 
         layout = QVBoxLayout()
+        layout.setSpacing(12)
         header = QLabel("Auto-generate JSON Config")
         header.setAlignment(Qt.AlignHCenter)
         layout.addWidget(header)
 
         top_row = QHBoxLayout()
+        top_row.setSpacing(12)
 
         self.feedback_box = QTextEdit()
         self.feedback_box.setReadOnly(True)
-        self.feedback_box.setMinimumHeight(150)
+        # Keep the console readable; when space is tight, we scroll the input area instead.
+        self.feedback_box.setMinimumHeight(180)
         top_row.addWidget(self.feedback_box, 2)  # stretch: 2
 
         right_panel = QVBoxLayout()
+        right_panel.setSpacing(8)
         right_panel.addWidget(QLabel("Session CSVs"))
 
         self.csv_list = QListWidget()
-        self.csv_list.setMinimumHeight(150)
+        self.csv_list.setMinimumHeight(180)
         self.csv_list.itemClicked.connect(self._on_csv_chosen)
         right_panel.addWidget(self.csv_list)
 
         top_row.addLayout(right_panel, 1)  # stretch: 1
 
         layout.addLayout(top_row)
+
+        # ===============================
+        # Scrollable input area (everything below the top row)
+        # ===============================
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        scroll_content = QWidget()
+        form = QVBoxLayout(scroll_content)
+        form.setSpacing(10)
+        form.setContentsMargins(0, 0, 0, 0)
 
         self.fin_r_1 = QComboBox()
         self.fin_r_2 = QComboBox()
@@ -76,18 +97,20 @@ class ConfigGeneratorScene(QWidget):
             (self.head_1, "Head pt1"),
             (self.head_2, "Head pt2"),
         ]:
-            layout.addWidget(QLabel(label_text))
-            layout.addWidget(combo)
+            form.addWidget(QLabel(label_text))
+            form.addWidget(combo)
 
-        layout.addWidget(QLabel("Spine Points"))
+        form.addWidget(QLabel("Spine Points"))
         self.spine_list = QListWidget()
         self.spine_list.setSelectionMode(QListWidget.MultiSelection)
-        layout.addWidget(self.spine_list)
+        self.spine_list.setMinimumHeight(140)
+        form.addWidget(self.spine_list)
 
-        layout.addWidget(QLabel("Tail Points"))
+        form.addWidget(QLabel("Tail Points"))
         self.tail_list = QListWidget()
         self.tail_list.setSelectionMode(QListWidget.MultiSelection)
-        layout.addWidget(self.tail_list)
+        self.tail_list.setMinimumHeight(140)
+        form.addWidget(self.tail_list)
 
         # Graphs to generate (shown_outputs toggles)
         graphs_group = QGroupBox("Graphs to generate")
@@ -111,16 +134,31 @@ class ConfigGeneratorScene(QWidget):
         graphs_layout.addWidget(self.chk_dot_lf_mov, 2, 1)
         graphs_layout.addWidget(self.chk_dot_rf_mov, 3, 1)
         graphs_group.setLayout(graphs_layout)
-        layout.addWidget(graphs_group)
+        form.addWidget(graphs_group)
 
-        layout.addWidget(QLabel("Config Name"))
+        # Push content up; extra space stays at bottom of the scroll content.
+        form.addStretch(1)
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, stretch=1)
+
+        # ===============================
+        # Fixed bottom action bar (always visible)
+        # ===============================
+        bottom = QWidget()
+        bottom_layout = QHBoxLayout(bottom)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(10)
+
+        bottom_layout.addWidget(QLabel("Config Name"))
         self.config_name_input = QLineEdit()
         self.config_name_input.setPlaceholderText("config")
-        layout.addWidget(self.config_name_input)
+        bottom_layout.addWidget(self.config_name_input, stretch=1)
 
         self.gen_btn = QPushButton("Generate Config")
         self.gen_btn.clicked.connect(self.generate_config)
-        layout.addWidget(self.gen_btn)
+        bottom_layout.addWidget(self.gen_btn)
+
+        layout.addWidget(bottom)
 
         self.setLayout(layout)
 
@@ -135,10 +173,18 @@ class ConfigGeneratorScene(QWidget):
             return
 
         try:
-            # adds csv to session
-            if self.current_session is not None:
-                self.current_session.addCSV(self.csv_path)
-                self.current_session.save()
+            # If the selected item is a folder CSV, load bodyparts from the first file in that folder.
+            if self.current_session is not None and self.csv_id and getattr(self.current_session, "is_folder_csv", lambda _p: False)(self.csv_id):
+                files = self.current_session.get_folder_files(self.csv_id)
+                if not files:
+                    self.feedback_box.setText("Warning: This folder has no CSV files recorded in the session.")
+                    return
+                self.csv_path = files[0]
+            else:
+                # adds csv to session (single-file case)
+                if self.current_session is not None:
+                    self.current_session.addCSV(self.csv_path)
+                    self.current_session.save()
 
             self.bodyparts = generate_json.load_bodyparts_from_csv(self.csv_path)
         except Exception as exc:
@@ -193,6 +239,8 @@ class ConfigGeneratorScene(QWidget):
         p = (item.text() or "").strip()
         if not p or p.startswith("("):
             return
+        self.csv_id = p
+        # For folder entries, load_csv() will translate to a real CSV file path.
         self.csv_path = p
         self.load_csv()
 
@@ -283,7 +331,9 @@ class ConfigGeneratorScene(QWidget):
         try:
             generate_json.save_config_json(config, save_path)
             try:
-                self.current_session.addConfigToCSV(self.csv_path, save_path)
+                # Attach config to the session CSV ID (folder or file), not necessarily the file used for loading.
+                csv_target = self.csv_id or self.csv_path
+                self.current_session.addConfigToCSV(csv_target, save_path)
                 self.current_session.save()
             except Exception as exc:
                 pass

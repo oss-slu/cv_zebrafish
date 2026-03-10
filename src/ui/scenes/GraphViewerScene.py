@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -24,9 +25,11 @@ from src.core.graphs.loader_bundle import GraphDataBundle
 from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headplot, render_spines
 
 from src.session import session
-from src.app_platform.paths import sessions_dir
+from src.app_platform.paths import images_dir, sessions_dir
 
-GraphSource = go.Figure
+FOLDER_ICON = images_dir() / "folder-black.svg"
+
+GraphSource = Any  # go.Figure or a saved image path (str/Path)
 
 DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
     {
@@ -94,13 +97,31 @@ class GraphViewerScene(QWidget):
         super().__init__()
 
         self._graphs: Dict[str, GraphSource] = {}
+        self._graphs_by_csv: Optional[Dict[str, Dict[str, GraphSource]]] = None
+        self._csv_order: List[str] = []
+        self._context_csv_id: Optional[str] = None
+        self._context_config_path: Optional[str] = None
+        self._context_csv_files: Optional[List[str]] = None
+        self._context_selected_csv: Optional[str] = None
         self._out_dir: Optional[Path] = None
         self._current_name: Optional[str] = None
         self._original_pixmap: Optional[QPixmap] = None
         self._data = None
         self.current_session = None
+        self._kaleido_available = _is_kaleido_available()
 
-        # Sidebar
+        # Context banner (CSV/folder + config used to generate graphs)
+        self.context_icon = QLabel()
+        self.context_icon.setFixedWidth(18)
+        self.context_text = QLabel("")
+        self.context_text.setWordWrap(True)
+        self.context_text.setStyleSheet("color: #6c757d;")
+
+        # Sidebar (CSV selector + graph list)
+        self.csv_combo = QComboBox()
+        self.csv_combo.setVisible(False)
+        self.csv_combo.currentIndexChanged.connect(self._on_csv_changed)
+
         self.list = QListWidget()
         self.list.setMinimumWidth(240)
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
@@ -116,21 +137,163 @@ class GraphViewerScene(QWidget):
         self.scroll.setWidget(self.image_label)
 
         # Layout
-        
-        right = QVBoxLayout()
-        right.addWidget(self.scroll)
+        context_row = QHBoxLayout()
+        context_row.setContentsMargins(0, 0, 0, 0)
+        context_row.setSpacing(8)
+        context_row.addWidget(self.context_icon, 0, Qt.AlignLeft)
+        context_row.addWidget(self.context_text, 1)
 
-        layout = QHBoxLayout()
-        layout.addWidget(self.list)
-        layout.addLayout(right)
-        self.setLayout(layout)
+        context_widget = QWidget()
+        context_widget.setLayout(context_row)
+
+        right = QVBoxLayout()
+        right.addWidget(context_widget)
+        right.addWidget(self.scroll, stretch=1)
+
+        left = QVBoxLayout()
+        left.addWidget(self.csv_combo)
+        left.addWidget(self.list, stretch=1)
+
+        content = QHBoxLayout()
+        content.addLayout(left)
+        content.addLayout(right, stretch=1)
+
+        outer = QVBoxLayout()
+        outer.addLayout(content, stretch=1)
+        self.setLayout(outer)
 
         # Start in an empty state
         self._show_empty_state("No graphs available.")
+        self._refresh_context_banner()
+
+    def set_context(self, csv_id: Optional[str], config_path: Optional[str], csv_files: Optional[List[str]] = None):
+        """Set which CSV/folder+config the current graphs correspond to."""
+        self._context_csv_id = csv_id
+        self._context_config_path = config_path
+        self._context_csv_files = list(csv_files) if csv_files is not None else None
+        self._context_selected_csv = csv_id
+        self._refresh_context_banner()
+
+    def _refresh_context_banner(self):
+        csv_id = self._context_csv_id
+        cfg = self._context_config_path
+
+        config_name = Path(cfg).name if cfg else "(no config)"
+
+        is_folder = False
+        n_files = None
+        if csv_id and self.current_session is not None:
+            try:
+                is_folder = bool(getattr(self.current_session, "is_folder_csv", lambda _p: False)(csv_id))
+                if is_folder:
+                    if self._context_csv_files is not None:
+                        n_files = len(self._context_csv_files)
+                    else:
+                        n_files = len(self.current_session.get_folder_files(csv_id))
+            except Exception:
+                is_folder = False
+
+        if is_folder:
+            folder_name = Path(csv_id).name if csv_id else "(folder)"
+            selected = self._context_selected_csv
+            selected_name = Path(selected).name if selected else ""
+            files_text = f"{n_files} files" if n_files is not None else ""
+            if selected_name:
+                text = f"{folder_name} ({files_text}) • {selected_name} • {config_name}" if files_text else f"{folder_name} • {selected_name} • {config_name}"
+            else:
+                text = f"{folder_name} ({files_text}) • {config_name}" if files_text else f"{folder_name} • {config_name}"
+            self.context_icon.setPixmap(QIcon(str(FOLDER_ICON)).pixmap(16, 16))
+            self.context_icon.setVisible(True)
+            self.context_text.setText(text)
+            return
+
+        # Single CSV
+        csv_name = Path(csv_id).name if csv_id else "(no csv)"
+        self.context_icon.setVisible(False)
+        self.context_text.setText(f"{csv_name} • {config_name}")
 
     # Public functions to call to construct the viewer
     def set_graphs(self, graphs: Dict[str, GraphSource], config: Dict[str, Any] = None):
         """Replace all graphs."""
+        # If we’re switching to a single-CSV view, clear any multi-CSV state.
+        self._graphs_by_csv = None
+        self._csv_order = []
+        # CSV dropdown should only appear for multi-CSV runs.
+        try:
+            self.csv_combo.blockSignals(True)
+            self.csv_combo.clear()
+            self.csv_combo.setVisible(False)
+            self.csv_combo.blockSignals(False)
+        except Exception:
+            pass
+        self._graphs.clear()
+        self._graphs.update(graphs)
+        self.list.clear()
+        self.list.addItems(list(self._graphs.keys()))
+        # Keep banner in sync for single-CSV views.
+        self._context_selected_csv = self._context_csv_id
+        self._refresh_context_banner()
+
+        # If the graphs are Plotly figures, we need Kaleido to render them as PNGs in the GUI.
+        # Without Kaleido, the scene can look empty/confusing—show an explicit message.
+        needs_kaleido = any(isinstance(src, go.Figure) for src in self._graphs.values())
+        if needs_kaleido and not self._kaleido_available:
+            self._show_empty_state(
+                "Graphs are available, but cannot be displayed because Kaleido is not installed.\n"
+                "Install it and restart the app:\n"
+                "  pip install --upgrade kaleido\n"
+                "or (conda):\n"
+                "  conda install -c conda-forge python-kaleido"
+            )
+            return
+
+        if self.list.count() > 0:
+            self.list.setEnabled(True)
+            self.list.setCurrentRow(0)
+        else:
+            self._show_empty_state("No graphs available.")
+
+        # saves graphs to session
+        if config and self.current_session is not None and self._out_dir is not None:
+            for name, fig in self._graphs.items():
+                # Persist both an interactive HTML and a PNG snapshot (PNG is resumable in this GUI).
+                save_to_html(fig, name, self._out_dir, config, self.current_session)
+
+    def set_graphs_by_csv(self, graphs_by_csv: Dict[str, Dict[str, GraphSource]], config: Dict[str, Any] = None):
+        """
+        Provide graphs grouped by CSV path. Enables a CSV dropdown to switch views.
+        graphs_by_csv: { csv_path: { graph_name: figure } }
+        """
+        self._graphs_by_csv = dict(graphs_by_csv or {})
+        self._csv_order = list(self._graphs_by_csv.keys())
+
+        if len(self._csv_order) <= 1:
+            self.csv_combo.setVisible(False)
+            only = self._csv_order[0] if self._csv_order else None
+            self.set_graphs(self._graphs_by_csv.get(only, {}) if only else {}, config=config)
+            return
+
+        self.csv_combo.blockSignals(True)
+        self.csv_combo.clear()
+        for csv_path in self._csv_order:
+            label = Path(csv_path).name if csv_path else "(unknown)"
+            self.csv_combo.addItem(label, userData=csv_path)
+        self.csv_combo.setVisible(True)
+        self.csv_combo.setCurrentIndex(0)
+        self.csv_combo.blockSignals(False)
+        self._apply_selected_csv(config=config)
+
+    def _on_csv_changed(self, _idx: int):
+        self._apply_selected_csv(config=None)
+
+    def _apply_selected_csv(self, config: Dict[str, Any] = None):
+        if not self._graphs_by_csv:
+            return
+        csv_path = self.csv_combo.currentData()
+        self._context_selected_csv = csv_path
+        self._refresh_context_banner()
+        graphs = self._graphs_by_csv.get(csv_path, {})
+        # Do not clear _graphs_by_csv when switching; update list/view directly.
         self._graphs.clear()
         self._graphs.update(graphs)
         self.list.clear()
@@ -141,10 +304,78 @@ class GraphViewerScene(QWidget):
         else:
             self._show_empty_state("No graphs available.")
 
-        # saves graphs to session
-        if config and self.current_session is not None and self._out_dir is not None:
-            for name, fig in self._graphs.items():
-                save_to_html(fig, name, self._out_dir, config, self.current_session)
+    def save_folder_graphs(
+        self,
+        csv_folder_id: str,
+        csv_files: List[str],
+        config_path: str,
+        graphs_by_csv: Dict[str, Dict[str, GraphSource]],
+        config: Dict[str, Any],
+    ) -> None:
+        """
+        Persist folder-run graph outputs under:
+          sessions/<session_name>/folders/<folder_name>/<csv_name>/*.(png|html)
+        And record assets into session.folder_graphs for restore.
+        """
+        if self.current_session is None:
+            return
+        if not csv_folder_id or not config_path:
+            return
+
+        session_root = sessions_dir() / self.current_session.getName()
+        base = session_root / "folders" / _safe_dirname(Path(csv_folder_id).name)
+        base.mkdir(parents=True, exist_ok=True)
+
+        used_csv_dirnames = set()
+        csv_dir_for_path: Dict[str, Path] = {}
+        for csv_path in (csv_files or []):
+            stem = Path(csv_path).stem
+            dname = _safe_dirname(stem)
+            if dname in used_csv_dirnames:
+                i = 2
+                while f"{dname}_{i}" in used_csv_dirnames:
+                    i += 1
+                dname = f"{dname}_{i}"
+            used_csv_dirnames.add(dname)
+            out_dir = base / dname
+            out_dir.mkdir(parents=True, exist_ok=True)
+            csv_dir_for_path[csv_path] = out_dir
+
+        for csv_path, graphs in (graphs_by_csv or {}).items():
+            out_dir = csv_dir_for_path.get(csv_path)
+            if out_dir is None:
+                continue
+            for title, src in (graphs or {}).items():
+                if not isinstance(src, go.Figure):
+                    # Only export figures; existing PNG Paths are already persisted.
+                    continue
+                try:
+                    fname = _safe_filename(title) or "graph"
+                    html_path = out_dir / f"{fname}.html"
+                    png_path = out_dir / f"{fname}.png"
+
+                    pio.write_html(src, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
+                    wrote_png = False
+                    if _is_kaleido_available():
+                        try:
+                            png_bytes = pio.to_image(src, format="png", scale=2)
+                            png_path.write_bytes(png_bytes)
+                            wrote_png = True
+                        except Exception:
+                            wrote_png = False
+
+                    # Record both if available; prefer PNG for restore.
+                    if wrote_png and png_path.exists():
+                        self.current_session.addFolderGraph(csv_folder_id, config_path, csv_path, str(png_path))
+                    if html_path.exists():
+                        self.current_session.addFolderGraph(csv_folder_id, config_path, csv_path, str(html_path))
+                except Exception:
+                    continue
+
+        try:
+            self.current_session.save()
+        except Exception:
+            pass
 
     def add_graph(self, name: str, graph: GraphSource):
         """Add or replace a single graph."""
@@ -263,12 +494,20 @@ class GraphViewerScene(QWidget):
         self._show_graph(self._current_name)
 
     def _show_graph(self, name: str):
-        fig = self._graphs.get(name)
-        if fig is None:
+        source = self._graphs.get(name)
+        if source is None:
             self._show_empty_state(f"Missing graph: {name}")
             return
 
-        pix = self._figure_to_pixmap(fig)
+        pix: Optional[QPixmap] = None
+        if isinstance(source, go.Figure):
+            pix = self._figure_to_pixmap(source)
+        else:
+            try:
+                pix = QPixmap(str(source))
+            except Exception:
+                pix = None
+
         if pix is None or pix.isNull():
             self._show_empty_state("Unable to render this graph as a static image.")
             return
@@ -296,17 +535,61 @@ class GraphViewerScene(QWidget):
     def load_session(self, session):
         """Load previous session data."""
         self.current_session = session
+        # Best-effort restore of context banner.
+        try:
+            csv_id = getattr(self.current_session, "last_csv_path", None)
+            cfg = getattr(self.current_session, "last_config_path", None)
+            csv_files = None
+            if csv_id and getattr(self.current_session, "is_folder_csv", lambda _p: False)(csv_id):
+                csv_files = self.current_session.get_folder_files(csv_id)
+            self.set_context(csv_id=csv_id, config_path=cfg, csv_files=csv_files)
+        except Exception:
+            self._refresh_context_banner()
 
         # creates directory for saving graphs if it doesn't exist
         self._out_dir = sessions_dir() / (self.current_session.getName())
         self._out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Restore previously saved HTML graphs
-        restored_graphs = self._load_html_graphs_from_session()
+        # If the session is currently focused on a CSV folder run, restore graphs grouped by CSV.
+        try:
+            last_csv_id = getattr(self.current_session, "last_csv_path", None)
+            last_cfg = getattr(self.current_session, "last_config_path", None)
+            if last_csv_id and last_cfg and getattr(self.current_session, "is_folder_csv", lambda _p: False)(last_csv_id):
+                per_csv_assets = getattr(self.current_session, "getFolderGraphs", lambda *_a, **_k: {})(last_csv_id, last_cfg)
+                if per_csv_assets:
+                    graphs_by_csv: Dict[str, Dict[str, GraphSource]] = {}
+                    for csv_file, assets in per_csv_assets.items():
+                        g: Dict[str, GraphSource] = {}
+                        for a in assets or []:
+                            try:
+                                p = Path(a)
+                            except Exception:
+                                continue
+                            if p.suffix.lower() != ".png" or not p.exists():
+                                continue
+                            title = p.stem.replace("_", " ").strip() or p.name
+                            # Dedupe by title within this csv; keep first.
+                            if title not in g:
+                                g[title] = p
+                        if g:
+                            graphs_by_csv[csv_file] = g
+
+                    if graphs_by_csv:
+                        self.set_graphs_by_csv(graphs_by_csv, config=None)
+                        return
+        except Exception:
+            pass
+
+        # Restore previously saved graphs (PNGs saved in the session).
+        restored_graphs = self._load_saved_graphs_from_session()
         if restored_graphs:
             self.set_graphs(restored_graphs)
         else:
             self._show_empty_state("No saved graphs yet for this session.")
+
+    def has_graphs(self) -> bool:
+        """True if the viewer currently has any graphs loaded/restored."""
+        return bool(self._graphs)
 
     def _update_scaled_pixmap(self):
         """Scale the original pixmap to fit the viewport width while keeping aspect ratio."""
@@ -325,6 +608,15 @@ class GraphViewerScene(QWidget):
         Convert a Plotly Figure into a QPixmap (static PNG).
         Requires kaleido for PNG export.
         """
+        if not self._kaleido_available:
+            self._show_empty_state(
+                "Cannot render graphs because Kaleido is not installed.\n"
+                "Install it and restart the app:\n"
+                "  pip install --upgrade kaleido\n"
+                "or (conda):\n"
+                "  conda install -c conda-forge python-kaleido"
+            )
+            return None
         try:
             png_bytes = pio.to_image(fig, format="png", scale=2)
             pix = QPixmap()
@@ -338,27 +630,65 @@ class GraphViewerScene(QWidget):
             )
             return None
         
-    def _load_html_graphs_from_session(self):
-        """Load previously saved HTML graphs from the session directory (placeholder)."""
+    def _load_saved_graphs_from_session(self) -> Dict[str, GraphSource]:
+        """
+        Restore previously saved graphs from the session.
+        We save PNG snapshots so the GUI can show graphs after reopening.
+        """
         if not self.current_session:
             return {}
 
-        graphs = {}
+        graphs: Dict[str, GraphSource] = {}
+        seen_paths = set()
         session_dir = sessions_dir() / self.current_session.getName()
-        if not session_dir.exists():
+
+        # 1) Prefer explicit paths recorded in the session JSON (these should be PNGs).
+        try:
+            saved = self.current_session.getAllGraphs()
+        except Exception:
+            saved = []
+
+        def _unique_name(base: str) -> str:
+            if base not in graphs:
+                return base
+            i = 2
+            while f"{base} ({i})" in graphs:
+                i += 1
+            return f"{base} ({i})"
+
+        for p in saved:
+            try:
+                pp = Path(p)
+            except Exception:
+                continue
+            try:
+                key = str(pp.resolve())
+            except Exception:
+                key = str(pp)
+            if key in seen_paths:
+                continue
+            if pp.suffix.lower() != ".png" or not pp.exists():
+                continue
+            title = pp.stem.replace("_", " ").strip() or pp.name
+            graphs[_unique_name(title)] = pp
+            seen_paths.add(key)
+
+        if graphs:
             return graphs
 
-        # Recursive glob for all .html files
-        for html_file in session_dir.rglob("*.html"):
+        # 2) Fallback: scan the session folder for PNGs (covers sessions with missing JSON links).
+        if not session_dir.exists():
+            return graphs
+        for png_file in session_dir.rglob("*.png"):
             try:
-                # Use relative path from session dir for uniqueness
-                relative_name = html_file.relative_to(session_dir).with_suffix("").as_posix()
-                
-                # graphs[relative_name] = str(html_file) 
-                # just store path as placeholder. this should be replaced with actual loading logic when pyqt webengine is used
-                # and the app is capable of rendering html files directly.
-            except Exception as e:
-                print(f"Could not load graph {html_file}: {e}")
+                key = str(png_file.resolve())
+            except Exception:
+                key = str(png_file)
+            if key in seen_paths:
+                continue
+            title = png_file.stem.replace("_", " ").strip() or png_file.name
+            graphs[_unique_name(title)] = png_file
+            seen_paths.add(key)
 
         return graphs
 
@@ -693,12 +1023,45 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
         fname = _safe_filename(title) or "graph"
 
         html_path = out_dir / f"{fname}.html"
+        png_path = out_dir / f"{fname}.png"
                 
         # Use CDN for plotly JS to keep file size smaller and consistent
         pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
 
+        # Also persist a PNG snapshot so the GUI can restore graphs on reopen.
+        try:
+            png_bytes = pio.to_image(fig, format="png", scale=2)
+            png_path.write_bytes(png_bytes)
+        except Exception as e:
+            # If kaleido is missing, the GUI can't render figures as PNG anyway.
+            # Keep HTML as a best-effort artifact.
+            png_path = None
+
         if session is not None:
-            session.addGraphToConfig(config["config_path"], str(html_path))
+            graph_asset = None
+            if png_path is not None and png_path.exists():
+                graph_asset = str(png_path)
+            elif html_path.exists():
+                graph_asset = str(html_path)
+            if graph_asset is not None:
+                session.addGraphToConfig(config["config_path"], graph_asset)
             session.save()
     except Exception as e:
         print(f"Could not save '{title}' as HTML: {e}")
+
+
+def _safe_dirname(name: str) -> str:
+    """Filesystem-safe directory name (no extension)."""
+    return _safe_filename(name) or "item"
+
+
+def _is_kaleido_available() -> bool:
+    """
+    Best-effort check for Kaleido availability.
+    Plotly's PNG export requires Kaleido; if it's missing, to_image() raises.
+    """
+    try:
+        import kaleido  # noqa: F401
+    except Exception:
+        return False
+    return True
