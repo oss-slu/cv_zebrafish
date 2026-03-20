@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 from .Metrics import (
     calc_fin_angle, calc_yaw, calc_spine_angles, calc_tail_angle,
-    calc_tail_side_and_distance, calc_furthest_tail_point, detect_fin_peaks, get_time_ranges
+    calc_tail_side_and_distance, calc_furthest_tail_point, detect_fin_peaks, get_time_ranges,
 )
+from .custom_angle import build_three_point_angle_column
 
 def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> pd.DataFrame:
     """
@@ -83,6 +84,13 @@ def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> p
 
     for seg in range(spine_angles.shape[1]):
         results_dict[f"TailAngle_{seg}"] = spine_angles[:, seg]
+
+    # Optional custom calculation: directed three-point angle
+    three_cfg = ((config or {}).get("custom_calculations") or {}).get("three_point_angle") or {}
+    if bool(three_cfg.get("enabled", False)):
+        output_col, ang, log_msg = build_three_point_angle_column(parsed_points, config, n_frames)
+        results_dict[output_col] = ang
+        print(log_msg)
 
     result_df = pd.DataFrame(results_dict)
 

@@ -326,7 +326,6 @@ class GraphDataLoader:
             key = f"{side.capitalize()}Fin_Peaks"
             peaks = self.df[key].iloc[0]
             if isinstance(peaks, str):
-                import json
                 try:
                     peaks = json.loads(peaks)
                 except Exception:

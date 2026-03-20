@@ -18,10 +18,25 @@ def getPointRow(df, columnName):
     likelihoodPos = getIndex(columnHeaderList, f"{columnName}.2")
     return {"x": xPos, "y": yPos, "conf": likelihoodPos}
 
+def _empty_point(n_frames: int):
+    arr = np.full(int(n_frames), np.nan, dtype=float)
+    return {"x": arr.copy(), "y": arr.copy(), "conf": arr.copy()}
+
 def getDataFromColumn(df, columnPointDict):
-    xColumn = pd.to_numeric(df.iloc[1:, columnPointDict["x"]])
-    yColumn = pd.to_numeric(df.iloc[1:, columnPointDict["y"]])
-    confColumn = pd.to_numeric(df.iloc[1:, columnPointDict["conf"]])
+    # DLC CSVs have a "coords" row after the header row; frames start at row index 1.
+    n_frames = max(0, len(df.index) - 1)
+    x_idx = int(columnPointDict.get("x", -1))
+    y_idx = int(columnPointDict.get("y", -1))
+    c_idx = int(columnPointDict.get("conf", -1))
+
+    # If any required column is missing, return a NaN point of the correct length
+    # instead of accidentally indexing the last column (pandas iloc[-1]).
+    if x_idx < 0 or y_idx < 0 or c_idx < 0:
+        return _empty_point(n_frames)
+
+    xColumn = pd.to_numeric(df.iloc[1:, x_idx], errors="coerce")
+    yColumn = pd.to_numeric(df.iloc[1:, y_idx], errors="coerce")
+    confColumn = pd.to_numeric(df.iloc[1:, c_idx], errors="coerce")
     return {
         "x": xColumn.values,
         "y": yColumn.values,
@@ -42,4 +57,19 @@ def parse_dlc_csv(csv_path, config):
         "tailPoints": config["points"]["tail"],
         "tail": [getDataFromColumn(df, getPointRow(df, p)) for p in config["points"]["tail"]]
     }
+
+    # Optional: parse custom calculation points (only when enabled).
+    try:
+        three_cfg = ((config or {}).get("custom_calculations") or {}).get("three_point_angle") or {}
+        enabled = bool(three_cfg.get("enabled", False))
+        points = three_cfg.get("points") or []
+        if enabled and isinstance(points, (list, tuple)) and len(points) == 3:
+            labels = [str(p) for p in points]
+            inputValues["custom_points"] = {
+                lbl: getDataFromColumn(df, getPointRow(df, lbl)) for lbl in labels
+            }
+    except Exception:
+        # Never break the pipeline for optional custom inputs.
+        pass
+
     return inputValues
