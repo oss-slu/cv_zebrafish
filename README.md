@@ -66,6 +66,28 @@ tests/
 - **Graphs:** Modular Plotly plotters (fin-tail timelines, spine snapshots) with Kaleido PNG rendering.
 - **UI:** Multi-scene PyQt flow with session save/load to resume work.
 - **Legacy parity:** Legacy pipeline kept under `legacy/` for comparison.
+- - **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
+
+
+## Dataset Comparison Engine
+
+The comparison engine enables analysis of differences between multiple zebrafish datasets.
+
+**Usage:**
+```python
+from src.core.comparison import compare_datasets
+
+# Compare multiple analysis results
+results = {
+    "Fish1": dataframe1,  # Output from Driver.run_calculations
+    "Fish2": dataframe2,
+    "Fish3": dataframe3
+}
+
+comparison = compare_datasets(results)
+print(comparison['summary'])  # Overview statistics
+print(comparison['pairwise']['Fish1_vs_Fish2'])  # Specific comparison
+
 
 ## Known Gaps / Next Steps
 - No dependency lockfile; add `requirements.txt`/`conda-lock` if needed.
