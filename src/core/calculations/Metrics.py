@@ -36,6 +36,77 @@ def calc_fin_angle(head1_arr, head2_arr, fin_points_arr, left_fin=False):
     return angles
 
 
+def calc_three_point_angle(A, B, C, direction: str = "cw", min_conf=None):
+    """
+    Compute a directed 0-360° angle for every frame, defined by points A-B-C (vertex at B).
+
+    Direction is interpreted in image/pixel coordinates (x right, y down):
+      - "cw": angle rotating clockwise from ray BA to ray BC (default)
+      - "ccw": angle rotating counterclockwise from ray BA to ray BC
+
+    Any frame with missing/invalid values (non-finite coords, zero-length vectors, or
+    confidence below min_conf if provided) yields NaN.
+    """
+    ax = np.asarray(A.get("x", []), dtype=float)
+    ay = np.asarray(A.get("y", []), dtype=float)
+    bx = np.asarray(B.get("x", []), dtype=float)
+    by = np.asarray(B.get("y", []), dtype=float)
+    cx = np.asarray(C.get("x", []), dtype=float)
+    cy = np.asarray(C.get("y", []), dtype=float)
+
+    n = min(len(ax), len(ay), len(bx), len(by), len(cx), len(cy))
+    angles = np.full(n, np.nan, dtype=float)
+    if n == 0:
+        return angles
+
+    ax, ay, bx, by, cx, cy = ax[:n], ay[:n], bx[:n], by[:n], cx[:n], cy[:n]
+
+    v1x = ax - bx
+    v1y = ay - by
+    v2x = cx - bx
+    v2y = cy - by
+
+    dot = v1x * v2x + v1y * v2y
+    cross = v1x * v2y - v1y * v2x
+
+    valid = (
+        np.isfinite(ax)
+        & np.isfinite(ay)
+        & np.isfinite(bx)
+        & np.isfinite(by)
+        & np.isfinite(cx)
+        & np.isfinite(cy)
+    )
+
+    # Zero-length vectors at the vertex make the angle undefined.
+    v1_norm = np.hypot(v1x, v1y)
+    v2_norm = np.hypot(v2x, v2y)
+    valid &= (v1_norm > 0) & (v2_norm > 0)
+
+    if min_conf is not None:
+        try:
+            m = float(min_conf)
+            aconf = np.asarray(A.get("conf", np.full(n, np.nan)), dtype=float)[:n]
+            bconf = np.asarray(B.get("conf", np.full(n, np.nan)), dtype=float)[:n]
+            cconf = np.asarray(C.get("conf", np.full(n, np.nan)), dtype=float)[:n]
+            valid &= np.isfinite(aconf) & np.isfinite(bconf) & np.isfinite(cconf)
+            valid &= (aconf >= m) & (bconf >= m) & (cconf >= m)
+        except Exception:
+            # If conf is malformed, ignore confidence gating rather than failing.
+            pass
+
+    theta = np.degrees(np.arctan2(cross, dot))
+    cw = (theta + 360.0) % 360.0
+
+    dir_norm = (direction or "cw").strip().lower()
+    if dir_norm == "ccw":
+        angles[valid] = (360.0 - cw[valid]) % 360.0
+    else:
+        angles[valid] = cw[valid]
+
+    return angles
+
+
 def calc_yaw(head1_arr, head2_arr):
     """
     Compute yaw (heading angle) from head point positions.

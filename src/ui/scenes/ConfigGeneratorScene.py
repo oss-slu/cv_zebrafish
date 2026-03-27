@@ -88,6 +88,10 @@ class ConfigGeneratorScene(QWidget):
         self.fin_l_2 = QComboBox()
         self.head_1 = QComboBox()
         self.head_2 = QComboBox()
+        self.angle_a = QComboBox()
+        self.angle_b = QComboBox()
+        self.angle_c = QComboBox()
+        self.angle_ccw = QCheckBox("Counterclockwise")
 
         for combo, label_text in [
             (self.fin_r_1, "Right Fin #1"),
@@ -99,6 +103,22 @@ class ConfigGeneratorScene(QWidget):
         ]:
             form.addWidget(QLabel(label_text))
             form.addWidget(combo)
+
+        angle_group = QGroupBox("Three-point angle")
+        angle_layout = QGridLayout()
+        angle_layout.addWidget(QLabel("Point A"), 0, 0)
+        angle_layout.addWidget(self.angle_a, 0, 1)
+        angle_layout.addWidget(QLabel("Point B (vertex)"), 1, 0)
+        angle_layout.addWidget(self.angle_b, 1, 1)
+        angle_layout.addWidget(QLabel("Point C"), 2, 0)
+        angle_layout.addWidget(self.angle_c, 2, 1)
+        angle_layout.addWidget(self.angle_ccw, 3, 1)
+        angle_group.setLayout(angle_layout)
+        form.addWidget(angle_group)
+
+        self.angle_a.currentIndexChanged.connect(self._on_angle_changed)
+        self.angle_b.currentIndexChanged.connect(self._on_angle_changed)
+        self.angle_c.currentIndexChanged.connect(self._on_angle_changed)
 
         form.addWidget(QLabel("Spine Points"))
         self.spine_list = QListWidget()
@@ -207,11 +227,68 @@ class ConfigGeneratorScene(QWidget):
             combo.clear()
             combo.addItems(self.bodyparts)
 
+        self._sync_angle_dropdowns(changed=None)
+        self.angle_ccw.setChecked(False)
+
         self.spine_list.clear()
         self.tail_list.clear()
         for bodypart in self.bodyparts:
             self.spine_list.addItem(QListWidgetItem(bodypart))
             self.tail_list.addItem(QListWidgetItem(bodypart))
+
+    def _set_angle_combo_items(self, combo: QComboBox, options, current_value: str):
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("")  # unselected
+        for opt in options:
+            combo.addItem(opt)
+        idx = combo.findText(current_value or "")
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _sync_angle_dropdowns(self, changed=None):
+        bps = list(self.bodyparts or [])
+        if not bps:
+            for combo in (self.angle_a, self.angle_b, self.angle_c):
+                combo.blockSignals(True)
+                combo.clear()
+                combo.addItem("")
+                combo.blockSignals(False)
+            return
+
+        current = {
+            "a": self.angle_a.currentText(),
+            "b": self.angle_b.currentText(),
+            "c": self.angle_c.currentText(),
+        }
+        for key in list(current.keys()):
+            if current[key] not in bps:
+                current[key] = ""
+
+        if changed in ("a", "b", "c"):
+            vals = [v for v in current.values() if v]
+            if len(vals) != len(set(vals)):
+                current[changed] = ""
+
+        a_val, b_val, c_val = current["a"], current["b"], current["c"]
+        opts_a = [bp for bp in bps if (bp == a_val) or (bp not in {b_val, c_val})]
+        opts_b = [bp for bp in bps if (bp == b_val) or (bp not in {a_val, c_val})]
+        opts_c = [bp for bp in bps if (bp == c_val) or (bp not in {a_val, b_val})]
+
+        self._set_angle_combo_items(self.angle_a, opts_a, a_val)
+        self._set_angle_combo_items(self.angle_b, opts_b, b_val)
+        self._set_angle_combo_items(self.angle_c, opts_c, c_val)
+
+    def _on_angle_changed(self, _idx: int):
+        sender = self.sender()
+        changed = None
+        if sender == self.angle_a:
+            changed = "a"
+        elif sender == self.angle_b:
+            changed = "b"
+        elif sender == self.angle_c:
+            changed = "c"
+        self._sync_angle_dropdowns(changed=changed)
 
     def _refresh_csv_list(self):
         """Populate the right-side CSV list from the current session."""
@@ -305,6 +382,17 @@ class ConfigGeneratorScene(QWidget):
         }
 
         config = generate_json.build_config(points, generate_json.BASE_CONFIG)
+
+        a = self.angle_a.currentText().strip()
+        b = self.angle_b.currentText().strip()
+        c = self.angle_c.currentText().strip()
+        valid_three = bool(a and b and c and len({a, b, c}) == 3)
+        config.setdefault("custom_calculations", {})["three_point_angle"] = {
+            "enabled": valid_three,
+            "points": [a, b, c] if valid_three else [],
+            "direction": "ccw" if self.angle_ccw.isChecked() else "cw",
+            "output_column": "ThreePointAngle",
+        }
 
         # Apply graph toggles to shown_outputs
         so = config.setdefault("shown_outputs", {})

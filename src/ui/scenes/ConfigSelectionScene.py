@@ -1,11 +1,9 @@
 import json
 from os import path
-from pathlib import Path
 
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -16,13 +14,12 @@ from PyQt5.QtWidgets import (
     QTreeWidgetItem,
     QMessageBox,
     QApplication,
-    QStyle,
 )
 
 import src.core.calculations.Driver as calculations
 import src.core.parsing.Parser as parser
 
-from src.app_platform.paths import sessions_dir, default_sample_config, default_sample_csv
+from src.app_platform.paths import default_sample_config, default_sample_csv
 from src.app_platform.paths import images_dir
 
 FOLDER_ICON = images_dir() / "folder-black.svg"
@@ -117,6 +114,11 @@ class ConfigSelectionScene(QWidget):
 
         self.setLayout(layout)
 
+    def _update_calc_button_state(self):
+        enabled = bool(self.csv_path and self.config_path)
+        self.calc_button.setEnabled(enabled)
+        self.calc_button.setStyleSheet("" if enabled else "background-color: lightgrey;")
+
     # ==============================================================
     # Session Integration
     # ==============================================================
@@ -154,8 +156,6 @@ class ConfigSelectionScene(QWidget):
 
         if total_items > 0:
             self.set_progress(0, total_items, "Loading session items...")
-        csvs = self.current_session.getAllCSVs()
-
         if self.current_session.length() == 0:
             item = QTreeWidgetItem(["(No saved CSVs)", ""])
             item.setDisabled(True)
@@ -238,14 +238,11 @@ class ConfigSelectionScene(QWidget):
                 pass
 
         if self.csv_path and self.config_path:
-            self.calc_button.setEnabled(True)
-            self.calc_button.setStyleSheet("")
             self.status_label.setText(
                 f"Ready: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
             )
-        else:
-            self.calc_button.setEnabled(False)
-            self.calc_button.setStyleSheet("background-color: lightgrey;")
+
+        self._update_calc_button_state()
 
     def toggle_test(self):
         """Switch between test config (default sample files) and tree selection."""
@@ -258,8 +255,7 @@ class ConfigSelectionScene(QWidget):
             self.status_label.setText(
                 "Using test config: correct_format.csv + BaseConfig.json"
             )
-            self.calc_button.setEnabled(True)
-            self.calc_button.setStyleSheet("")
+            self._update_calc_button_state()
         else:
             self.toggle_button.setToolTip("Use Default Config")
             self.csv_path = self.previous_settings["csv_path"]
@@ -268,12 +264,10 @@ class ConfigSelectionScene(QWidget):
                 self.status_label.setText(
                     f"Ready: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
                 )
-                self.calc_button.setEnabled(True)
-                self.calc_button.setStyleSheet("")
+                self._update_calc_button_state()
             else:
                 self.status_label.setText("Select a CSV and Config to run calculations.")
-                self.calc_button.setEnabled(False)
-                self.calc_button.setStyleSheet("background-color: lightgrey;")
+                self._update_calc_button_state()
 
     def set_progress(self, n, total, graph_name):
         """Update progress bar and label: [N]/[Total] - [Graph Name]. Call with total=0 to hide."""
