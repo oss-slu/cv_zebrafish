@@ -67,6 +67,7 @@ tests/
 - **UI:** Multi-scene PyQt flow with session save/load to resume work.
 - **Legacy parity:** Legacy pipeline kept under `legacy/` for comparison.
 - - **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
+  - - **Cross-Correlation Analysis:** Backend engine for computing cross-correlation between any two movement signals (body part coordinates or derived angles) to identify synchronization and lead/lag relationships.
   - **Dynamic Body Part Detection:** Automatically detects and groups body parts from any DLC CSV file, supporting variable tracking configurations across different labs without hardcoded assumptions.
 
 
@@ -89,6 +90,60 @@ results = {
 comparison = compare_datasets(results)
 print(comparison['summary'])  # Overview statistics
 print(comparison['pairwise']['Fish1_vs_Fish2'])  # Specific comparison
+
+
+## Cross-Correlation Analysis
+
+The cross-correlation module enables analysis of temporal relationships
+between any two movement signals in the zebrafish dataset.
+
+**Usage:**
+```python
+from src.core.analysis import (
+    compute_cross_correlation_from_dataframe,
+    get_available_signals,
+    compute_all_pairwise_correlations
+)
+
+# Dynamically detect available signals
+signals = get_available_signals(results_df)
+
+# Compare two specific signals
+result = compute_cross_correlation_from_dataframe(
+    results_df, 'LF_Angle', 'RF_Angle'
+)
+
+print(f"Peak lag: {result.peak_lag} frames")
+print(f"Peak correlation: {result.peak_correlation:.3f}")
+print(f"Interpretation: {result._interpret()}")
+
+# Export structured result for UI/visualization
+result_dict = result.to_dict()
+
+# Compare all signal pairs at once
+all_results = compute_all_pairwise_correlations(results_df)
+
+Features:
+
+Works with any numeric column (angles, distances, coordinates)
+Dynamically detects available signals (no hardcoded names)
+Handles missing/NaN values gracefully
+Returns structured output ready for visualization or export
+Includes plain-English interpretation of lead/lag relationships
+Supports pairwise comparison across all available signals
+Output structure:
+{
+    "signal_a": "LF_Angle",
+    "signal_b": "RF_Angle",
+    "lags": [...],           # Frame lag values
+    "correlations": [...],   # Correlation at each lag
+    "peak_lag": 5,           # Lag with highest correlation
+    "peak_correlation": 0.95,
+    "n_frames": 1000,
+    "warnings": [],
+    "interpretation": "LF_Angle leads RF_Angle by 5 frame(s)."
+}
+
 
 
 
