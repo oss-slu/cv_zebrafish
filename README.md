@@ -67,6 +67,8 @@ tests/
 - **UI:** Multi-scene PyQt flow with session save/load to resume work.
 - **Legacy parity:** Legacy pipeline kept under `legacy/` for comparison.
 - - **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
+  - **Dynamic Body Part Detection:** Automatically detects and groups body parts from any DLC CSV file, supporting variable tracking configurations across different labs without hardcoded assumptions.
+
 
 
 ## Dataset Comparison Engine
@@ -87,6 +89,73 @@ results = {
 comparison = compare_datasets(results)
 print(comparison['summary'])  # Overview statistics
 print(comparison['pairwise']['Fish1_vs_Fish2'])  # Specific comparison
+
+
+
+## Dynamic Body Part Detection
+
+The body part detector automatically identifies body parts from any
+DLC CSV file, eliminating hardcoded assumptions about tracking configuration.
+
+**Usage:**
+```python
+from src.core.parsing import (
+    detect_body_parts,
+    get_body_part_names,
+    get_grouped_body_parts,
+    detect_body_parts_from_dataframe,
+)
+
+# Detect from file (auto-detects format)
+result = detect_body_parts('data/samples/csv/correct_format.csv')
+
+print(result.all_body_parts)
+# ['BF', 'ET', 'Head', 'LF1', 'LF2', 'LE', 'RE', ...]
+
+print(result.grouped)
+# {'spine': ['Head', 'BF', ...], 'left_fin': ['LF1', 'LF2'], ...}
+
+# Convenience functions
+names = get_body_part_names('correct_format.csv')
+groups = get_grouped_body_parts('correct_format.csv')
+
+# Detect from already-loaded DataFrame
+import pandas as pd
+df = pd.read_csv('correct_format.csv', header=1)
+result = detect_body_parts_from_dataframe(df)
+
+Supported formats:
+
+Raw DLC CSV (scorer / bodyparts / coords header rows)
+Enriched output CSV (Spine_Head_x, LeftFin_LF1_x column pattern)
+Features:
+
+Automatically detects CSV format (raw DLC or enriched output)
+Dynamically discovers all body parts without hardcoded names
+Groups body parts by category (spine, left_fin, right_fin, eyes)
+Handles unknown/custom body parts gracefully (unknown group)
+Works with any number of body parts across different labs
+Returns column map for downstream pipeline consumption
+Does not crash when body part counts vary across datasets
+
+{
+    "all_body_parts": ["BF", "ET", "Head", "LF1", ...],
+    "grouped": {
+        "spine": ["Head", "BF", "SB", "T1", ...],
+        "left_fin": ["LF1", "LF2"],
+        "right_fin": ["RF1", "RF2"],
+        "eyes": ["LE", "RE"]
+    },
+    "source_type": "dlc_raw",
+    "column_map": {
+        "Head": {"x": 1, "y": 2, "conf": 3},
+        "BF":   {"x": 4, "y": 5, "conf": 6},
+        ...
+    },
+    "skipped_columns": [],
+    "warnings": [],
+    "body_part_count": 20
+}
 
 
 ## Known Gaps / Next Steps
