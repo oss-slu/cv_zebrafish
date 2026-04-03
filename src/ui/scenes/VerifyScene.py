@@ -50,7 +50,7 @@ class VerifyScene(QWidget):
 
         csv_layout = QHBoxLayout()
         csv_label = QLabel("CSV File:")
-        csv_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #5fee55;")
+        csv_label.setObjectName("VerifyFieldLabel")
         csv_layout.addWidget(csv_label)
 
         self.csv_path_field = QLineEdit()
@@ -75,7 +75,7 @@ class VerifyScene(QWidget):
 
         json_layout = QHBoxLayout()
         json_label = QLabel("JSON File:")
-        json_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #5f55ef;")
+        json_label.setObjectName("VerifyFieldLabel")
         json_layout.addWidget(json_label)
 
         self.json_path_field = QLineEdit()
@@ -97,21 +97,14 @@ class VerifyScene(QWidget):
         json_layout.addWidget(self.generate_json_button)
 
         console_label = QLabel("Validation Console:")
-        console_label.setStyleSheet("font-size: 16px; font-weight: bold; ")
+        console_label.setObjectName("VerifyConsoleLabel")
         main_layout.addWidget(console_label)
 
         self.feedback_box = QTextEdit()
+        self.feedback_box.setObjectName("VerifyFeedbackBox")
         self.feedback_box.setReadOnly(True)
         self.feedback_box.setMinimumHeight(200)
-        self.feedback_box.setStyleSheet(
-            """
-            font-family: Consolas, monospace;
-            font-size: 13px;
-            background-color: #f9f9f9;
-            border: 1px solid #aaa;
-            color: black;
-            """
-        )
+        self.feedback_box.setAttribute(Qt.WA_StyledBackground, True)
         main_layout.addWidget(self.feedback_box)
 
         self.setLayout(main_layout)

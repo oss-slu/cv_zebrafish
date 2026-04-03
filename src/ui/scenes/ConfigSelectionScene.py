@@ -45,11 +45,12 @@ class ConfigSelectionScene(QWidget):
         layout.setSpacing(16)
 
         header = QLabel("Select Configuration")
+        header.setObjectName("ConfigSelectionHeader")
         header.setAlignment(Qt.AlignCenter)
-        header.setStyleSheet("font-size: 18pt; font-weight: bold;")
         layout.addWidget(header)
 
         self.status_label = QLabel("Select a CSV and Config to run calculations.")
+        self.status_label.setObjectName("ConfigSelectionStatus")
         self.status_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.status_label)
 
@@ -57,21 +58,11 @@ class ConfigSelectionScene(QWidget):
         # Session File Tree
         # ===============================
         self.file_tree = QTreeWidget()
+        self.file_tree.setObjectName("ConfigSelectionTree")
+        self.file_tree.setAttribute(Qt.WA_StyledBackground, True)
         self.file_tree.setHeaderLabels(["CSV Files", "Configurations"])
         self.file_tree.setColumnCount(2)
         self.file_tree.setColumnWidth(0, 200)
-        self.file_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #f9f9f9;
-                border: 1px solid #aaa;
-                border-radius: 8px;
-                color: black;
-            }
-            QTreeWidget::item:selected {
-                background-color: #4CAF50;
-                color: black;
-            }
-        """)
         self.file_tree.itemClicked.connect(self.handle_tree_click)
         layout.addWidget(self.file_tree)
 
@@ -79,8 +70,8 @@ class ConfigSelectionScene(QWidget):
         # Calculation Button + Toggle (same row, centered)
         # ===============================
         self.calc_button = QPushButton("Run Calculation")
+        self.calc_button.setObjectName("ConfigSelectionCalcButton")
         self.calc_button.setEnabled(False)
-        self.calc_button.setStyleSheet("background-color: lightgrey;")
         self.calc_button.clicked.connect(self.calculate)
         self.toggle_button = QPushButton()
         self.toggle_button.setCheckable(True)
@@ -88,6 +79,7 @@ class ConfigSelectionScene(QWidget):
         self.toggle_button.setToolTip("Use Default Config")
         self.toggle_button.clicked.connect(self.toggle_test)
         toggle_label = QLabel("Toggle to use test config")
+        toggle_label.setObjectName("ConfigSelectionHint")
         button_row = QHBoxLayout()
         button_row.addStretch()
         button_row.addWidget(self.calc_button)
@@ -101,11 +93,13 @@ class ConfigSelectionScene(QWidget):
         # ===============================
         progress_row = QHBoxLayout()
         self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("ConfigSelectionProgress")
         self.progress_bar.setMinimum(0)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
         self.progress_label = QLabel("")
+        self.progress_label.setObjectName("ConfigSelectionStatus")
         progress_row.addWidget(self.progress_bar, stretch=1)
         progress_row.addWidget(self.progress_label)
         layout.addLayout(progress_row)
@@ -117,15 +111,48 @@ class ConfigSelectionScene(QWidget):
     def _update_calc_button_state(self):
         enabled = bool(self.csv_path and self.config_path)
         self.calc_button.setEnabled(enabled)
-        self.calc_button.setStyleSheet("" if enabled else "background-color: lightgrey;")
 
     # ==============================================================
     # Session Integration
     # ==============================================================
 
+    def reset_selection_ui(self) -> None:
+        """Clear tree selection state when switching sessions."""
+        self.csv_path = None
+        self.config_path = None
+        self.previous_settings = {"csv_path": None, "config_path": None}
+        if self.toggle_button.isChecked():
+            self.toggle_button.blockSignals(True)
+            self.toggle_button.setChecked(False)
+            self.toggle_button.blockSignals(False)
+        self.toggle_button.setToolTip("Use Default Config")
+        self.status_label.setText("Select a CSV and Config to run calculations.")
+        self._update_calc_button_state()
+        self.set_progress(0, 0, "")
+
+    def polish_tree_for_theme(self, theme_name: str) -> None:
+        """Brighter expand/collapse affordance in dark mode (palette mid tones)."""
+        from PyQt5.QtGui import QColor, QPalette
+
+        if theme_name == "dark":
+            pal = QPalette(self.file_tree.palette())
+            pal.setColor(QPalette.Mid, QColor("#aeb0c8"))
+            pal.setColor(QPalette.Light, QColor("#d4d5e5"))
+            pal.setColor(QPalette.Dark, QColor("#c4c6d8"))
+            self.file_tree.setPalette(pal)
+        else:
+            self.file_tree.setPalette(self.palette())
+
     def load_session(self, session):
         """Load a Session object and populate the tree view."""
+        try:
+            if self.current_session is not None:
+                self.current_session.session_updated.disconnect(self.populate_tree)
+        except (TypeError, RuntimeError):
+            pass
+
         self.current_session = session
+        self.reset_selection_ui()
         print(f"[load_session] Loaded session: {session.name}")
         print(f"[load_session] Session CSVs: {list(session.csvs.keys())}")
 

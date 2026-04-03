@@ -1,4 +1,6 @@
-"""Frameless title row: logo | File | Help | … | window controls (inline menus, no QMenuBar overflow)."""
+"""Frameless title row: logo | File | (optional Help) | … | window controls (inline menus, no QMenuBar overflow)."""
+
+from __future__ import annotations
 
 from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtWidgets import QHBoxLayout, QMainWindow, QMenu, QToolButton, QWidget
@@ -11,7 +13,7 @@ class CustomTitleBar(QWidget):
         self,
         main_window: QMainWindow,
         file_menu: QMenu,
-        help_menu: QMenu,
+        help_menu: QMenu | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -33,8 +35,9 @@ class CustomTitleBar(QWidget):
         self._file_btn = self._strip_menu_button("File", file_menu)
         layout.addWidget(self._file_btn, 0, Qt.AlignVCenter)
 
-        self._help_btn = self._strip_menu_button("Help", help_menu)
-        layout.addWidget(self._help_btn, 0, Qt.AlignVCenter)
+        if help_menu is not None:
+            self._help_btn = self._strip_menu_button("Help", help_menu)
+            layout.addWidget(self._help_btn, 0, Qt.AlignVCenter)
 
         layout.addStretch(1)
 

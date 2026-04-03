@@ -2,7 +2,9 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from ui.main_panels.empty_session_panel import EmptySessionPanel
-from ui.main_panels.placeholder_panel import PlaceholderPanel
+from ui.main_panels.select_run_panel import SelectRunPanel
+from ui.main_panels.verify_panel import VerifyPanel
+from ui.main_panels.view_output_panel import ViewOutputPanel
 
 
 class WorkspaceWidget(QWidget):
@@ -29,24 +31,12 @@ class WorkspaceWidget(QWidget):
         self.empty_panel = EmptySessionPanel()
         self._stack.addWidget(self.empty_panel)
 
-        self._stack.addWidget(
-            PlaceholderPanel(
-                "Verify Upload",
-                "Port of VerifyScene will load here. Legacy: ui.scenes.VerifyScene",
-            )
-        )
-        self._stack.addWidget(
-            PlaceholderPanel(
-                "Select & Run",
-                "Port of ConfigSelectionScene will load here. Legacy: ui.scenes.ConfigSelectionScene",
-            )
-        )
-        self._stack.addWidget(
-            PlaceholderPanel(
-                "View Output",
-                "Port of GraphViewerScene will load here. Legacy: ui.scenes.GraphViewerScene",
-            )
-        )
+        self.verify_panel = VerifyPanel()
+        self._stack.addWidget(self.verify_panel)
+        self.select_run_panel = SelectRunPanel()
+        self._stack.addWidget(self.select_run_panel)
+        self.view_output_panel = ViewOutputPanel()
+        self._stack.addWidget(self.view_output_panel)
 
     def show_empty(self) -> None:
         self._stack.setCurrentIndex(self.IDX_EMPTY)

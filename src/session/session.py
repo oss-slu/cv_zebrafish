@@ -129,7 +129,20 @@ class Session(QObject):
                     seen.add(g)
                     all_graphs.append(g)
         return all_graphs
-    
+
+    def has_saved_graph_assets(self) -> bool:
+        """True if session JSON records any graph file paths (PNG/HTML) under csvs or folder_graphs."""
+        for configs in (self.csvs or {}).values():
+            for graphs in (configs or {}).values():
+                if graphs:
+                    return True
+        for _folder, cfgs in (self.folder_graphs or {}).items():
+            for _cfg, per_csv in (cfgs or {}).items():
+                for _csv, assets in (per_csv or {}).items():
+                    if assets:
+                        return True
+        return False
+
     def getName(self):
         return self.name
     

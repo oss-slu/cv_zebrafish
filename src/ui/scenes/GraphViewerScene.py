@@ -532,8 +532,26 @@ class GraphViewerScene(QWidget):
         if self._original_pixmap:
             self._update_scaled_pixmap()
 
+    def prepare_for_session_load(self) -> None:
+        """Clear viewer UI before attaching a new session (avoids stale list/graphs)."""
+        self._graphs_by_csv = None
+        self._csv_order = []
+        self._data = None
+        try:
+            self.csv_combo.blockSignals(True)
+            self.csv_combo.clear()
+            self.csv_combo.setVisible(False)
+            self.csv_combo.blockSignals(False)
+        except Exception:
+            pass
+        self._graphs.clear()
+        self.list.clear()
+        self._show_empty_state("No graphs available.")
+        self.set_context(None, None, None)
+
     def load_session(self, session):
         """Load previous session data."""
+        self.prepare_for_session_load()
         self.current_session = session
         # Best-effort restore of context banner.
         try:

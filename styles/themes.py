@@ -33,6 +33,13 @@ LIGHT_THEME = {
     "body": "#3B3B3B",
     "header": "#333333",
     "button": "#e2e2e8",
+    # VerifyScene validation console (light)
+    "verify_console_bg": "#f9f9f9",
+    "verify_console_fg": "#1a1a1e",
+    "sidebar_select_run_bg": "transparent",
+    # Generate Config: neutral grey selection (readable on light panels)
+    "generate_selection_bg": "#d4d4dc",
+    "generate_selection_fg": "#1a1a1e",
 }
 
 DARK_THEME = {
@@ -54,6 +61,14 @@ DARK_THEME = {
     "body": "#eee",
     "header": "#fff",
     "button": "#26262a",
+    # VerifyScene validation console (dark: terminal-style)
+    "verify_console_bg": "#000000",
+    "verify_console_fg": "#ffffff",
+    # Sidebar: make Select & Run control readable on dark chrome
+    "sidebar_select_run_bg": "rgba(255, 255, 255, 0.14)",
+    # Generate Config: neutral grey selection on dark panels
+    "generate_selection_bg": "#4a4a54",
+    "generate_selection_fg": "#f2f2f8",
 }
 
 THEMES = {
@@ -76,6 +91,11 @@ def apply_theme(app, theme):
     tmenu_h = theme["title_menu_hover"]
     btxt = theme["button_text"]
     accent = theme["accent"]
+    vcbg = theme.get("verify_console_bg", pm)
+    vcfg = theme.get("verify_console_fg", tx)
+    srsb = theme.get("sidebar_select_run_bg", "transparent")
+    gsel_bg = theme.get("generate_selection_bg", accent)
+    gsel_fg = theme.get("generate_selection_fg", "#ffffff")
 
     qss = f"""
         QWidget {{
@@ -85,6 +105,150 @@ def apply_theme(app, theme):
         QLabel {{
             background-color: transparent;
             color: {tx};
+        }}
+
+        QLabel#VerifyFieldLabel {{
+            font-size: 16px;
+            font-weight: bold;
+            color: {tmenu};
+        }}
+        QLabel#VerifyConsoleLabel {{
+            font-size: 16px;
+            font-weight: bold;
+            color: {tmenu};
+        }}
+        QTextEdit#VerifyFeedbackBox {{
+            font-family: Consolas, monospace;
+            font-size: 13px;
+            background-color: {vcbg};
+            color: {vcfg};
+            border: 1px solid {line};
+        }}
+
+        QLabel#ConfigSelectionHeader {{
+            font-size: 18pt;
+            font-weight: bold;
+            color: {tx};
+            background-color: transparent;
+        }}
+        QLabel#ConfigSelectionStatus {{
+            color: {tx};
+            background-color: transparent;
+        }}
+        QLabel#ConfigSelectionHint {{
+            color: {tmenu};
+            font-size: 14px;
+            background-color: transparent;
+        }}
+        QTreeWidget#ConfigSelectionTree {{
+            background-color: {pm};
+            color: {tx};
+            border: 1px solid {line};
+            border-radius: 8px;
+        }}
+        QTreeWidget#ConfigSelectionTree::item:selected {{
+            background-color: {cb};
+            color: {tx};
+        }}
+        QTreeWidget#ConfigSelectionTree::item:hover {{
+            background-color: {cb};
+        }}
+        QTreeWidget#ConfigSelectionTree::branch:has-children:!has-siblings:closed,
+        QTreeWidget#ConfigSelectionTree::branch:closed:has-children:has-siblings,
+        QTreeWidget#ConfigSelectionTree::branch:open:has-children:has-siblings,
+        QTreeWidget#ConfigSelectionTree::branch:open:has-children:!has-siblings {{
+            background-color: {tmenu};
+            border-radius: 2px;
+        }}
+        QTreeWidget#ConfigSelectionTree QHeaderView::section {{
+            background-color: {pc};
+            color: {tx};
+            padding: 6px 8px;
+            border: none;
+            border-bottom: 1px solid {line};
+            font-weight: bold;
+        }}
+        QPushButton#ConfigSelectionCalcButton:disabled {{
+            background-color: {pc};
+            color: {tmu};
+        }}
+        QProgressBar#ConfigSelectionProgress {{
+            border: 1px solid {line};
+            border-radius: 4px;
+            background-color: {pc};
+            color: {tx};
+            text-align: center;
+            min-height: 18px;
+        }}
+        QProgressBar#ConfigSelectionProgress::chunk {{
+            background-color: {accent};
+            border-radius: 3px;
+        }}
+
+        QDialog#GenerateConfigDialog {{
+            background-color: {pm};
+            color: {tx};
+            border: 1px solid {line};
+        }}
+        QWidget#GenerateConfigBody {{
+            background-color: {pm};
+            color: {tx};
+        }}
+        QDialog#GenerateConfigDialog QTextEdit {{
+            font-family: Consolas, monospace;
+            font-size: 13px;
+            background-color: {vcbg};
+            color: {vcfg};
+            border: 1px solid {line};
+            selection-background-color: {gsel_bg};
+            selection-color: {gsel_fg};
+        }}
+        QDialog#GenerateConfigDialog QListWidget {{
+            background-color: {pm};
+            color: {tx};
+            border: 1px solid {line};
+        }}
+        QDialog#GenerateConfigDialog QListWidget::item:selected {{
+            background-color: {gsel_bg};
+            color: {gsel_fg};
+        }}
+        QDialog#GenerateConfigDialog QListWidget::item:selected:!active {{
+            background-color: {gsel_bg};
+            color: {gsel_fg};
+        }}
+        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList {{
+            background-color: {pc};
+            border: none;
+            border-right: 1px solid {line};
+            outline: none;
+        }}
+        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList::item {{
+            padding: 8px 6px;
+            border: none;
+        }}
+        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList::item:selected {{
+            background-color: {cb};
+            color: {tx};
+            font-weight: bold;
+        }}
+        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList::item:hover:!selected {{
+            background-color: {cb};
+        }}
+        QDialog#GenerateConfigDialog QScrollArea {{
+            background-color: transparent;
+            border: none;
+        }}
+        QDialog#GenerateConfigDialog QGroupBox {{
+            border: 1px solid {line};
+            margin-top: 10px;
+            padding-top: 10px;
+            font-weight: bold;
+            color: {tx};
+        }}
+        QDialog#GenerateConfigDialog QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 4px;
         }}
 
         QPushButton {{
@@ -217,6 +381,17 @@ def apply_theme(app, theme):
             background-color: transparent;
             border: 1px solid transparent;
         }}
+        QToolButton#SidebarTool[toolKey="select_run"] {{
+            background-color: {srsb};
+            border-radius: 6px;
+        }}
+        QToolButton#SidebarTool[toolKey="select_run"]:hover {{
+            background-color: {cb};
+            border: 1px solid {line};
+        }}
+        QToolButton#SidebarTool[toolKey="select_run"]:disabled {{
+            background-color: transparent;
+        }}
 
         #MainShellWindow {{
             border: 1px solid {line};
@@ -226,6 +401,79 @@ def apply_theme(app, theme):
             background-color: {pm};
             color: {tx};
             border: 1px solid {line};
+        }}
+
+        QDialog#SessionSelectDialog {{
+            background-color: {pm};
+            color: {tx};
+            border: 1px solid {line};
+        }}
+
+        QLabel#DialogTitleLabel {{
+            background-color: transparent;
+            color: {tmenu};
+            font-size: 18px;
+            font-weight: bold;
+        }}
+
+        QWidget#SessionSelectBody {{
+            background-color: {pm};
+            color: {tx};
+        }}
+
+        QDialog#SessionSelectDialog QScrollBar:vertical {{
+            background-color: {pm};
+            width: 10px;
+            margin: 0px;
+            border: none;
+        }}
+        QDialog#SessionSelectDialog QScrollBar::handle:vertical {{
+            background-color: {cb};
+            border-radius: 4px;
+            margin: 2px;
+        }}
+        QDialog#SessionSelectDialog QScrollBar::handle:vertical:hover {{
+            background-color: {line};
+        }}
+        QDialog#SessionSelectDialog QScrollBar::groove:vertical {{
+            background-color: {pm};
+            border: none;
+        }}
+        QDialog#SessionSelectDialog QScrollBar::add-line:vertical,
+        QDialog#SessionSelectDialog QScrollBar::sub-line:vertical {{
+            height: 0px;
+            subcontrol-position: center;
+            subcontrol-origin: margin;
+        }}
+        QDialog#SessionSelectDialog QScrollBar::add-page:vertical,
+        QDialog#SessionSelectDialog QScrollBar::sub-page:vertical {{
+            background: none;
+        }}
+
+        QTableWidget#SessionSelectTable {{
+            background-color: {pm};
+            alternate-background-color: {pm};
+            color: {tx};
+            gridline-color: transparent;
+            outline: none;
+            border: none;
+        }}
+        QTableWidget#SessionSelectTable::item {{
+            background-color: {pm};
+            color: {tx};
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            border-bottom: 1px solid {line};
+            padding: 4px 0px;
+        }}
+        QTableWidget#SessionSelectTable QHeaderView::section {{
+            background-color: {pc};
+            color: {tx};
+            padding: 8px 10px;
+            border: none;
+            border-bottom: 1px solid {line};
+            font-weight: bold;
         }}
     """
     app.setStyleSheet(qss)
