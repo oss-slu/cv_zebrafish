@@ -7,7 +7,8 @@ SRC_ROOT = Path(__file__).resolve().parent / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from ui.scenes.MainWindow import MainWindow
+# New shell (ui-rework/UI_Rework_Spec.md). Legacy stack: ui.scenes.MainWindow.
+from ui.main_window_shell import MainShellWindow
 
 # You need one (and only one) QApplication instance per application.
 # Pass in sys.argv to allow command line arguments for your app.
@@ -15,7 +16,7 @@ from ui.scenes.MainWindow import MainWindow
 app = QApplication(sys.argv)
 
 # Create a Qt widget, which will be our window.
-window = MainWindow()
+window = MainShellWindow()
 window.show()  # IMPORTANT!!!!! Windows are hidden by default.
 
 # Start the event loop.

@@ -7,7 +7,9 @@ from pathlib import Path
 
 
 def _detect_root() -> Path:
-    return Path.cwd()
+    # Repo root from this file: src/app_platform/paths.py → parents[2]
+    # (Using cwd breaks icons/paths when the app is started from another directory.)
+    return Path(__file__).resolve().parents[2]
 
 @lru_cache(maxsize=1)
 def project_root() -> Path:

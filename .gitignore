@@ -39,6 +39,7 @@ Thumbs.db
 AGENTS.md
 package-lock.json
 package.json
+ui-rework/
 
 # videos
 *.mp4
