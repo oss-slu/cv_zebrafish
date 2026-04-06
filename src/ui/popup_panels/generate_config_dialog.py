@@ -1,4 +1,4 @@
-"""Modal Generate Config: embeds legacy ConfigGeneratorScene (spec: popup outside current session chrome)."""
+"""Modal Generate Config (spec: popup outside current session chrome)."""
 
 from __future__ import annotations
 
@@ -10,21 +10,29 @@ from styles.themes import THEMES, apply_theme
 
 from ui.components.chrome_separators import horizontal_separator
 from ui.components.dialog_title_bar import DialogTitleBar
-from ui.scenes.ConfigGeneratorScene import ConfigGeneratorScene
+from .config_generator_widget import ConfigGeneratorScene
 
 
 class GenerateConfigDialog(QDialog):
-    """Application-modal; on **Accept** (after successful **config_generated**), caller refreshes session + UI."""
+    """Window-modal to main shell; on **Accept** (after successful **config_generated**), caller refreshes session + UI."""
 
-    def __init__(self, parent: QWidget | None, session: Session):
+    def __init__(
+        self,
+        parent: QWidget | None,
+        session: Session,
+        *,
+        prefill_csv_path: str | None = None,
+        prefill_json_path: str | None = None,
+    ):
         super().__init__(parent)
         self.setObjectName("GenerateConfigDialog")
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setModal(True)
-        self.setWindowModality(Qt.ApplicationModal)
-        self.setMinimumSize(880, 620)
-        self.resize(960, 720)
+        # WindowModal: blocks parent (main shell) only so ErrorToast (separate top-level) stays clickable.
+        self.setWindowModality(Qt.WindowModal)
+        self.setMinimumSize(880, 520)
+        self.resize(960, 640)
 
         theme_name = "dark"
         p = parent
@@ -52,7 +60,14 @@ class GenerateConfigDialog(QDialog):
 
         self.generator = ConfigGeneratorScene()
         self.generator.load_session(session)
+        if prefill_csv_path:
+            self.generator.prefill_from_copy(prefill_csv_path, prefill_json_path)
         self.generator.config_generated.connect(self.accept)
+        shell = parent
+        while shell is not None and not hasattr(shell, "_show_error_toast"):
+            shell = shell.parentWidget()
+        if shell is not None:
+            self.generator.toast_requested.connect(shell._show_error_toast)
         bl.addWidget(self.generator, stretch=1)
 
         outer.addWidget(body, stretch=1)

@@ -1,8 +1,8 @@
-"""Select & Run main panel: embeds legacy ConfigSelectionScene until a full restyle."""
+"""Select & Run main panel."""
 
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
-from ui.scenes.ConfigSelectionScene import ConfigSelectionScene
+from .select_run_widget import ConfigSelectionScene
 
 
 class SelectRunPanel(QWidget):

@@ -1,6 +1,11 @@
 """
-Modal session registry: list, create, upload, open, remove.
-Mirrors LandingScene discovery under app_platform.paths.sessions_dir().
+Modal session picker: list, create, upload, open, remove.
+
+Rows come from a machine-local registry (``data/local/session_registry.json``):
+paths to each session JSON, display names, and last-opened times. Canonical
+on-disk layout is ``data/sessions/<name>/session.json`` (graphs live beside it);
+legacy flat ``data/sessions/<name>.json`` is still supported. Missing or invalid
+paths use muted text. Payload always loads from the JSON file.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
+    QLabel,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -33,7 +39,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from app_platform.paths import sessions_dir
+from app_platform.paths import (
+    SESSION_JSON_FILENAME,
+    display_stem_for_session_json,
+    is_session_bundle_json,
+    session_json_path,
+    sessions_dir,
+)
+from app_platform.session_registry import remove_entry, sync_registry_with_disk, touch_last_opened
 from session.session import Session, load_session_from_json
 from styles.themes import THEMES, apply_theme
 
@@ -113,7 +126,8 @@ class _SessionTableDelegate(QStyledItemDelegate):
 
         it0 = widget.item(row, 0)
         if it0 is not None and it0.data(_ROLE_VALID) is False:
-            fg = Qt.gray
+            fg_hex = getattr(widget, "_invalid_row_fg", None)
+            fg = QColor(fg_hex) if fg_hex else QColor("#888888")
 
         raw = index.data(Qt.DisplayRole)
         text = "" if raw is None else str(raw)
@@ -138,14 +152,19 @@ def _safe_session_stem(raw: str) -> str:
     return s
 
 
+def _session_name_taken(root: Path, stem: str) -> bool:
+    """Bundle ``<stem>/session.json`` or legacy flat ``<stem>.json``."""
+    return session_json_path(stem).is_file() or (root / f"{stem}.json").is_file()
+
+
 def unique_session_stem(base: str) -> str:
-    """If base.json exists, return base_2, base_3, … (spec: append a number)."""
+    """If that session id is already used on disk, return base_2, base_3, …"""
     root = sessions_dir()
     root.mkdir(parents=True, exist_ok=True)
     b = _safe_session_stem(base) or "session"
     candidate = b
     n = 2
-    while (root / f"{candidate}.json").exists():
+    while _session_name_taken(root, candidate):
         candidate = f"{b}_{n}"
         n += 1
     return candidate
@@ -155,35 +174,42 @@ def unique_session_stem(base: str) -> str:
 class _Row:
     path: Path
     display_name: str
-    last_mtime: float
+    last_opened: float
     valid: bool
 
 
-def _scan_sessions() -> list[_Row]:
-    root = sessions_dir()
-    if not root.is_dir():
-        return []
+def _rows_from_registry() -> list[_Row]:
+    entries = sync_registry_with_disk()
     rows: list[_Row] = []
-    for p in sorted(root.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+    for e in entries:
+        p = Path(str(e.get("path") or ""))
         try:
-            mtime = p.stat().st_mtime
-        except OSError:
-            continue
-        valid = True
-        display = p.stem
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict) and data.get("name"):
-                display = str(data["name"])
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-            valid = False
-        rows.append(_Row(path=p, display_name=display, last_mtime=mtime, valid=valid))
+            last_opened = float(e.get("last_opened") or 0)
+        except (TypeError, ValueError):
+            last_opened = 0.0
+        reg_name = str(e.get("name") or "").strip()
+        display = reg_name or display_stem_for_session_json(p)
+        valid = False
+        if p.is_file():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and data.get("name"):
+                    display = str(data["name"])
+                if isinstance(data, dict):
+                    try:
+                        load_session_from_json(str(p))
+                        valid = True
+                    except ValueError:
+                        valid = False
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                valid = False
+        rows.append(_Row(path=p, display_name=display, last_opened=last_opened, valid=valid))
     return rows
 
 
 class SessionSelectDialog(QDialog):
-    """Application-modal dialog; on accept, ``selected_path`` is the chosen session JSON path."""
+    """Window-modal to parent; on accept, ``selected_path`` is the chosen session JSON path."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -191,7 +217,7 @@ class SessionSelectDialog(QDialog):
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setModal(True)
-        self.setWindowModality(Qt.ApplicationModal)
+        self.setWindowModality(Qt.WindowModal)
         self.setMinimumSize(560, 420)
         self.resize(720, 480)
 
@@ -206,6 +232,7 @@ class SessionSelectDialog(QDialog):
             p = p.parentWidget()
         theme = THEMES[theme_name]
         apply_theme(self, theme)
+        self._muted_fg = QColor(theme["text_muted"])
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -240,6 +267,7 @@ class SessionSelectDialog(QDialog):
         self._table = _SessionTableWidget(0, 3)
         self._table._selection_row_bg = theme["chrome_button"]
         self._table._selection_row_fg = theme["text"]
+        self._table._invalid_row_fg = theme["text_muted"]
         self._table.setObjectName("SessionSelectTable")
         self._table.setAttribute(Qt.WA_StyledBackground, True)
         self._table.setHorizontalHeaderLabels(["Session name", "File location", "Last opened"])
@@ -262,6 +290,12 @@ class SessionSelectDialog(QDialog):
         self._table.customContextMenuRequested.connect(self._on_context_menu)
         body_layout.addWidget(self._table, stretch=1)
 
+        self._session_status = QLabel("")
+        self._session_status.setObjectName("SessionSelectStatus")
+        self._session_status.setWordWrap(True)
+        self._session_status.hide()
+        body_layout.addWidget(self._session_status)
+
         bottom = QHBoxLayout()
         bottom.addStretch(1)
         cancel = QPushButton("Cancel")
@@ -274,8 +308,18 @@ class SessionSelectDialog(QDialog):
 
         self._populate_table()
 
+    def _show_dialog_status(self, text: str) -> None:
+        """Inline feedback on this dialog (create / upload / remove / repair — not global toast)."""
+        t = (text or "").strip()
+        if not t:
+            self._session_status.clear()
+            self._session_status.hide()
+            return
+        self._session_status.setText(t)
+        self._session_status.show()
+
     def _populate_table(self) -> None:
-        rows = _scan_sessions()
+        rows = _rows_from_registry()
         self._table.setRowCount(len(rows))
         for i, row in enumerate(rows):
             p = row.path
@@ -284,17 +328,17 @@ class SessionSelectDialog(QDialog):
             name_item.setData(_ROLE_PATH, path_str)
             name_item.setData(_ROLE_VALID, row.valid)
             if not row.valid:
-                name_item.setForeground(Qt.gray)
+                name_item.setForeground(self._muted_fg)
             loc_item = QTableWidgetItem(path_str)
             loc_item.setToolTip(path_str)
             loc_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
             if not row.valid:
-                loc_item.setForeground(Qt.gray)
-            when = datetime.fromtimestamp(row.last_mtime).strftime("%Y-%m-%d %H:%M")
+                loc_item.setForeground(self._muted_fg)
+            when = datetime.fromtimestamp(row.last_opened).strftime("%Y-%m-%d %H:%M")
             when_item = QTableWidgetItem(when)
             when_item.setFlags(when_item.flags() & ~Qt.ItemIsEditable)
             if not row.valid:
-                when_item.setForeground(Qt.gray)
+                when_item.setForeground(self._muted_fg)
             self._table.setItem(i, 0, name_item)
             self._table.setItem(i, 1, loc_item)
             self._table.setItem(i, 2, when_item)
@@ -315,13 +359,13 @@ class SessionSelectDialog(QDialog):
 
     def _validate_and_accept(self, path: Path) -> None:
         if not path.exists():
-            QMessageBox.warning(self, "Session missing", f"The session file is no longer present:\n{path}")
+            self._show_dialog_status(f"Session missing — file not found:\n{path}")
             self._populate_table()
             return
         try:
             load_session_from_json(str(path))
         except ValueError as e:
-            QMessageBox.warning(self, "Invalid session", str(e))
+            self._show_dialog_status(f"Invalid session: {e}")
             return
         self.selected_path = str(path.resolve())
         self.accept()
@@ -329,15 +373,13 @@ class SessionSelectDialog(QDialog):
     def _open_current(self) -> None:
         path = self._current_json_path()
         if path is None:
-            QMessageBox.information(self, "Session Select", "Select a session row first.")
+            self._show_dialog_status("Select a session row first (or double‑click a row to open).")
             return
         r = self._table.currentRow()
         it = self._table.item(r, 0)
         if it and not it.data(_ROLE_VALID):
-            QMessageBox.warning(
-                self,
-                "Invalid session file",
-                "This JSON could not be read. Fix or remove the file and try again.",
+            self._show_dialog_status(
+                "This row is invalid — use Find location… or remove it, then refresh the list."
             )
             return
         self._validate_and_accept(path)
@@ -349,36 +391,161 @@ class SessionSelectDialog(QDialog):
         idx = self._table.indexAt(pos)
         if not idx.isValid():
             return
-        self._table.selectRow(idx.row())
+        r = idx.row()
+        self._table.selectRow(r)
+        it0 = self._table.item(r, 0)
+        if not it0:
+            return
         menu = QMenu(self)
         open_act = menu.addAction("Open")
-        remove_act = menu.addAction("Remove from registry")
+        find_act = None
+        if not it0.data(_ROLE_VALID):
+            find_act = menu.addAction("Find location…")
+        remove_act = menu.addAction("Remove session…")
         chosen = menu.exec_(self._table.viewport().mapToGlobal(pos))
         if chosen == open_act:
             self._open_current()
+        elif find_act is not None and chosen == find_act:
+            self._find_location_for_current()
         elif chosen == remove_act:
             self._remove_current()
 
-    def _remove_current(self) -> None:
-        path = self._current_json_path()
-        if path is None:
+    def _find_location_for_current(self) -> None:
+        """Folder picker: copy a matching valid session JSON over this greyed registry file (spec)."""
+        r = self._table.currentRow()
+        if r < 0:
             return
-        name = path.stem
+        it0 = self._table.item(r, 0)
+        if not it0 or it0.data(_ROLE_VALID):
+            return
+        raw_path = it0.data(_ROLE_PATH)
+        if not raw_path:
+            return
+        dst = Path(str(raw_path))
+        display_name = (it0.text() or "").strip()
+        dst_id = display_stem_for_session_json(dst)
+        start_dir = str(dst.parent if dst.parent.is_dir() else sessions_dir())
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Find folder containing a valid session JSON for this entry",
+            start_dir,
+        )
+        if not folder:
+            return
+        root = Path(folder)
+        matches: list[Path] = []
+
+        def _consider(cand: Path) -> None:
+            if not cand.is_file():
+                return
+            try:
+                load_session_from_json(str(cand))
+            except ValueError:
+                return
+            except Exception:
+                return
+            try:
+                with open(cand, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                return
+            if not isinstance(data, dict):
+                return
+            json_name = str(data.get("name") or "").strip()
+            bundle_id = (
+                cand.parent.name
+                if cand.name.lower() == SESSION_JSON_FILENAME.lower()
+                else cand.stem
+            )
+            if (
+                json_name == display_name
+                or cand.stem == dst_id
+                or bundle_id == dst_id
+                or json_name == dst_id
+            ):
+                matches.append(cand)
+
+        primary = root / SESSION_JSON_FILENAME
+        if primary.is_file():
+            _consider(primary)
+        for cand in sorted(root.glob("*.json")):
+            _consider(cand)
+        # Preserve order, drop duplicates
+        matches = list(dict.fromkeys(matches))
+        if not matches:
+            self._show_dialog_status(
+                "No matching session JSON in that folder.\n"
+                f"Expected name “{display_name}”, folder id “{dst_id}”, or “{SESSION_JSON_FILENAME}”."
+            )
+            return
+        if len(matches) > 1:
+            labels = [str(m) for m in matches]
+            choice, ok = QInputDialog.getItem(
+                self,
+                "Choose session file",
+                "Several JSON files matched. Pick one:",
+                labels,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            try:
+                src = matches[labels.index(choice)]
+            except ValueError:
+                return
+        else:
+            src = matches[0]
+
         ans = QMessageBox.question(
             self,
-            "Remove session",
-            f"Remove “{name}” from the registry?\n\nThis deletes the session file:\n{path}",
+            "Replace session file",
+            f"Copy this file into the registry path?\n\n"
+            f"To:\n{dst}\n\nFrom:\n{src}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if ans != QMessageBox.Yes:
             return
         try:
-            path.unlink(missing_ok=True)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
         except OSError as e:
-            QMessageBox.warning(self, "Remove failed", str(e))
+            self._show_dialog_status(f"Copy failed — {e}")
             return
+        touch_last_opened(str(dst))
         self._populate_table()
+        self._select_path(dst)
+        self._show_dialog_status(
+            "Session file updated — the list was refreshed. "
+            "The row should show as valid if the JSON loads correctly."
+        )
+
+    def _remove_current(self) -> None:
+        path = self._current_json_path()
+        if path is None:
+            return
+        name = display_stem_for_session_json(path)
+        ans = QMessageBox.question(
+            self,
+            "Remove session",
+            f"Remove “{name}” from the local session list and delete its session data on disk?\n\n{path}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ans != QMessageBox.Yes:
+            return
+        try:
+            if is_session_bundle_json(path):
+                shutil.rmtree(path.parent, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+        except OSError as e:
+            self._show_dialog_status(f"Remove failed — {e}")
+            return
+        remove_entry(str(path))
+        self._populate_table()
+        self._show_dialog_status(f"Removed “{name}” from the session list.")
 
     def _on_create_new(self) -> None:
         text, ok = QInputDialog.getText(self, "Create New Session", "Session name:")
@@ -386,19 +553,21 @@ class SessionSelectDialog(QDialog):
             return
         desired = _safe_session_stem(text)
         if not desired:
-            QMessageBox.warning(self, "Invalid name", "Please enter a session name.")
+            self._show_dialog_status("Please enter a session name.")
             return
         stem = unique_session_stem(text)
+        suffix = ""
         if stem != desired:
-            QMessageBox.information(
-                self,
-                "Session name",
-                f"A session with that name already exists.\nCreated: {stem}",
-            )
+            suffix = f"\n\nName was adjusted to “{stem}” because that name was already taken."
+        json_path = session_json_path(stem)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
         session = Session(stem)
+        session.json_path = str(json_path.resolve())
         session.save()
+        touch_last_opened(str(json_path.resolve()), stem)
         self._populate_table()
-        self._select_path(sessions_dir() / f"{stem}.json")
+        self._select_path(json_path)
+        self._show_dialog_status(f"Session “{stem}” created and added to the list.{suffix}")
 
     def _select_path(self, path: Path) -> None:
         try:
@@ -435,20 +604,22 @@ class SessionSelectDialog(QDialog):
             with open(src, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
-            QMessageBox.warning(self, "Invalid JSON", f"Could not read session file:\n{e}")
+            self._show_dialog_status(f"Invalid JSON — could not read file:\n{e}")
             return
         if not isinstance(data, dict):
-            QMessageBox.warning(self, "Invalid JSON", "File must contain a JSON object.")
+            self._show_dialog_status("Invalid JSON — file must contain a JSON object.")
             return
 
         root = sessions_dir()
         root.mkdir(parents=True, exist_ok=True)
         stem = unique_session_stem(src.stem)
-        dst = root / f"{stem}.json"
+        bundle = root / stem
+        bundle.mkdir(parents=True, exist_ok=True)
+        dst = bundle / SESSION_JSON_FILENAME
         try:
             shutil.copy2(src, dst)
         except OSError as e:
-            QMessageBox.warning(self, "Upload failed", str(e))
+            self._show_dialog_status(f"Upload failed — {e}")
             return
 
         data["name"] = stem
@@ -456,16 +627,18 @@ class SessionSelectDialog(QDialog):
             with open(dst, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except OSError as e:
-            QMessageBox.warning(self, "Upload failed", str(e))
+            self._show_dialog_status(f"Upload failed — {e}")
             dst.unlink(missing_ok=True)
             return
 
         try:
             load_session_from_json(str(dst))
         except ValueError as e:
-            QMessageBox.warning(self, "Invalid session", str(e))
+            self._show_dialog_status(f"Invalid session — {e}")
             dst.unlink(missing_ok=True)
             return
 
+        touch_last_opened(str(dst), stem)
         self._populate_table()
         self._select_path(dst)
+        self._show_dialog_status(f"Uploaded! Session “{stem}” is in the list.")

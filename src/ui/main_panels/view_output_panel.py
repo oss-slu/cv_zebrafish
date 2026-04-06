@@ -1,8 +1,8 @@
-"""View Output main panel: embeds legacy GraphViewerScene until a full restyle."""
+"""View Output main panel."""
 
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
-from src.ui.scenes.GraphViewerScene import GraphViewerScene
+from .graph_viewer_widget import GraphViewerScene
 
 
 class ViewOutputPanel(QWidget):

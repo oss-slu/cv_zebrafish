@@ -1,10 +1,11 @@
 from os import path
 import json
+from pathlib import Path
 
 from PyQt5.QtCore import pyqtSignal, QObject
 from PyQt5.QtWidgets import QMessageBox
 
-from src.app_platform.paths import sessions_dir
+from app_platform.paths import SESSION_JSON_FILENAME, session_bundle_dir
 
 class Session(QObject):
     session_updated = pyqtSignal()
@@ -12,6 +13,8 @@ class Session(QObject):
     def __init__(self, name):
         super().__init__()
         self.name = name
+        # Absolute path of the JSON this session was loaded from / last saved to (see save()).
+        self.json_path = None
         self.csvs = {}
         # Folder CSVs: folder_path -> [csv_file_paths]
         self.csv_folders = {}
@@ -194,7 +197,15 @@ class Session(QObject):
         return len(self.csvs)
 
     def save(self):
-        file_path = path.join(sessions_dir(), f"{self.name}.json")
+        if getattr(self, "json_path", None):
+            file_path = self.json_path
+            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+        else:
+            bundle = session_bundle_dir(self.name)
+            bundle.mkdir(parents=True, exist_ok=True)
+            fp = bundle / SESSION_JSON_FILENAME
+            file_path = path.normpath(path.abspath(str(fp)))
+            self.json_path = file_path
 
         with open(file_path, 'w') as f:
             json.dump(self.toDict(), f, indent=4)
@@ -206,6 +217,42 @@ class Session(QObject):
             return config_path in self.csvs.get(csv_path, {})
 
         return config_path in self.getAllConfigs()
+
+    def removeConfigFromCSV(self, csv_path: str, config_path: str) -> None:
+        """Detach one JSON config (and its graph paths) from a CSV row; prune folder_graphs."""
+        if not csv_path or not config_path:
+            return
+        row = self.csvs.get(csv_path)
+        if not row or config_path not in row:
+            return
+        del row[config_path]
+        fg = self.folder_graphs or {}
+        if csv_path in fg and config_path in fg[csv_path]:
+            del fg[csv_path][config_path]
+            if not fg[csv_path]:
+                del fg[csv_path]
+        if getattr(self, "last_csv_path", None) == csv_path and getattr(
+            self, "last_config_path", None
+        ) == config_path:
+            self.last_config_path = None
+        self.session_updated.emit()
+
+    def removeCSV(self, csv_path: str) -> None:
+        """Remove a CSV (or folder) row and all attached configs / folder graph records."""
+        if not csv_path:
+            return
+        if csv_path in self.csvs:
+            del self.csvs[csv_path]
+        cf = self.csv_folders or {}
+        if csv_path in cf:
+            del self.csv_folders[csv_path]
+        fg = self.folder_graphs or {}
+        if csv_path in fg:
+            del fg[csv_path]
+        if getattr(self, "last_csv_path", None) == csv_path:
+            self.last_csv_path = None
+            self.last_config_path = None
+        self.session_updated.emit()
 
 def load_session_from_json(json_path):
     """Load a session from a JSON file."""
@@ -220,6 +267,7 @@ def load_session_from_json(json_path):
         raise ValueError("Session file is missing a valid name.")
 
     session = Session(session_name)
+    session.json_path = path.normpath(path.abspath(str(json_path)))
     # Optional resume point (older session files won't have this).
     last_scene = data.get("last_scene") or "Verify"
     session.last_scene = last_scene
@@ -247,3 +295,4 @@ def save_session_to_json(session, json_path):
             json.dump(data, f, indent=4)
     except Exception as e:
         raise ValueError(f"Could not write session file: {e}")
+    session.json_path = path.normpath(path.abspath(str(json_path)))

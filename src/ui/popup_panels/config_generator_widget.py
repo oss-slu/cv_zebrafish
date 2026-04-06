@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import re
+import sys
 
 from pathlib import Path
 from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -20,8 +23,8 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -39,10 +42,12 @@ def _section_rule() -> QFrame:
 
 class ConfigGeneratorScene(QWidget):
     """
-    Generate Config content: left vertical tabs (spec ~20%), stacked pages, thin bottom bar.
+    Generate Config content: left floating tab buttons, stacked pages, thin bottom bar.
     """
 
     config_generated = pyqtSignal()
+    # (title, short_body) for shell ErrorToast; full text always printed to stderr.
+    toast_requested = pyqtSignal(str, str)
 
     def __init__(self, csv_path=None, parent=None):
         super().__init__(parent)
@@ -59,17 +64,34 @@ class ConfigGeneratorScene(QWidget):
         root.setSpacing(10)
 
         mid = QHBoxLayout()
-        mid.setSpacing(12)
+        mid.setSpacing(16)
 
-        self._tab_list = QListWidget()
-        self._tab_list.setObjectName("GenerateConfigTabList")
+        self._tab_strip = QWidget()
+        self._tab_strip.setObjectName("GenerateConfigTabStrip")
+        strip_layout = QVBoxLayout(self._tab_strip)
+        strip_layout.setContentsMargins(0, 4, 0, 4)
+        strip_layout.setSpacing(10)
+
+        self._tab_buttons: list[QPushButton] = []
+        self._tab_group = QButtonGroup(self)
+        self._tab_group.setExclusive(True)
         for label in ("Select CSV", "Body Parts", "Custom Calculations"):
-            self._tab_list.addItem(QListWidgetItem(label))
-        self._tab_list.setCurrentRow(0)
-        self._tab_list.setFixedWidth(170)
-        self._tab_list.setSpacing(4)
+            btn = QPushButton(label)
+            btn.setObjectName("GenerateConfigTabButton")
+            btn.setCheckable(True)
+            btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            btn.setCursor(Qt.PointingHandCursor)
+            self._tab_group.addButton(btn)
+            strip_layout.addWidget(btn)
+            self._tab_buttons.append(btn)
+        self._tab_buttons[0].setChecked(True)
+        self._tab_group.buttonClicked.connect(self._on_tab_button_clicked)
+        strip_layout.addStretch(1)
+
+        self._tab_strip.setFixedWidth(188)
 
         self._stack = QStackedWidget()
+        self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # ----- Tab: Select CSV -----
         page_csv = QWidget()
@@ -79,26 +101,26 @@ class ConfigGeneratorScene(QWidget):
         lay_csv.addWidget(QLabel("Session CSVs"))
         self.csv_list = QListWidget()
         self.csv_list.setMinimumHeight(160)
+        self.csv_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.csv_list.setTextElideMode(Qt.ElideLeft)
         self.csv_list.itemClicked.connect(self._on_csv_chosen)
         lay_csv.addWidget(self.csv_list, stretch=1)
-
-        self.feedback_box = QTextEdit()
-        self.feedback_box.setReadOnly(True)
-        self.feedback_box.setMinimumHeight(140)
-        lay_csv.addWidget(self.feedback_box, stretch=1)
 
         self._stack.addWidget(page_csv)
 
         # ----- Tab: Body Parts -----
         scroll_body = QScrollArea()
+        scroll_body.setObjectName("GenerateConfigScrollBody")
         scroll_body.setWidgetResizable(True)
         scroll_body.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_body.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_body.setFrameShape(QFrame.NoFrame)
 
         body_content = QWidget()
+        body_content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         form = QVBoxLayout(body_content)
         form.setSpacing(10)
-        form.setContentsMargins(0, 0, 8, 0)
+        form.setContentsMargins(0, 0, 0, 0)
 
         self.fin_r_1 = QComboBox()
         self.fin_r_2 = QComboBox()
@@ -124,6 +146,8 @@ class ConfigGeneratorScene(QWidget):
         self.spine_list = QListWidget()
         self.spine_list.setSelectionMode(QListWidget.MultiSelection)
         self.spine_list.setMinimumHeight(120)
+        self.spine_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.spine_list.setTextElideMode(Qt.ElideLeft)
         form.addWidget(self.spine_list)
 
         form.addWidget(_section_rule())
@@ -132,6 +156,8 @@ class ConfigGeneratorScene(QWidget):
         self.tail_list = QListWidget()
         self.tail_list.setSelectionMode(QListWidget.MultiSelection)
         self.tail_list.setMinimumHeight(120)
+        self.tail_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tail_list.setTextElideMode(Qt.ElideLeft)
         form.addWidget(self.tail_list)
 
         form.addWidget(_section_rule())
@@ -193,9 +219,7 @@ class ConfigGeneratorScene(QWidget):
         lay_c.addStretch(1)
         self._stack.addWidget(page_custom)
 
-        self._tab_list.currentRowChanged.connect(self._stack.setCurrentIndex)
-
-        mid.addWidget(self._tab_list, 0)
+        mid.addWidget(self._tab_strip, 0)
         mid.addWidget(self._stack, 1)
         root.addLayout(mid, stretch=1)
 
@@ -209,6 +233,7 @@ class ConfigGeneratorScene(QWidget):
         self._csv_display_label = QLabel("(none)")
         self._csv_display_label.setMinimumWidth(120)
         self._csv_display_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._csv_display_label.setWordWrap(False)
         bottom_layout.addWidget(self._csv_display_label, stretch=1)
 
         bottom_layout.addWidget(QLabel("Name"))
@@ -222,6 +247,32 @@ class ConfigGeneratorScene(QWidget):
         bottom_layout.addWidget(self.gen_btn, stretch=0)
 
         root.addWidget(bottom)
+
+    def _on_tab_button_clicked(self, button: QPushButton) -> None:
+        try:
+            idx = self._tab_buttons.index(button)
+        except ValueError:
+            return
+        self._stack.setCurrentIndex(idx)
+
+    def _set_tab_index(self, index: int) -> None:
+        if not self._tab_buttons:
+            return
+        index = max(0, min(index, len(self._tab_buttons) - 1))
+        if index > 0 and not self._tab_buttons[index].isEnabled():
+            index = 0
+        self._tab_group.blockSignals(True)
+        self._tab_buttons[index].setChecked(True)
+        self._tab_group.blockSignals(False)
+        self._stack.setCurrentIndex(index)
+
+    def _update_tab_enabled_state(self) -> None:
+        ready = bool(self.bodyparts)
+        if len(self._tab_buttons) >= 3:
+            self._tab_buttons[1].setEnabled(ready)
+            self._tab_buttons[2].setEnabled(ready)
+        if not ready and self._stack.currentIndex() > 0:
+            self._set_tab_index(0)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -238,22 +289,53 @@ class ConfigGeneratorScene(QWidget):
         if w < 80:
             w = max(80, self.width() - 360)
         fm = self._csv_display_label.fontMetrics()
-        self._csv_display_label.setText(fm.elidedText(path, Qt.ElideMiddle, w))
+        self._csv_display_label.setText(fm.elidedText(path, Qt.ElideLeft, w))
+
+    @staticmethod
+    def _message_to_toast(full_text: str) -> tuple[str, str]:
+        """Short title + body for the floating toast; full log stays on stderr."""
+        text = (full_text or "").strip()
+        if not text:
+            return ("Notice", "")
+        lines = text.split("\n")
+        first = lines[0].strip()
+        rest = "\n".join(lines[1:]).strip()
+        low = first.lower()
+        if low.startswith("warning:"):
+            body = first.split(":", 1)[1].strip() if ":" in first else first
+            return ("Warning", body)
+        if low.startswith("error"):
+            body = first if not rest else f"{first}\n{rest}"
+            if len(body) > 300:
+                body = body[:297] + "..."
+            return ("Error", body)
+        if low.startswith("success:"):
+            tail = first[8:].strip() if len(first) > 8 else first
+            if len(tail) > 180:
+                tail = tail[:177] + "..."
+            return ("Success", tail)
+        if low.startswith("could not load"):
+            b = first if len(first) < 220 else first[:217] + "..."
+            return ("Config template", b)
+        if low.startswith("loaded settings from:"):
+            path = first.split(":", 1)[-1].strip() if ":" in first else first
+            return ("Loaded", (path or first)[:200])
+        one = first[:220] + ("…" if len(first) > 220 else "")
+        return ("Generate Config", one)
 
     def _user_message(self, text: str, tab: Optional[int] = None):
-        self.feedback_box.setPlainText(text)
+        raw = (text or "").strip()
+        print(raw, file=sys.stderr, flush=True)
+        low = raw.lower()
+        # Toast only for problems — successes stay on stderr / View Console only.
+        if not (low.startswith("success:") or low.startswith("loaded settings from:")):
+            title, short = self._message_to_toast(raw)
+            self.toast_requested.emit(title, short)
         if tab is not None:
-            self._tab_list.setCurrentRow(tab)
-
-    def _sync_config_name_placeholder(self):
-        if not self.current_session:
-            self.config_name_input.setPlaceholderText("config")
-            return
-        raw = (self.current_session.getName() or "").strip()
-        if raw and re.fullmatch(r"[A-Za-z0-9_\-\. ]+", raw):
-            self.config_name_input.setPlaceholderText(raw)
-        else:
-            self.config_name_input.setPlaceholderText("config")
+            t = tab
+            if t > 0 and not self.bodyparts:
+                t = 0
+            self._set_tab_index(t)
 
     def _reset_body_state(self):
         self.csv_id = None
@@ -274,9 +356,9 @@ class ConfigGeneratorScene(QWidget):
         self.tail_list.clear()
         self._sync_angle_dropdowns(changed=None)
         self.angle_ccw.setChecked(False)
-        self.feedback_box.clear()
         self.csv_list.clearSelection()
         self._update_csv_display()
+        self._update_tab_enabled_state()
 
     def load_csv(self):
         """Load DeepLabCut CSV and populate widgets."""
@@ -333,6 +415,7 @@ class ConfigGeneratorScene(QWidget):
             self.spine_list.addItem(QListWidgetItem(bodypart))
             self.tail_list.addItem(QListWidgetItem(bodypart))
         self._update_csv_display()
+        self._update_tab_enabled_state()
 
     def _set_angle_combo_items(self, combo: QComboBox, options, current_value: str):
         combo.blockSignals(True)
@@ -542,7 +625,7 @@ class ConfigGeneratorScene(QWidget):
         self._session_connected = session
 
         self._reset_body_state()
-        self._sync_config_name_placeholder()
+        self.config_name_input.setPlaceholderText("config")
         self.config_name_input.clear()
 
         if session is not None:
@@ -552,4 +635,79 @@ class ConfigGeneratorScene(QWidget):
                 pass
 
         self._refresh_csv_list()
-        self._tab_list.setCurrentRow(0)
+        self._set_tab_index(0)
+
+    def prefill_from_copy(self, csv_path: str, json_path: str | None) -> None:
+        """After ``load_session``, select a session CSV and optionally apply an existing JSON as a template."""
+        self.csv_id = csv_path
+        self.csv_path = csv_path
+        self.load_csv()
+        if not self.bodyparts:
+            return
+        if json_path:
+            ok, msg = self.apply_existing_config_json(json_path)
+            if not ok:
+                self._user_message(f"Could not load config template:\n{msg}", tab=0)
+
+    def apply_existing_config_json(self, json_path: str) -> tuple[bool, str]:
+        """Populate Body Parts / Custom Calculations / toggles from a saved config file."""
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception as e:
+            return False, str(e)
+
+        pts = cfg.get("points") or {}
+
+        def _set_combo(combo: QComboBox, val: str) -> None:
+            combo.blockSignals(True)
+            idx = combo.findText((val or "").strip())
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.blockSignals(False)
+
+        rf = pts.get("right_fin") or []
+        if len(rf) >= 2:
+            _set_combo(self.fin_r_1, str(rf[0]))
+            _set_combo(self.fin_r_2, str(rf[1]))
+        lf = pts.get("left_fin") or []
+        if len(lf) >= 2:
+            _set_combo(self.fin_l_1, str(lf[0]))
+            _set_combo(self.fin_l_2, str(lf[1]))
+        head = pts.get("head") or {}
+        if isinstance(head, dict):
+            _set_combo(self.head_1, str(head.get("pt1", "")))
+            _set_combo(self.head_2, str(head.get("pt2", "")))
+
+        for lst, names in (
+            (self.spine_list, pts.get("spine") or []),
+            (self.tail_list, pts.get("tail") or []),
+        ):
+            lst.clearSelection()
+            names_set = {str(n) for n in names}
+            for i in range(lst.count()):
+                it = lst.item(i)
+                if it.text() in names_set:
+                    it.setSelected(True)
+
+        so = cfg.get("shown_outputs") or {}
+        self.chk_fin_tail.setChecked(bool(so.get("show_angle_and_distance_plot", True)))
+        self.chk_spines.setChecked(bool(so.get("show_spines", True)))
+        self.chk_dot_lf.setChecked(bool(so.get("show_tail_left_fin_angle_dot_plot", True)))
+        self.chk_dot_rf.setChecked(bool(so.get("show_tail_right_fin_angle_dot_plot", True)))
+        self.chk_dot_lf_mov.setChecked(bool(so.get("show_tail_left_fin_moving_dot_plot", False)))
+        self.chk_dot_rf_mov.setChecked(bool(so.get("show_tail_right_fin_moving_dot_plot", False)))
+
+        tpa = (cfg.get("custom_calculations") or {}).get("three_point_angle") or {}
+        pts3 = tpa.get("points") or []
+        if len(pts3) >= 3:
+            _set_combo(self.angle_a, str(pts3[0]))
+            _set_combo(self.angle_b, str(pts3[1]))
+            _set_combo(self.angle_c, str(pts3[2]))
+        else:
+            _set_combo(self.angle_a, "")
+            _set_combo(self.angle_b, "")
+            _set_combo(self.angle_c, "")
+        self.angle_ccw.setChecked(str(tpa.get("direction") or "").lower() == "ccw")
+        self._sync_angle_dropdowns(changed=None)
+        self._user_message(f"Loaded settings from:\n{json_path}", tab=1)
+        return True, ""

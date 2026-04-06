@@ -1,4 +1,4 @@
-"""Shared app logo loading (same asset as LandingScene: assets/images/fish1.png)."""
+"""Shared app logo loading (assets/images/fish1.png)."""
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap

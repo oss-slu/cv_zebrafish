@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 class PlaceholderPanel(QWidget):
-    """Temporary panel until the real scene is ported from `ui.scenes`."""
+    """Placeholder workspace page (e.g. future tools)."""
 
     def __init__(self, title: str, detail: str = "", parent=None):
         super().__init__(parent)

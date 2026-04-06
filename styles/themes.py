@@ -3,7 +3,7 @@
 # Visual hierarchy (dark): panel_main (darkest) < panel_chrome < chrome_button ~ chrome_line
 #                (light): panel_main (lightest) < panel_chrome (slightly darker) < edges/buttons
 # Text/icons on a surface should read one step brighter (dark mode) / darker (light mode) than
-# that surface — fine-tune icon tints in a later pass (see ui-rework/UI_Rework_Notes.md).
+# that surface. StandardPixmap-based icons ignore QSS color — use SVG/theme assets where contrast matters.
 
 LIGHT_THEME = {
     # Main workspace (lightest)
@@ -36,7 +36,6 @@ LIGHT_THEME = {
     # VerifyScene validation console (light)
     "verify_console_bg": "#f9f9f9",
     "verify_console_fg": "#1a1a1e",
-    "sidebar_select_run_bg": "transparent",
     # Generate Config: neutral grey selection (readable on light panels)
     "generate_selection_bg": "#d4d4dc",
     "generate_selection_fg": "#1a1a1e",
@@ -64,8 +63,6 @@ DARK_THEME = {
     # VerifyScene validation console (dark: terminal-style)
     "verify_console_bg": "#000000",
     "verify_console_fg": "#ffffff",
-    # Sidebar: make Select & Run control readable on dark chrome
-    "sidebar_select_run_bg": "rgba(255, 255, 255, 0.14)",
     # Generate Config: neutral grey selection on dark panels
     "generate_selection_bg": "#4a4a54",
     "generate_selection_fg": "#f2f2f8",
@@ -93,7 +90,6 @@ def apply_theme(app, theme):
     accent = theme["accent"]
     vcbg = theme.get("verify_console_bg", pm)
     vcfg = theme.get("verify_console_fg", tx)
-    srsb = theme.get("sidebar_select_run_bg", "transparent")
     gsel_bg = theme.get("generate_selection_bg", accent)
     gsel_fg = theme.get("generate_selection_fg", "#ffffff")
 
@@ -185,6 +181,52 @@ def apply_theme(app, theme):
             border-radius: 3px;
         }}
 
+        /* View Output / GraphViewer (embedded under WorkspaceMain) */
+        QWidget#WorkspaceMain QWidget#GraphViewerContextBar {{
+            background-color: transparent;
+            border-bottom: 1px solid {line};
+        }}
+        QWidget#WorkspaceMain QLabel#GraphViewerContextText {{
+            color: {tmenu};
+            background-color: transparent;
+        }}
+        QWidget#WorkspaceMain QLabel#GraphViewerContextIcon {{
+            background-color: transparent;
+        }}
+        QWidget#WorkspaceMain QListWidget#GraphViewerGraphList {{
+            background-color: {pm};
+            color: {tx};
+            border: 1px solid {line};
+            border-radius: 8px;
+            outline: none;
+        }}
+        QWidget#WorkspaceMain QListWidget#GraphViewerGraphList::item:selected {{
+            background-color: {cb};
+            color: {tx};
+        }}
+        QWidget#WorkspaceMain QListWidget#GraphViewerGraphList::item:hover {{
+            background-color: {cb};
+        }}
+        QWidget#WorkspaceMain QListWidget#GraphViewerGraphList:disabled {{
+            color: {tmu};
+        }}
+        QWidget#WorkspaceMain QListWidget#GraphViewerGraphList:disabled::item {{
+            color: {tmu};
+        }}
+        QWidget#WorkspaceMain QScrollArea#GraphViewerImageScroll {{
+            background-color: {pm};
+            border: 1px solid {line};
+            border-radius: 8px;
+        }}
+        QWidget#WorkspaceMain QLabel#GraphViewerImageLabel {{
+            background-color: {pm};
+            color: {tmenu};
+            border: none;
+        }}
+        QWidget#WorkspaceMain QComboBox#GraphViewerCsvCombo {{
+            min-width: 0px;
+        }}
+
         QDialog#GenerateConfigDialog {{
             background-color: {pm};
             color: {tx};
@@ -216,27 +258,47 @@ def apply_theme(app, theme):
             background-color: {gsel_bg};
             color: {gsel_fg};
         }}
-        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList {{
+        QWidget#GenerateConfigTabStrip {{
+            background-color: transparent;
+        }}
+        QPushButton#GenerateConfigTabButton {{
             background-color: {pc};
-            border: none;
-            border-right: 1px solid {line};
-            outline: none;
+            color: {tx};
+            border: 1px solid {line};
+            border-radius: 10px;
+            padding: 10px 14px;
+            text-align: left;
+            font-weight: normal;
+            min-height: 20px;
         }}
-        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList::item {{
-            padding: 8px 6px;
-            border: none;
-        }}
-        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList::item:selected {{
+        QPushButton#GenerateConfigTabButton:checked {{
             background-color: {cb};
             color: {tx};
             font-weight: bold;
+            border: 1px solid {accent};
         }}
-        QDialog#GenerateConfigDialog QListWidget#GenerateConfigTabList::item:hover:!selected {{
+        QPushButton#GenerateConfigTabButton:hover:!checked:!disabled {{
             background-color: {cb};
+            border: 1px solid {line};
+        }}
+        QPushButton#GenerateConfigTabButton:disabled {{
+            color: {tmu};
+            background-color: {pm};
+            border: 1px dashed {line};
+            font-weight: normal;
+        }}
+        QPushButton#GenerateConfigTabButton:disabled:checked {{
+            background-color: {pm};
         }}
         QDialog#GenerateConfigDialog QScrollArea {{
             background-color: transparent;
             border: none;
+        }}
+        QDialog#GenerateConfigDialog QScrollArea#GenerateConfigScrollBody {{
+            background-color: transparent;
+        }}
+        QDialog#GenerateConfigDialog QComboBox {{
+            min-width: 0px;
         }}
         QDialog#GenerateConfigDialog QGroupBox {{
             border: 1px solid {line};
@@ -251,6 +313,22 @@ def apply_theme(app, theme):
             padding: 0 4px;
         }}
 
+        QDialog#ConsoleViewerDialog {{
+            background-color: {pm};
+            color: {tx};
+            border: 1px solid {line};
+        }}
+        QWidget#ConsoleViewerBody {{
+            background-color: {pm};
+        }}
+        QPlainTextEdit#ConsoleViewerPlain {{
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            background-color: {vcbg};
+            color: {vcfg};
+            border: 1px solid {line};
+        }}
+
         QPushButton {{
             background-color: {cb};
             color: {btxt};
@@ -260,6 +338,29 @@ def apply_theme(app, theme):
         }}
         QPushButton:hover {{
             border: 1px solid {accent};
+        }}
+
+        QPushButton#ConfigSelectionTestToggle {{
+            min-width: 40px;
+            max-width: 40px;
+            min-height: 22px;
+            max-height: 22px;
+            border-radius: 11px;
+            border: 1px solid {line};
+            background-color: {pm};
+            padding: 0;
+        }}
+        QPushButton#ConfigSelectionTestToggle:checked {{
+            background-color: {accent};
+            border: 1px solid {accent};
+        }}
+        QPushButton#ConfigSelectionTestToggle:hover:!checked {{
+            background-color: {pc};
+            border: 1px solid {line};
+        }}
+        QPushButton#ConfigSelectionTestToggle:hover:checked {{
+            background-color: {accent};
+            border: 1px solid {line};
         }}
 
         QLineEdit, QComboBox {{
@@ -381,16 +482,54 @@ def apply_theme(app, theme):
             background-color: transparent;
             border: 1px solid transparent;
         }}
-        QToolButton#SidebarTool[toolKey="select_run"] {{
-            background-color: {srsb};
-            border-radius: 6px;
+        QToolButton#SidebarTool[activeTool="true"] {{
+            background-color: {line};
+            border: 1px solid {line};
+            border-radius: 4px;
         }}
-        QToolButton#SidebarTool[toolKey="select_run"]:hover {{
+        QToolButton#SidebarTool[activeTool="true"]:hover {{
             background-color: {cb};
             border: 1px solid {line};
         }}
-        QToolButton#SidebarTool[toolKey="select_run"]:disabled {{
+        QToolButton#SidebarTool[activeTool="true"]:disabled {{
             background-color: transparent;
+            border: 1px solid transparent;
+        }}
+
+        QWidget#ErrorToast {{
+            background-color: {pc};
+            color: {tx};
+            border: 1px solid {line};
+            border-radius: 10px;
+        }}
+        QWidget#ErrorToast QLabel#ErrorToastTitle {{
+            background-color: transparent;
+            color: {tx};
+            font-size: 14px;
+            font-weight: bold;
+        }}
+        QWidget#ErrorToast QLabel#ErrorToastBody {{
+            background-color: transparent;
+            color: {tmenu};
+            font-size: 13px;
+        }}
+        QWidget#ErrorToast QPushButton#ErrorToastConsoleBtn,
+        QWidget#ErrorToast QPushButton#ErrorToastCloseBtn {{
+            background-color: {cb};
+            color: {btxt};
+            border: 1px solid {line};
+            border-radius: 6px;
+            padding: 4px 10px;
+            min-height: 28px;
+        }}
+        QWidget#ErrorToast QPushButton#ErrorToastCloseBtn {{
+            font-size: 18px;
+            font-weight: bold;
+            padding: 2px 12px;
+        }}
+        QWidget#ErrorToast QPushButton#ErrorToastConsoleBtn:hover,
+        QWidget#ErrorToast QPushButton#ErrorToastCloseBtn:hover {{
+            border: 1px solid {accent};
         }}
 
         #MainShellWindow {{
@@ -419,6 +558,13 @@ def apply_theme(app, theme):
         QWidget#SessionSelectBody {{
             background-color: {pm};
             color: {tx};
+        }}
+
+        QLabel#SessionSelectStatus {{
+            background-color: transparent;
+            color: {tmu};
+            font-size: 13px;
+            padding: 4px 2px 2px 2px;
         }}
 
         QDialog#SessionSelectDialog QScrollBar:vertical {{
@@ -477,3 +623,53 @@ def apply_theme(app, theme):
         }}
     """
     app.setStyleSheet(qss)
+
+
+def apply_error_toast_theme(toast, theme: dict) -> None:
+    """Top-level :class:`ErrorToast` does not inherit ``MainShellWindow`` QSS; mirror the ErrorToast rules here."""
+    pc = theme["panel_chrome"]
+    tx = theme["text"]
+    line = theme["chrome_line"]
+    cb = theme["chrome_button"]
+    btxt = theme["button_text"]
+    tmenu = theme["title_menu_text"]
+    accent = theme["accent"]
+    toast.setStyleSheet(
+        f"""
+        QWidget#ErrorToast {{
+            background-color: {pc};
+            color: {tx};
+            border: 1px solid {line};
+            border-radius: 10px;
+        }}
+        QWidget#ErrorToast QLabel#ErrorToastTitle {{
+            background-color: transparent;
+            color: {tx};
+            font-size: 14px;
+            font-weight: bold;
+        }}
+        QWidget#ErrorToast QLabel#ErrorToastBody {{
+            background-color: transparent;
+            color: {tmenu};
+            font-size: 13px;
+        }}
+        QWidget#ErrorToast QPushButton#ErrorToastConsoleBtn,
+        QWidget#ErrorToast QPushButton#ErrorToastCloseBtn {{
+            background-color: {cb};
+            color: {btxt};
+            border: 1px solid {line};
+            border-radius: 6px;
+            padding: 4px 10px;
+            min-height: 28px;
+        }}
+        QWidget#ErrorToast QPushButton#ErrorToastCloseBtn {{
+            font-size: 18px;
+            font-weight: bold;
+            padding: 2px 12px;
+        }}
+        QWidget#ErrorToast QPushButton#ErrorToastConsoleBtn:hover,
+        QWidget#ErrorToast QPushButton#ErrorToastCloseBtn:hover {{
+            border: 1px solid {accent};
+        }}
+    """
+    )
