@@ -76,7 +76,7 @@ class ConsoleViewerDialog(QDialog):
 
     def _reload(self) -> None:
         parts: list[str] = []
-        if self._toast_messages and len(self._toast_messages) > 0:
+        if self._toast_messages:
             parts.append("— Toast / in-app messages —\n")
             parts.append("".join(self._toast_messages))
             parts.append("\n\n— stderr —\n")

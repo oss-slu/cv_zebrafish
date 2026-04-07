@@ -113,13 +113,13 @@ class SidebarTools(QWidget):
         self,
         has_session: bool,
         has_csv: bool,
-        calculation_has_run: bool,
         *,
         view_output_enabled: bool = False,
     ) -> None:
         """
         Stores capability flags for icon styling. Buttons stay enabled so clicks can
-        show prerequisite toasts; the shell enforces gating.
+        show prerequisite toasts; the shell enforces gating. ``view_output_enabled`` is
+        computed in the shell (includes unlock + CSV + calculation state).
         """
         self._cap_has_session = bool(has_session)
         self._cap_has_csv = bool(has_csv)

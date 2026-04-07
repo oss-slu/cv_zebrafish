@@ -209,10 +209,8 @@ class MainShellWindow(QMainWindow):
 
     def _on_application_state_changed(self, state: Qt.ApplicationState) -> None:
         """Hide toast when switching to another app so it does not float above the rest of the desktop."""
-        if state != Qt.ApplicationActive:
-            t = getattr(self, "_error_toast", None)
-            if t is not None and t.isVisible():
-                t.hide()
+        if state != Qt.ApplicationActive and self._error_toast.isVisible():
+            self._error_toast.hide()
 
     def changeEvent(self, event):
         if event.type() == QEvent.WindowStateChange:
@@ -298,14 +296,14 @@ class MainShellWindow(QMainWindow):
     def _apply_session_state(self) -> None:
         if not self._has_session:
             self.workspace.show_empty()
-            self.sidebar.apply_session_capabilities(False, False, False, view_output_enabled=False)
+            self.sidebar.apply_session_capabilities(False, False, view_output_enabled=False)
             self.sidebar.set_active_tool(None)
         else:
             self._refresh_sidebar_capabilities()
 
     def _refresh_sidebar_capabilities(self) -> None:
         if not self._has_session or self.current_session is None:
-            self.sidebar.apply_session_capabilities(False, False, False, view_output_enabled=False)
+            self.sidebar.apply_session_capabilities(False, False, view_output_enabled=False)
             return
         has_csv = self.current_session.length() > 0
         view_out = (
@@ -316,7 +314,6 @@ class MainShellWindow(QMainWindow):
         self.sidebar.apply_session_capabilities(
             True,
             has_csv,
-            self._calculation_has_run,
             view_output_enabled=view_out,
         )
 
@@ -388,6 +385,18 @@ class MainShellWindow(QMainWindow):
             self._show_verify_panel(persist=False)
         elif target == "Select Configuration":
             self._show_select_run_panel(persist=False)
+
+    def _persist_calculation_succeeded(self) -> None:
+        """Set flags, persist session, and refresh sidebar after a successful graph run."""
+        self._calculation_has_run = True
+        self._view_output_sidebar_unlocked = True
+        try:
+            if self.current_session is not None:
+                self.current_session.calculation_has_run = True
+                self.current_session.save()
+        except Exception:
+            pass
+        self._refresh_sidebar_capabilities()
 
     def _handle_calculation_data(self, data) -> None:
         """Orchestrate graph build after Run Calculation."""
@@ -478,17 +487,9 @@ class MainShellWindow(QMainWindow):
 
             graphs_scene.set_context(csv_id=csv_folder_id, config_path=config_path, csv_files=csv_files)
             graphs_scene.set_graphs_by_csv(graphs_by_csv, config=config)
-            self._calculation_has_run = True
-            self._view_output_sidebar_unlocked = True
-            try:
-                if self.current_session is not None:
-                    self.current_session.calculation_has_run = True
-                    self.current_session.save()
-            except Exception:
-                pass
+            self._persist_calculation_succeeded()
             self._show_view_output_panel()
             config_scene.set_progress(0, 0, "")
-            self._refresh_sidebar_capabilities()
             return
 
         if data and isinstance(data, dict) and data.get("results_df") is not None:
@@ -510,21 +511,14 @@ class MainShellWindow(QMainWindow):
                 )
             except Exception:
                 pass
-            self._calculation_has_run = True
-            self._view_output_sidebar_unlocked = True
-            try:
-                if self.current_session is not None:
-                    self.current_session.calculation_has_run = True
-                    self.current_session.save()
-            except Exception:
-                pass
+            self._persist_calculation_succeeded()
             self._show_view_output_panel()
         else:
             graphs_scene.set_data(data)
             self._view_output_sidebar_unlocked = True
             self._show_view_output_panel()
+            self._refresh_sidebar_capabilities()
         config_scene.set_progress(0, 0, "")
-        self._refresh_sidebar_capabilities()
 
     def _toggle_theme(self) -> None:
         self.current_theme = "dark" if self.current_theme == "light" else "light"

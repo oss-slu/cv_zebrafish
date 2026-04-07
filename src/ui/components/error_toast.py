@@ -60,8 +60,7 @@ class ErrorToast(QWidget):
         self._btn_console.setObjectName("ErrorToastConsoleBtn")
         self._btn_console.setCursor(Qt.PointingHandCursor)
         self._btn_console.setToolTip("Open console (Help → View Console)")
-        if self.style():
-            self._btn_console.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
+        self._btn_console.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
         self._btn_console.clicked.connect(self._on_console_clicked)
         row.addWidget(self._btn_console)
 
