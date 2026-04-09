@@ -354,7 +354,12 @@ class MainShellWindow(QMainWindow):
         self.workspace.view_output_panel.viewer.load_session(self.current_session)
 
     def _resume_workspace_from_session(self) -> None:
-        """Open the panel matching persisted ``last_scene`` without rewriting it (see ``persist``)."""
+        """
+        Resume to the most advanced *available* workspace state:
+          - no CSVs yet -> Verify
+          - CSVs but no configs -> Verify + open Generate Config dialog
+          - any config present (including prior graph runs) -> Select & Run
+        """
         s = self.current_session
         if s is None:
             return
@@ -363,28 +368,23 @@ class MainShellWindow(QMainWindow):
             self._show_verify_panel(persist=False)
             return
 
-        known = {"Verify", "Generate Config", "Select Configuration", "Graphs"}
-        target = getattr(s, "last_scene", None) or "Verify"
-        if target == "Landing" or target not in known:
-            target = "Verify"
+        has_any_config = any(bool(configs) for configs in (s.csvs or {}).values())
 
-        # Last scene was Graphs: reopen Select & Run only (do not rebuild graphs on startup).
-        if target == "Graphs":
-            last_csv = getattr(s, "last_csv_path", None)
-            last_cfg = getattr(s, "last_config_path", None)
-            if last_csv and last_cfg:
-                config_scene = self.workspace.select_run_panel.selection
-                config_scene.set_selected_paths(last_csv, last_cfg)
-                self._show_select_run_panel(persist=False)
-                self._persist_last_scene("Select Configuration")
-                return
+        if not has_any_config:
+            # User has uploaded CSVs but not attached/generated a config yet.
             self._show_verify_panel(persist=False)
+            self._open_generate_config_dialog()
             return
 
-        if target in ("Verify", "Generate Config"):
-            self._show_verify_panel(persist=False)
-        elif target == "Select Configuration":
-            self._show_select_run_panel(persist=False)
+        # Any existing config means Select & Run is available. This also covers
+        # sessions that previously reached graph generation without auto-loading graphs.
+        last_csv = getattr(s, "last_csv_path", None)
+        last_cfg = getattr(s, "last_config_path", None)
+        if last_csv and last_cfg:
+            config_scene = self.workspace.select_run_panel.selection
+            config_scene.set_selected_paths(last_csv, last_cfg)
+        self._show_select_run_panel(persist=False)
+        self._persist_last_scene("Select Configuration")
 
     def _persist_calculation_succeeded(self) -> None:
         """Set flags, persist session, and refresh sidebar after a successful graph run."""
