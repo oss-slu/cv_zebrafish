@@ -12,8 +12,10 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +25,13 @@ import plotly.io as pio
 
 from src.core.graphs.loader_bundle import GraphDataBundle
 from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headplot, render_spines
+
+# Cross-correlation imports
+from src.core.analysis.cross_correlation import (
+    compute_cross_correlation_from_dataframe,
+    get_available_signals,
+)
+from src.core.graphs.plots.crosscorr_plot import render_crosscorr_plot
 
 from src.session import session
 from src.app_platform.paths import images_dir, sessions_dir
@@ -78,19 +87,12 @@ DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
     },
 )
 
+
 class GraphViewerScene(QWidget):
     """
-    Simple static graph viewer:
-      - Left: list of graph names
-      - Right: image area (QLabel) that displays the selected graph
-
-    Public functions:
-      set_graphs({ name: figure })
-      add_graph(name, figure)
-      set_data({ results of calculations }) will be called at button press
-
-    Accepted source:
-      - plotly.graph_objs.Figure  (converted to PNG via kaleido)
+    Graph viewer with two tabs:
+      1. Graphs - standard plots (dot, fin/tail, spine, head)
+      2. Cross-Correlation - signal pair analysis
     """
 
     def __init__(self):
@@ -110,23 +112,30 @@ class GraphViewerScene(QWidget):
         self.current_session = None
         self._kaleido_available = _is_kaleido_available()
 
-        # Context banner (CSV/folder + config used to generate graphs)
+        # Cross-correlation state
+        self._crosscorr_available = False
+        self._crosscorr_signals = []
+        self._current_crosscorr_fig = None
+        self._current_df = None
+
+        # Context banner
         self.context_icon = QLabel()
         self.context_icon.setFixedWidth(18)
         self.context_text = QLabel("")
         self.context_text.setWordWrap(True)
         self.context_text.setStyleSheet("color: #6c757d;")
 
-        # Sidebar (CSV selector + graph list)
+        # CSV selector dropdown
         self.csv_combo = QComboBox()
         self.csv_combo.setVisible(False)
         self.csv_combo.currentIndexChanged.connect(self._on_csv_changed)
 
+        # Graph list
         self.list = QListWidget()
         self.list.setMinimumWidth(240)
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
 
-        # Image area (inside a scroll area for large images)
+        # Image area for graphs
         self.image_label = QLabel("Select a graph on the left")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -136,7 +145,9 @@ class GraphViewerScene(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setWidget(self.image_label)
 
-        # Layout
+        # ---------------------------------------------------------------
+        # Layout with tabs
+        # ---------------------------------------------------------------
         context_row = QHBoxLayout()
         context_row.setContentsMargins(0, 0, 0, 0)
         context_row.setSpacing(8)
@@ -146,28 +157,77 @@ class GraphViewerScene(QWidget):
         context_widget = QWidget()
         context_widget.setLayout(context_row)
 
+        # Tab widget
+        self.tab_widget = QTabWidget()
+
+        # Tab 1: Graphs
+        graph_tab = QWidget()
+        graph_layout = QHBoxLayout(graph_tab)
+        graph_layout.setContentsMargins(0, 0, 0, 0)
+
+        left_graph = QVBoxLayout()
+        left_graph.addWidget(self.csv_combo)
+        left_graph.addWidget(self.list, stretch=1)
+
+        right_graph = QVBoxLayout()
+        right_graph.addWidget(self.scroll, stretch=1)
+
+        graph_layout.addLayout(left_graph)
+        graph_layout.addLayout(right_graph, stretch=1)
+
+        self.tab_widget.addTab(graph_tab, "Graphs")
+
+        # Tab 2: Cross-Correlation
+        crosscorr_tab = QWidget()
+        crosscorr_layout = QVBoxLayout(crosscorr_tab)
+
+        # Signal pair selection
+        pair_row = QHBoxLayout()
+        pair_row.addWidget(QLabel("Signal A:"))
+        self.signal_a_combo = QComboBox()
+        self.signal_a_combo.setMinimumWidth(150)
+        pair_row.addWidget(self.signal_a_combo)
+
+        pair_row.addWidget(QLabel("Signal B:"))
+        self.signal_b_combo = QComboBox()
+        self.signal_b_combo.setMinimumWidth(150)
+        pair_row.addWidget(self.signal_b_combo)
+
+        self.compute_crosscorr_btn = QPushButton("Compute Cross-Correlation")
+        self.compute_crosscorr_btn.clicked.connect(self._compute_crosscorr)
+        pair_row.addWidget(self.compute_crosscorr_btn)
+        pair_row.addStretch()
+
+        crosscorr_layout.addLayout(pair_row)
+
+        # Cross-correlation display
+        self.crosscorr_label = QLabel("Select two signals and click Compute.")
+        self.crosscorr_label.setAlignment(Qt.AlignCenter)
+        self.crosscorr_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.crosscorr_label.setWordWrap(True)
+
+        self.crosscorr_scroll = QScrollArea()
+        self.crosscorr_scroll.setWidgetResizable(True)
+        self.crosscorr_scroll.setWidget(self.crosscorr_label)
+
+        crosscorr_layout.addWidget(self.crosscorr_scroll, stretch=1)
+
+        self.tab_widget.addTab(crosscorr_tab, "Cross-Correlation")
+        self.tab_widget.setTabEnabled(1, False)  # disabled until data loads
+
+        # Main layout
         right = QVBoxLayout()
         right.addWidget(context_widget)
-        right.addWidget(self.scroll, stretch=1)
-
-        left = QVBoxLayout()
-        left.addWidget(self.csv_combo)
-        left.addWidget(self.list, stretch=1)
-
-        content = QHBoxLayout()
-        content.addLayout(left)
-        content.addLayout(right, stretch=1)
+        right.addWidget(self.tab_widget, stretch=1)
 
         outer = QVBoxLayout()
-        outer.addLayout(content, stretch=1)
+        outer.addLayout(right, stretch=1)
         self.setLayout(outer)
 
-        # Start in an empty state
         self._show_empty_state("No graphs available.")
         self._refresh_context_banner()
 
     def set_context(self, csv_id: Optional[str], config_path: Optional[str], csv_files: Optional[List[str]] = None):
-        """Set which CSV/folder+config the current graphs correspond to."""
         self._context_csv_id = csv_id
         self._context_config_path = config_path
         self._context_csv_files = list(csv_files) if csv_files is not None else None
@@ -177,7 +237,6 @@ class GraphViewerScene(QWidget):
     def _refresh_context_banner(self):
         csv_id = self._context_csv_id
         cfg = self._context_config_path
-
         config_name = Path(cfg).name if cfg else "(no config)"
 
         is_folder = False
@@ -207,18 +266,13 @@ class GraphViewerScene(QWidget):
             self.context_text.setText(text)
             return
 
-        # Single CSV
         csv_name = Path(csv_id).name if csv_id else "(no csv)"
         self.context_icon.setVisible(False)
         self.context_text.setText(f"{csv_name} • {config_name}")
 
-    # Public functions to call to construct the viewer
     def set_graphs(self, graphs: Dict[str, GraphSource], config: Dict[str, Any] = None):
-        """Replace all graphs."""
-        # If we’re switching to a single-CSV view, clear any multi-CSV state.
         self._graphs_by_csv = None
         self._csv_order = []
-        # CSV dropdown should only appear for multi-CSV runs.
         try:
             self.csv_combo.blockSignals(True)
             self.csv_combo.clear()
@@ -230,12 +284,9 @@ class GraphViewerScene(QWidget):
         self._graphs.update(graphs)
         self.list.clear()
         self.list.addItems(list(self._graphs.keys()))
-        # Keep banner in sync for single-CSV views.
         self._context_selected_csv = self._context_csv_id
         self._refresh_context_banner()
 
-        # If the graphs are Plotly figures, we need Kaleido to render them as PNGs in the GUI.
-        # Without Kaleido, the scene can look empty/confusing—show an explicit message.
         needs_kaleido = any(isinstance(src, go.Figure) for src in self._graphs.values())
         if needs_kaleido and not self._kaleido_available:
             self._show_empty_state(
@@ -253,17 +304,11 @@ class GraphViewerScene(QWidget):
         else:
             self._show_empty_state("No graphs available.")
 
-        # saves graphs to session
         if config and self.current_session is not None and self._out_dir is not None:
             for name, fig in self._graphs.items():
-                # Persist both an interactive HTML and a PNG snapshot (PNG is resumable in this GUI).
                 save_to_html(fig, name, self._out_dir, config, self.current_session)
 
     def set_graphs_by_csv(self, graphs_by_csv: Dict[str, Dict[str, GraphSource]], config: Dict[str, Any] = None):
-        """
-        Provide graphs grouped by CSV path. Enables a CSV dropdown to switch views.
-        graphs_by_csv: { csv_path: { graph_name: figure } }
-        """
         self._graphs_by_csv = dict(graphs_by_csv or {})
         self._csv_order = list(self._graphs_by_csv.keys())
 
@@ -293,7 +338,6 @@ class GraphViewerScene(QWidget):
         self._context_selected_csv = csv_path
         self._refresh_context_banner()
         graphs = self._graphs_by_csv.get(csv_path, {})
-        # Do not clear _graphs_by_csv when switching; update list/view directly.
         self._graphs.clear()
         self._graphs.update(graphs)
         self.list.clear()
@@ -312,11 +356,6 @@ class GraphViewerScene(QWidget):
         graphs_by_csv: Dict[str, Dict[str, GraphSource]],
         config: Dict[str, Any],
     ) -> None:
-        """
-        Persist folder-run graph outputs under:
-          sessions/<session_name>/folders/<folder_name>/<csv_name>/*.(png|html)
-        And record assets into session.folder_graphs for restore.
-        """
         if self.current_session is None:
             return
         if not csv_folder_id or not config_path:
@@ -347,7 +386,6 @@ class GraphViewerScene(QWidget):
                 continue
             for title, src in (graphs or {}).items():
                 if not isinstance(src, go.Figure):
-                    # Only export figures; existing PNG Paths are already persisted.
                     continue
                 try:
                     fname = _safe_filename(title) or "graph"
@@ -364,7 +402,6 @@ class GraphViewerScene(QWidget):
                         except Exception:
                             wrote_png = False
 
-                    # Record both if available; prefer PNG for restore.
                     if wrote_png and png_path.exists():
                         self.current_session.addFolderGraph(csv_folder_id, config_path, csv_path, str(png_path))
                     if html_path.exists():
@@ -378,7 +415,6 @@ class GraphViewerScene(QWidget):
             pass
 
     def add_graph(self, name: str, graph: GraphSource):
-        """Add or replace a single graph."""
         new_item = name not in self._graphs
         self._graphs[name] = graph
         if new_item:
@@ -388,7 +424,6 @@ class GraphViewerScene(QWidget):
                 self.list.setCurrentRow(0)
 
     def set_data(self, data):
-        """Consume calculation payload and build the requested dot plots."""
         self._data = data
         self._graphs.clear()
         self.list.clear()
@@ -441,11 +476,11 @@ class GraphViewerScene(QWidget):
 
         self.set_graphs(graphs, config=config)
 
+        # Enable cross-correlation
+        if isinstance(results_df, pd.DataFrame):
+            self._enable_crosscorr(results_df)
+
     def build_graphs_with_progress(self, data, progress_callback):
-        """
-        Build graphs one-by-one, calling progress_callback(n, total, graph_name) for each.
-        Returns (graphs_dict, config) for use with set_graphs, or (None, None) if invalid/no graphs.
-        """
         if not data or not isinstance(data, dict):
             return None, None
         results_df = data.get("results_df")
@@ -480,11 +515,107 @@ class GraphViewerScene(QWidget):
             graphs[name] = fig
         return graphs, config
 
+    # ------------------------------------------------------------------
+    # Cross-correlation support
+    # ------------------------------------------------------------------
+
+    def _enable_crosscorr(self, df: pd.DataFrame):
+        try:
+            signals = get_available_signals(df)
+            if len(signals) < 2:
+                self._crosscorr_available = False
+                self.tab_widget.setTabEnabled(1, False)
+                return
+
+            self._crosscorr_available = True
+            self._crosscorr_signals = signals
+            self._current_df = df
+
+            self.signal_a_combo.blockSignals(True)
+            self.signal_b_combo.blockSignals(True)
+
+            self.signal_a_combo.clear()
+            self.signal_b_combo.clear()
+
+            self.signal_a_combo.addItems(signals)
+            self.signal_b_combo.addItems(signals)
+
+            if len(signals) >= 2:
+                self.signal_a_combo.setCurrentIndex(0)
+                self.signal_b_combo.setCurrentIndex(1)
+
+            self.signal_a_combo.blockSignals(False)
+            self.signal_b_combo.blockSignals(False)
+
+            self.tab_widget.setTabEnabled(1, True)
+
+        except Exception as e:
+            print(f"[GraphViewerScene] Could not enable cross-correlation: {e}")
+            self._crosscorr_available = False
+            self.tab_widget.setTabEnabled(1, False)
+
+    def _compute_crosscorr(self):
+        if not self._crosscorr_available:
+            self.crosscorr_label.setText("Cross-correlation not available for this dataset.")
+            return
+
+        signal_a = self.signal_a_combo.currentText()
+        signal_b = self.signal_b_combo.currentText()
+
+        if not signal_a or not signal_b:
+            self.crosscorr_label.setText("Please select both signals.")
+            return
+
+        if signal_a == signal_b:
+            self.crosscorr_label.setText("Please select two different signals.")
+            return
+
+        try:
+            df = self._current_df
+            if df is None:
+                self.crosscorr_label.setText("No data available.")
+                return
+
+            result = compute_cross_correlation_from_dataframe(df, signal_a, signal_b)
+
+            fig = render_crosscorr_plot(
+                lags=result.lags.tolist(),
+                correlations=result.correlations.tolist(),
+                signal_a_name=signal_a,
+                signal_b_name=signal_b,
+                peak_lag=result.peak_lag,
+                peak_correlation=result.peak_correlation,
+            )
+
+            pix = self._figure_to_pixmap(fig)
+            if pix and not pix.isNull():
+                self._current_crosscorr_pixmap = pix
+                self._update_crosscorr_pixmap()
+                self.crosscorr_label.setText("")
+            else:
+                self.crosscorr_label.setText("Could not render cross-correlation plot.")
+
+        except Exception as e:
+            self.crosscorr_label.setText(f"Error computing cross-correlation:\n{str(e)}")
+            print(f"[GraphViewerScene] Cross-correlation error: {e}")
+
+    def _update_crosscorr_pixmap(self):
+        if not hasattr(self, "_current_crosscorr_pixmap") or self._current_crosscorr_pixmap is None:
+            return
+
+        viewport_size = self.crosscorr_scroll.viewport().size()
+        target_w = max(50, viewport_size.width() - 16)
+        scaled = self._current_crosscorr_pixmap.scaledToWidth(target_w, Qt.SmoothTransformation)
+        self.crosscorr_label.setPixmap(scaled)
+        self.crosscorr_label.setText("")
+
+    # ------------------------------------------------------------------
     # Internal functions
+    # ------------------------------------------------------------------
+
     def _on_selection_changed(self):
         items = self.list.selectedItems()
         if not items:
-            # If nothing is selected but we have items, pick the first; otherwise show empty state
             if self.list.count() > 0:
                 self.list.setCurrentRow(0)
             else:
@@ -514,8 +645,8 @@ class GraphViewerScene(QWidget):
 
         self._original_pixmap = pix
         self._update_scaled_pixmap()
-        self.image_label.setText("")   # ensure no message overlays
-        self.list.setEnabled(True)     # we have something to show
+        self.image_label.setText("")
+        self.list.setEnabled(True)
 
     def _set_message(self, text: str):
         self._original_pixmap = None
@@ -523,7 +654,6 @@ class GraphViewerScene(QWidget):
         self.image_label.setPixmap(QPixmap())
 
     def _show_empty_state(self, text: str = "No graphs available."):
-        """Unified empty/error state: clear image, center message, disable list."""
         self._set_message(text)
         self.list.setEnabled(False)
 
@@ -533,9 +663,7 @@ class GraphViewerScene(QWidget):
             self._update_scaled_pixmap()
 
     def load_session(self, session):
-        """Load previous session data."""
         self.current_session = session
-        # Best-effort restore of context banner.
         try:
             csv_id = getattr(self.current_session, "last_csv_path", None)
             cfg = getattr(self.current_session, "last_config_path", None)
@@ -546,11 +674,9 @@ class GraphViewerScene(QWidget):
         except Exception:
             self._refresh_context_banner()
 
-        # creates directory for saving graphs if it doesn't exist
         self._out_dir = sessions_dir() / (self.current_session.getName())
         self._out_dir.mkdir(parents=True, exist_ok=True)
 
-        # If the session is currently focused on a CSV folder run, restore graphs grouped by CSV.
         try:
             last_csv_id = getattr(self.current_session, "last_csv_path", None)
             last_cfg = getattr(self.current_session, "last_config_path", None)
@@ -568,7 +694,6 @@ class GraphViewerScene(QWidget):
                             if p.suffix.lower() != ".png" or not p.exists():
                                 continue
                             title = p.stem.replace("_", " ").strip() or p.name
-                            # Dedupe by title within this csv; keep first.
                             if title not in g:
                                 g[title] = p
                         if g:
@@ -580,7 +705,6 @@ class GraphViewerScene(QWidget):
         except Exception:
             pass
 
-        # Restore previously saved graphs (PNGs saved in the session).
         restored_graphs = self._load_saved_graphs_from_session()
         if restored_graphs:
             self.set_graphs(restored_graphs)
@@ -588,26 +712,18 @@ class GraphViewerScene(QWidget):
             self._show_empty_state("No saved graphs yet for this session.")
 
     def has_graphs(self) -> bool:
-        """True if the viewer currently has any graphs loaded/restored."""
         return bool(self._graphs)
 
     def _update_scaled_pixmap(self):
-        """Scale the original pixmap to fit the viewport width while keeping aspect ratio."""
         if not self._original_pixmap:
             return
-
-        # Fit to scroll viewport size (minus a small margin)
         viewport_size: QSize = self.scroll.viewport().size()
         target_w = max(50, viewport_size.width() - 16)
         scaled = self._original_pixmap.scaledToWidth(target_w, Qt.SmoothTransformation)
         self.image_label.setPixmap(scaled)
-        self.image_label.setText("")  # ensure no text overlays
+        self.image_label.setText("")
 
     def _figure_to_pixmap(self, fig: go.Figure) -> Optional[QPixmap]:
-        """
-        Convert a Plotly Figure into a QPixmap (static PNG).
-        Requires kaleido for PNG export.
-        """
         if not self._kaleido_available:
             self._show_empty_state(
                 "Cannot render graphs because Kaleido is not installed.\n"
@@ -629,12 +745,8 @@ class GraphViewerScene(QWidget):
                 f"Error: {e}"
             )
             return None
-        
+
     def _load_saved_graphs_from_session(self) -> Dict[str, GraphSource]:
-        """
-        Restore previously saved graphs from the session.
-        We save PNG snapshots so the GUI can show graphs after reopening.
-        """
         if not self.current_session:
             return {}
 
@@ -642,7 +754,6 @@ class GraphViewerScene(QWidget):
         seen_paths = set()
         session_dir = sessions_dir() / self.current_session.getName()
 
-        # 1) Prefer explicit paths recorded in the session JSON (these should be PNGs).
         try:
             saved = self.current_session.getAllGraphs()
         except Exception:
@@ -676,7 +787,6 @@ class GraphViewerScene(QWidget):
         if graphs:
             return graphs
 
-        # 2) Fallback: scan the session folder for PNGs (covers sessions with missing JSON links).
         if not session_dir.exists():
             return graphs
         for png_file in session_dir.rglob("*.png"):
@@ -692,21 +802,33 @@ class GraphViewerScene(QWidget):
 
         return graphs
 
+
+# ---------------------------------------------------------------------------
+# Helpers (unchanged)
+# ---------------------------------------------------------------------------
+
 def _as_numeric_array(series: pd.Series) -> np.ndarray:
-    """Convert a pandas Series to a numeric numpy array, coercing failures to NaN."""
     numeric = pd.to_numeric(series, errors="coerce")
     return numeric.to_numpy()
 
+
 def _safe_filename(title: str) -> str:
-    """Make a filesystem-safe filename from a title (keeps extension to add later)."""
-    # Replace any character not in this set with underscore
     return re.sub(r"[^A-Za-z0-9._-]", "_", title).strip("_")
 
+
+def _safe_dirname(name: str) -> str:
+    return _safe_filename(name) or "item"
+
+
+def _is_kaleido_available() -> bool:
+    try:
+        import kaleido  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
-    """
-    Return the list of graph names that would be built from the payload, in build order.
-    Does not build any figures; used to get total count and order for progress reporting.
-    """
     if not data or not isinstance(data, dict):
         return []
     results_df = data.get("results_df")
@@ -718,7 +840,6 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
     shown_outputs = (config or {}).get("shown_outputs") or {}
     video_params = (config or {}).get("video_parameters") or {}
 
-    # Dot plots (same order as DOT_PLOT_SPECS)
     if results_df.shape[0] > 0:
         for spec in DOT_PLOT_SPECS:
             if not shown_outputs.get(spec["flag"], False):
@@ -730,13 +851,11 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
                 continue
             names.append(spec["title"])
 
-    # Fin/tail
     if shown_outputs.get("show_angle_and_distance_plot"):
         required = ["LF_Angle", "RF_Angle", "Tail_Distance"]
         if all(c in results_df.columns for c in required):
             names.append("Fin Angles + Tail Distance")
 
-    # Spines
     if shown_outputs.get("show_spines") and parsed_points and "spine" in parsed_points:
         if "LF_Angle" in results_df.columns and "RF_Angle" in results_df.columns:
             time_ranges = _extract_time_ranges(config, results_df)
@@ -747,7 +866,6 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
             elif not split_by_bout or not time_ranges:
                 names.append("Spines Combined")
 
-    # Head orientation
     if shown_outputs.get("show_head_plot") and "HeadYaw" in results_df.columns:
         names.append("Head Orientation")
 
@@ -757,7 +875,6 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
 def _iter_dot_plot_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
 ):
-    """Yield (name, figure) for each dot plot built. Appends to warnings list."""
     shown_outputs = (config or {}).get("shown_outputs") or {}
     video_params = (config or {}).get("video_parameters") or {}
     framerate = video_params.get("recorded_framerate")
@@ -806,10 +923,10 @@ def _iter_dot_plot_graphs(
             continue
         yield (spec["title"], result.figure)
 
+
 def _iter_fin_tail_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
 ):
-    """Yield (name, figure) for the fin/tail plot if enabled. Appends to warnings list."""
     cfg = dict(config or {})
     shown_outputs = cfg.get("shown_outputs") or {}
     if not shown_outputs.get("show_angle_and_distance_plot"):
@@ -851,13 +968,13 @@ def _iter_fin_tail_graphs(
     else:
         warnings.append("Fin/tail plot produced no figures.")
 
+
 def _iter_spine_graphs(
     results_df: pd.DataFrame,
     config: Dict[str, Any],
     parsed_points: Optional[Dict[str, Any]],
     warnings: List[str],
 ):
-    """Yield (name, figure) for each spine plot. Appends to warnings list."""
     cfg = dict(config or {})
     shown_outputs = cfg.get("shown_outputs") or {}
     if not shown_outputs.get("show_spines"):
@@ -902,7 +1019,6 @@ def _iter_spine_graphs(
 def build_dot_plot_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """Build all requested dot plot figures. Returns (graphs_dict, warnings)."""
     warnings: List[str] = []
     graphs: Dict[str, GraphSource] = {}
     for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
@@ -913,15 +1029,14 @@ def build_dot_plot_graphs(
 def build_fin_tail_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """Build the fin/tail timeline plot if enabled. Returns (graphs_dict, warnings)."""
     warnings: List[str] = []
     graphs: Dict[str, GraphSource] = {}
     for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
         graphs[name] = fig
     return graphs, warnings
 
+
 def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> List[List[int]]:
-    """Derive time ranges from config or DataFrame columns."""
     cfg_ranges = (config or {}).get("time_ranges") or []
     if cfg_ranges:
         return [list(map(int, tr)) for tr in cfg_ranges]
@@ -933,12 +1048,10 @@ def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> Li
         end_col = f"timeRangeEnd_{suffix}"
         if end_col not in results_df.columns:
             continue
-
         start_val = pd.to_numeric(results_df[start_col].iloc[0], errors="coerce")
         end_val = pd.to_numeric(results_df[end_col].iloc[0], errors="coerce")
         if pd.isna(start_val) or pd.isna(end_val):
             continue
-
         start_idx = int(start_val)
         end_idx = int(end_val)
         if end_idx < start_idx:
@@ -950,10 +1063,11 @@ def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> Li
     if len(results_df) > 0:
         return [[0, len(results_df) - 1]]
     return []
+
+
 def build_spine_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], parsed_points: Optional[Dict[str, Any]]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """Build spine snapshot plots if enabled. Returns (graphs_dict, warnings)."""
     warnings: List[str] = []
     graphs: Dict[str, GraphSource] = {}
     for name, fig in _iter_spine_graphs(results_df, config, parsed_points, warnings):
@@ -964,9 +1078,6 @@ def build_spine_graphs(
 def build_head_plot_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """
-    Build the head orientation (head yaw) plot using the modular render_headplot plotter.
-    """
     graphs: Dict[str, GraphSource] = {}
     warnings: List[str] = []
 
@@ -979,7 +1090,6 @@ def build_head_plot_graphs(
         warnings.append("Head plot skipped: missing HeadYaw column.")
         return graphs, warnings
 
-    # Prevent external plot windows from opening in the GUI
     head_settings = dict(cfg.get("head_plot_settings") or {})
     head_settings["open_plot"] = False
     cfg["head_plot_settings"] = head_settings
@@ -1015,26 +1125,17 @@ def build_head_plot_graphs(
 
 
 def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session=None) -> None:
-    """
-    Save a Plotly figure as an interactive HTML file in the given directory (best-effort).
-    Uses CDN for plotly JS to keep file size smaller and consistent.
-    """
     try:
         fname = _safe_filename(title) or "graph"
-
         html_path = out_dir / f"{fname}.html"
         png_path = out_dir / f"{fname}.png"
-                
-        # Use CDN for plotly JS to keep file size smaller and consistent
+
         pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
 
-        # Also persist a PNG snapshot so the GUI can restore graphs on reopen.
         try:
             png_bytes = pio.to_image(fig, format="png", scale=2)
             png_path.write_bytes(png_bytes)
-        except Exception as e:
-            # If kaleido is missing, the GUI can't render figures as PNG anyway.
-            # Keep HTML as a best-effort artifact.
+        except Exception:
             png_path = None
 
         if session is not None:
@@ -1048,6 +1149,7 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
             session.save()
     except Exception as e:
         print(f"Could not save '{title}' as HTML: {e}")
+
 
 
 def _safe_dirname(name: str) -> str:
