@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -78,6 +79,7 @@ DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
     },
 )
 
+
 class GraphViewerScene(QWidget):
     """
     Simple static graph viewer:
@@ -117,11 +119,39 @@ class GraphViewerScene(QWidget):
         self.context_text.setWordWrap(True)
         self.context_text.setStyleSheet("color: #6c757d;")
 
-        # Sidebar (CSV selector + graph list)
+        # ---------------------------------------------------------------
+        # CSV selector dropdown
+        # ---------------------------------------------------------------
         self.csv_combo = QComboBox()
         self.csv_combo.setVisible(False)
         self.csv_combo.currentIndexChanged.connect(self._on_csv_changed)
 
+        # Prev / Next CSV navigation buttons (shown only in batch mode)
+        self.prev_csv_btn = QPushButton("◀ Prev")
+        self.prev_csv_btn.setToolTip("Switch to previous dataset")
+        self.prev_csv_btn.setFixedHeight(28)
+        self.prev_csv_btn.setVisible(False)
+        self.prev_csv_btn.clicked.connect(self._go_prev_csv)
+
+        self.next_csv_btn = QPushButton("Next ▶")
+        self.next_csv_btn.setToolTip("Switch to next dataset")
+        self.next_csv_btn.setFixedHeight(28)
+        self.next_csv_btn.setVisible(False)
+        self.next_csv_btn.clicked.connect(self._go_next_csv)
+
+        # Nav row: prev button + combo + next button
+        self.csv_nav_row = QWidget()
+        csv_nav_layout = QHBoxLayout(self.csv_nav_row)
+        csv_nav_layout.setContentsMargins(0, 0, 0, 0)
+        csv_nav_layout.setSpacing(4)
+        csv_nav_layout.addWidget(self.prev_csv_btn)
+        csv_nav_layout.addWidget(self.csv_combo, stretch=1)
+        csv_nav_layout.addWidget(self.next_csv_btn)
+        self.csv_nav_row.setVisible(False)
+
+        # ---------------------------------------------------------------
+        # Graph list sidebar
+        # ---------------------------------------------------------------
         self.list = QListWidget()
         self.list.setMinimumWidth(240)
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
@@ -151,7 +181,7 @@ class GraphViewerScene(QWidget):
         right.addWidget(self.scroll, stretch=1)
 
         left = QVBoxLayout()
-        left.addWidget(self.csv_combo)
+        left.addWidget(self.csv_nav_row)
         left.addWidget(self.list, stretch=1)
 
         content = QHBoxLayout()
@@ -184,7 +214,9 @@ class GraphViewerScene(QWidget):
         n_files = None
         if csv_id and self.current_session is not None:
             try:
-                is_folder = bool(getattr(self.current_session, "is_folder_csv", lambda _p: False)(csv_id))
+                is_folder = bool(
+                    getattr(self.current_session, "is_folder_csv", lambda _p: False)(csv_id)
+                )
                 if is_folder:
                     if self._context_csv_files is not None:
                         n_files = len(self._context_csv_files)
@@ -199,9 +231,17 @@ class GraphViewerScene(QWidget):
             selected_name = Path(selected).name if selected else ""
             files_text = f"{n_files} files" if n_files is not None else ""
             if selected_name:
-                text = f"{folder_name} ({files_text}) • {selected_name} • {config_name}" if files_text else f"{folder_name} • {selected_name} • {config_name}"
+                text = (
+                    f"{folder_name} ({files_text}) • {selected_name} • {config_name}"
+                    if files_text
+                    else f"{folder_name} • {selected_name} • {config_name}"
+                )
             else:
-                text = f"{folder_name} ({files_text}) • {config_name}" if files_text else f"{folder_name} • {config_name}"
+                text = (
+                    f"{folder_name} ({files_text}) • {config_name}"
+                    if files_text
+                    else f"{folder_name} • {config_name}"
+                )
             self.context_icon.setPixmap(QIcon(str(FOLDER_ICON)).pixmap(16, 16))
             self.context_icon.setVisible(True)
             self.context_text.setText(text)
@@ -212,20 +252,28 @@ class GraphViewerScene(QWidget):
         self.context_icon.setVisible(False)
         self.context_text.setText(f"{csv_name} • {config_name}")
 
+    # ------------------------------------------------------------------
     # Public functions to call to construct the viewer
+    # ------------------------------------------------------------------
+
     def set_graphs(self, graphs: Dict[str, GraphSource], config: Dict[str, Any] = None):
         """Replace all graphs."""
-        # If we’re switching to a single-CSV view, clear any multi-CSV state.
+        # If we're switching to a single-CSV view, clear any multi-CSV state.
         self._graphs_by_csv = None
         self._csv_order = []
-        # CSV dropdown should only appear for multi-CSV runs.
+
+        # Hide nav row in single mode
         try:
             self.csv_combo.blockSignals(True)
             self.csv_combo.clear()
             self.csv_combo.setVisible(False)
             self.csv_combo.blockSignals(False)
+            self.csv_nav_row.setVisible(False)
+            self.prev_csv_btn.setVisible(False)
+            self.next_csv_btn.setVisible(False)
         except Exception:
             pass
+
         self._graphs.clear()
         self._graphs.update(graphs)
         self.list.clear()
@@ -234,8 +282,6 @@ class GraphViewerScene(QWidget):
         self._context_selected_csv = self._context_csv_id
         self._refresh_context_banner()
 
-        # If the graphs are Plotly figures, we need Kaleido to render them as PNGs in the GUI.
-        # Without Kaleido, the scene can look empty/confusing—show an explicit message.
         needs_kaleido = any(isinstance(src, go.Figure) for src in self._graphs.values())
         if needs_kaleido and not self._kaleido_available:
             self._show_empty_state(
@@ -253,24 +299,33 @@ class GraphViewerScene(QWidget):
         else:
             self._show_empty_state("No graphs available.")
 
-        # saves graphs to session
         if config and self.current_session is not None and self._out_dir is not None:
             for name, fig in self._graphs.items():
-                # Persist both an interactive HTML and a PNG snapshot (PNG is resumable in this GUI).
                 save_to_html(fig, name, self._out_dir, config, self.current_session)
 
-    def set_graphs_by_csv(self, graphs_by_csv: Dict[str, Dict[str, GraphSource]], config: Dict[str, Any] = None):
+    def set_graphs_by_csv(
+        self,
+        graphs_by_csv: Dict[str, Dict[str, GraphSource]],
+        config: Dict[str, Any] = None
+    ):
         """
-        Provide graphs grouped by CSV path. Enables a CSV dropdown to switch views.
+        Provide graphs grouped by CSV path. Enables a CSV dropdown
+        with Prev/Next navigation to switch between datasets.
         graphs_by_csv: { csv_path: { graph_name: figure } }
         """
         self._graphs_by_csv = dict(graphs_by_csv or {})
         self._csv_order = list(self._graphs_by_csv.keys())
 
         if len(self._csv_order) <= 1:
+            self.csv_nav_row.setVisible(False)
+            self.prev_csv_btn.setVisible(False)
+            self.next_csv_btn.setVisible(False)
             self.csv_combo.setVisible(False)
             only = self._csv_order[0] if self._csv_order else None
-            self.set_graphs(self._graphs_by_csv.get(only, {}) if only else {}, config=config)
+            self.set_graphs(
+                self._graphs_by_csv.get(only, {}) if only else {},
+                config=config
+            )
             return
 
         self.csv_combo.blockSignals(True)
@@ -281,10 +336,36 @@ class GraphViewerScene(QWidget):
         self.csv_combo.setVisible(True)
         self.csv_combo.setCurrentIndex(0)
         self.csv_combo.blockSignals(False)
+
+        # Show nav row and update button states
+        self.csv_nav_row.setVisible(True)
+        self.prev_csv_btn.setVisible(True)
+        self.next_csv_btn.setVisible(True)
+        self._update_csv_nav_buttons()
         self._apply_selected_csv(config=config)
 
     def _on_csv_changed(self, _idx: int):
+        self._update_csv_nav_buttons()
         self._apply_selected_csv(config=None)
+
+    def _go_prev_csv(self):
+        """Switch to the previous CSV in the dropdown."""
+        idx = self.csv_combo.currentIndex()
+        if idx > 0:
+            self.csv_combo.setCurrentIndex(idx - 1)
+
+    def _go_next_csv(self):
+        """Switch to the next CSV in the dropdown."""
+        idx = self.csv_combo.currentIndex()
+        if idx < self.csv_combo.count() - 1:
+            self.csv_combo.setCurrentIndex(idx + 1)
+
+    def _update_csv_nav_buttons(self):
+        """Enable/disable Prev and Next buttons based on current position."""
+        idx = self.csv_combo.currentIndex()
+        total = self.csv_combo.count()
+        self.prev_csv_btn.setEnabled(idx > 0)
+        self.next_csv_btn.setEnabled(idx < total - 1)
 
     def _apply_selected_csv(self, config: Dict[str, Any] = None):
         if not self._graphs_by_csv:
@@ -293,7 +374,6 @@ class GraphViewerScene(QWidget):
         self._context_selected_csv = csv_path
         self._refresh_context_banner()
         graphs = self._graphs_by_csv.get(csv_path, {})
-        # Do not clear _graphs_by_csv when switching; update list/view directly.
         self._graphs.clear()
         self._graphs.update(graphs)
         self.list.clear()
@@ -315,7 +395,6 @@ class GraphViewerScene(QWidget):
         """
         Persist folder-run graph outputs under:
           sessions/<session_name>/folders/<folder_name>/<csv_name>/*.(png|html)
-        And record assets into session.folder_graphs for restore.
         """
         if self.current_session is None:
             return
@@ -347,14 +426,16 @@ class GraphViewerScene(QWidget):
                 continue
             for title, src in (graphs or {}).items():
                 if not isinstance(src, go.Figure):
-                    # Only export figures; existing PNG Paths are already persisted.
                     continue
                 try:
                     fname = _safe_filename(title) or "graph"
                     html_path = out_dir / f"{fname}.html"
                     png_path = out_dir / f"{fname}.png"
 
-                    pio.write_html(src, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
+                    pio.write_html(
+                        src, file=str(html_path),
+                        include_plotlyjs="cdn", auto_open=False
+                    )
                     wrote_png = False
                     if _is_kaleido_available():
                         try:
@@ -364,11 +445,14 @@ class GraphViewerScene(QWidget):
                         except Exception:
                             wrote_png = False
 
-                    # Record both if available; prefer PNG for restore.
                     if wrote_png and png_path.exists():
-                        self.current_session.addFolderGraph(csv_folder_id, config_path, csv_path, str(png_path))
+                        self.current_session.addFolderGraph(
+                            csv_folder_id, config_path, csv_path, str(png_path)
+                        )
                     if html_path.exists():
-                        self.current_session.addFolderGraph(csv_folder_id, config_path, csv_path, str(html_path))
+                        self.current_session.addFolderGraph(
+                            csv_folder_id, config_path, csv_path, str(html_path)
+                        )
                 except Exception:
                     continue
 
@@ -408,7 +492,9 @@ class GraphViewerScene(QWidget):
             self._show_empty_state("Dot plots require a pandas DataFrame payload.")
             return
         if not isinstance(config, dict):
-            self._show_empty_state("Missing config dictionary; cannot determine requested plots.")
+            self._show_empty_state(
+                "Missing config dictionary; cannot determine requested plots."
+            )
             return
 
         graphs: Dict[str, GraphSource] = {}
@@ -422,7 +508,9 @@ class GraphViewerScene(QWidget):
         graphs.update(fin_graphs)
         warnings.extend(fin_warnings)
 
-        spine_graphs, spine_warnings = build_spine_graphs(results_df, config, data.get("parsed_points"))
+        spine_graphs, spine_warnings = build_spine_graphs(
+            results_df, config, data.get("parsed_points")
+        )
         graphs.update(spine_graphs)
         warnings.extend(spine_warnings)
 
@@ -435,7 +523,10 @@ class GraphViewerScene(QWidget):
         self.image_label.setToolTip(tooltip)
 
         if not graphs:
-            message = warnings[0] if warnings else "No dot plots were requested in the config."
+            message = (
+                warnings[0] if warnings
+                else "No dot plots were requested in the config."
+            )
             self._show_empty_state(message)
             return
 
@@ -443,8 +534,8 @@ class GraphViewerScene(QWidget):
 
     def build_graphs_with_progress(self, data, progress_callback):
         """
-        Build graphs one-by-one, calling progress_callback(n, total, graph_name) for each.
-        Returns (graphs_dict, config) for use with set_graphs, or (None, None) if invalid/no graphs.
+        Build graphs one-by-one, calling progress_callback(n, total, graph_name)
+        for each. Returns (graphs_dict, config) or (None, None) if invalid.
         """
         if not data or not isinstance(data, dict):
             return None, None
@@ -468,7 +559,9 @@ class GraphViewerScene(QWidget):
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
-        for name, fig in _iter_spine_graphs(results_df, config, parsed_points, warnings):
+        for name, fig in _iter_spine_graphs(
+            results_df, config, parsed_points, warnings
+        ):
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
@@ -480,11 +573,13 @@ class GraphViewerScene(QWidget):
             graphs[name] = fig
         return graphs, config
 
+    # ------------------------------------------------------------------
     # Internal functions
+    # ------------------------------------------------------------------
+
     def _on_selection_changed(self):
         items = self.list.selectedItems()
         if not items:
-            # If nothing is selected but we have items, pick the first; otherwise show empty state
             if self.list.count() > 0:
                 self.list.setCurrentRow(0)
             else:
@@ -509,13 +604,15 @@ class GraphViewerScene(QWidget):
                 pix = None
 
         if pix is None or pix.isNull():
-            self._show_empty_state("Unable to render this graph as a static image.")
+            self._show_empty_state(
+                "Unable to render this graph as a static image."
+            )
             return
 
         self._original_pixmap = pix
         self._update_scaled_pixmap()
-        self.image_label.setText("")   # ensure no message overlays
-        self.list.setEnabled(True)     # we have something to show
+        self.image_label.setText("")
+        self.list.setEnabled(True)
 
     def _set_message(self, text: str):
         self._original_pixmap = None
@@ -523,7 +620,6 @@ class GraphViewerScene(QWidget):
         self.image_label.setPixmap(QPixmap())
 
     def _show_empty_state(self, text: str = "No graphs available."):
-        """Unified empty/error state: clear image, center message, disable list."""
         self._set_message(text)
         self.list.setEnabled(False)
 
@@ -535,27 +631,34 @@ class GraphViewerScene(QWidget):
     def load_session(self, session):
         """Load previous session data."""
         self.current_session = session
-        # Best-effort restore of context banner.
         try:
             csv_id = getattr(self.current_session, "last_csv_path", None)
             cfg = getattr(self.current_session, "last_config_path", None)
             csv_files = None
-            if csv_id and getattr(self.current_session, "is_folder_csv", lambda _p: False)(csv_id):
+            if csv_id and getattr(
+                self.current_session, "is_folder_csv", lambda _p: False
+            )(csv_id):
                 csv_files = self.current_session.get_folder_files(csv_id)
             self.set_context(csv_id=csv_id, config_path=cfg, csv_files=csv_files)
         except Exception:
             self._refresh_context_banner()
 
-        # creates directory for saving graphs if it doesn't exist
-        self._out_dir = sessions_dir() / (self.current_session.getName())
+        self._out_dir = sessions_dir() / self.current_session.getName()
         self._out_dir.mkdir(parents=True, exist_ok=True)
 
-        # If the session is currently focused on a CSV folder run, restore graphs grouped by CSV.
         try:
             last_csv_id = getattr(self.current_session, "last_csv_path", None)
             last_cfg = getattr(self.current_session, "last_config_path", None)
-            if last_csv_id and last_cfg and getattr(self.current_session, "is_folder_csv", lambda _p: False)(last_csv_id):
-                per_csv_assets = getattr(self.current_session, "getFolderGraphs", lambda *_a, **_k: {})(last_csv_id, last_cfg)
+            if (
+                last_csv_id and last_cfg
+                and getattr(
+                    self.current_session, "is_folder_csv", lambda _p: False
+                )(last_csv_id)
+            ):
+                per_csv_assets = getattr(
+                    self.current_session, "getFolderGraphs",
+                    lambda *_a, **_k: {}
+                )(last_csv_id, last_cfg)
                 if per_csv_assets:
                     graphs_by_csv: Dict[str, Dict[str, GraphSource]] = {}
                     for csv_file, assets in per_csv_assets.items():
@@ -568,7 +671,6 @@ class GraphViewerScene(QWidget):
                             if p.suffix.lower() != ".png" or not p.exists():
                                 continue
                             title = p.stem.replace("_", " ").strip() or p.name
-                            # Dedupe by title within this csv; keep first.
                             if title not in g:
                                 g[title] = p
                         if g:
@@ -580,7 +682,6 @@ class GraphViewerScene(QWidget):
         except Exception:
             pass
 
-        # Restore previously saved graphs (PNGs saved in the session).
         restored_graphs = self._load_saved_graphs_from_session()
         if restored_graphs:
             self.set_graphs(restored_graphs)
@@ -588,26 +689,20 @@ class GraphViewerScene(QWidget):
             self._show_empty_state("No saved graphs yet for this session.")
 
     def has_graphs(self) -> bool:
-        """True if the viewer currently has any graphs loaded/restored."""
         return bool(self._graphs)
 
     def _update_scaled_pixmap(self):
-        """Scale the original pixmap to fit the viewport width while keeping aspect ratio."""
         if not self._original_pixmap:
             return
-
-        # Fit to scroll viewport size (minus a small margin)
         viewport_size: QSize = self.scroll.viewport().size()
         target_w = max(50, viewport_size.width() - 16)
-        scaled = self._original_pixmap.scaledToWidth(target_w, Qt.SmoothTransformation)
+        scaled = self._original_pixmap.scaledToWidth(
+            target_w, Qt.SmoothTransformation
+        )
         self.image_label.setPixmap(scaled)
-        self.image_label.setText("")  # ensure no text overlays
+        self.image_label.setText("")
 
     def _figure_to_pixmap(self, fig: go.Figure) -> Optional[QPixmap]:
-        """
-        Convert a Plotly Figure into a QPixmap (static PNG).
-        Requires kaleido for PNG export.
-        """
         if not self._kaleido_available:
             self._show_empty_state(
                 "Cannot render graphs because Kaleido is not installed.\n"
@@ -629,12 +724,8 @@ class GraphViewerScene(QWidget):
                 f"Error: {e}"
             )
             return None
-        
+
     def _load_saved_graphs_from_session(self) -> Dict[str, GraphSource]:
-        """
-        Restore previously saved graphs from the session.
-        We save PNG snapshots so the GUI can show graphs after reopening.
-        """
         if not self.current_session:
             return {}
 
@@ -642,7 +733,6 @@ class GraphViewerScene(QWidget):
         seen_paths = set()
         session_dir = sessions_dir() / self.current_session.getName()
 
-        # 1) Prefer explicit paths recorded in the session JSON (these should be PNGs).
         try:
             saved = self.current_session.getAllGraphs()
         except Exception:
@@ -676,7 +766,6 @@ class GraphViewerScene(QWidget):
         if graphs:
             return graphs
 
-        # 2) Fallback: scan the session folder for PNGs (covers sessions with missing JSON links).
         if not session_dir.exists():
             return graphs
         for png_file in session_dir.rglob("*.png"):
@@ -692,21 +781,33 @@ class GraphViewerScene(QWidget):
 
         return graphs
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def _as_numeric_array(series: pd.Series) -> np.ndarray:
-    """Convert a pandas Series to a numeric numpy array, coercing failures to NaN."""
     numeric = pd.to_numeric(series, errors="coerce")
     return numeric.to_numpy()
 
+
 def _safe_filename(title: str) -> str:
-    """Make a filesystem-safe filename from a title (keeps extension to add later)."""
-    # Replace any character not in this set with underscore
     return re.sub(r"[^A-Za-z0-9._-]", "_", title).strip("_")
 
+
+def _safe_dirname(name: str) -> str:
+    return _safe_filename(name) or "item"
+
+
+def _is_kaleido_available() -> bool:
+    try:
+        import kaleido  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
-    """
-    Return the list of graph names that would be built from the payload, in build order.
-    Does not build any figures; used to get total count and order for progress reporting.
-    """
     if not data or not isinstance(data, dict):
         return []
     results_df = data.get("results_df")
@@ -718,25 +819,25 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
     shown_outputs = (config or {}).get("shown_outputs") or {}
     video_params = (config or {}).get("video_parameters") or {}
 
-    # Dot plots (same order as DOT_PLOT_SPECS)
     if results_df.shape[0] > 0:
         for spec in DOT_PLOT_SPECS:
             if not shown_outputs.get(spec["flag"], False):
                 continue
-            missing_cols = [c for c in (spec["x_col"], spec["y_col"]) if c not in results_df.columns]
+            missing_cols = [
+                c for c in (spec["x_col"], spec["y_col"])
+                if c not in results_df.columns
+            ]
             if missing_cols:
                 continue
             if spec["moving"] and video_params.get("recorded_framerate") is None:
                 continue
             names.append(spec["title"])
 
-    # Fin/tail
     if shown_outputs.get("show_angle_and_distance_plot"):
         required = ["LF_Angle", "RF_Angle", "Tail_Distance"]
         if all(c in results_df.columns for c in required):
             names.append("Fin Angles + Tail Distance")
 
-    # Spines
     if shown_outputs.get("show_spines") and parsed_points and "spine" in parsed_points:
         if "LF_Angle" in results_df.columns and "RF_Angle" in results_df.columns:
             time_ranges = _extract_time_ranges(config, results_df)
@@ -747,7 +848,6 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
             elif not split_by_bout or not time_ranges:
                 names.append("Spines Combined")
 
-    # Head orientation
     if shown_outputs.get("show_head_plot") and "HeadYaw" in results_df.columns:
         names.append("Head Orientation")
 
@@ -757,7 +857,6 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
 def _iter_dot_plot_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
 ):
-    """Yield (name, figure) for each dot plot built. Appends to warnings list."""
     shown_outputs = (config or {}).get("shown_outputs") or {}
     video_params = (config or {}).get("video_parameters") or {}
     framerate = video_params.get("recorded_framerate")
@@ -766,7 +865,9 @@ def _iter_dot_plot_graphs(
         warnings.append("The calculation DataFrame is empty; nothing to plot.")
         return
 
-    any_flag_enabled = any(shown_outputs.get(spec["flag"], False) for spec in DOT_PLOT_SPECS)
+    any_flag_enabled = any(
+        shown_outputs.get(spec["flag"], False) for spec in DOT_PLOT_SPECS
+    )
     if not any_flag_enabled:
         warnings.append("No dot plot flags are enabled in the config.")
         return
@@ -774,10 +875,14 @@ def _iter_dot_plot_graphs(
     for spec in DOT_PLOT_SPECS:
         if not shown_outputs.get(spec["flag"], False):
             continue
-        missing_cols = [col for col in (spec["x_col"], spec["y_col"]) if col not in results_df.columns]
+        missing_cols = [
+            col for col in (spec["x_col"], spec["y_col"])
+            if col not in results_df.columns
+        ]
         if missing_cols:
             warnings.append(
-                f"Skipping '{spec['title']}' because columns {', '.join(missing_cols)} are missing."
+                f"Skipping '{spec['title']}' because columns "
+                f"{', '.join(missing_cols)} are missing."
             )
             continue
         values_x = _as_numeric_array(results_df[spec["x_col"]])
@@ -785,12 +890,14 @@ def _iter_dot_plot_graphs(
         if spec["moving"]:
             if framerate is None:
                 warnings.append(
-                    f"Skipping '{spec['title']}' because 'video_parameters.recorded_framerate' is missing."
+                    f"Skipping '{spec['title']}' because "
+                    "'video_parameters.recorded_framerate' is missing."
                 )
                 continue
             if len(values_x) < 2 or len(values_y) < 2:
                 warnings.append(
-                    f"Skipping '{spec['title']}' because at least two frames are required."
+                    f"Skipping '{spec['title']}' because at least "
+                    "two frames are required."
                 )
                 continue
             values_x = np.diff(values_x) * framerate
@@ -806,18 +913,27 @@ def _iter_dot_plot_graphs(
             continue
         yield (spec["title"], result.figure)
 
+
 def _iter_fin_tail_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
 ):
-    """Yield (name, figure) for the fin/tail plot if enabled. Appends to warnings list."""
     cfg = dict(config or {})
     shown_outputs = cfg.get("shown_outputs") or {}
     if not shown_outputs.get("show_angle_and_distance_plot"):
         return
-    required_cols = {"leftFinAngles": "LF_Angle", "rightFinAngles": "RF_Angle", "tailDistances": "Tail_Distance"}
-    missing_cols = [col for col in required_cols.values() if col not in results_df.columns]
+    required_cols = {
+        "leftFinAngles": "LF_Angle",
+        "rightFinAngles": "RF_Angle",
+        "tailDistances": "Tail_Distance"
+    }
+    missing_cols = [
+        col for col in required_cols.values()
+        if col not in results_df.columns
+    ]
     if missing_cols:
-        warnings.append(f"Fin/tail plot skipped; missing columns: {', '.join(missing_cols)}.")
+        warnings.append(
+            f"Fin/tail plot skipped; missing columns: {', '.join(missing_cols)}."
+        )
         return
     settings = dict(cfg.get("angle_and_distance_plot_settings") or {})
     settings["open_plot"] = False
@@ -851,21 +967,26 @@ def _iter_fin_tail_graphs(
     else:
         warnings.append("Fin/tail plot produced no figures.")
 
+
 def _iter_spine_graphs(
     results_df: pd.DataFrame,
     config: Dict[str, Any],
     parsed_points: Optional[Dict[str, Any]],
     warnings: List[str],
 ):
-    """Yield (name, figure) for each spine plot. Appends to warnings list."""
     cfg = dict(config or {})
     shown_outputs = cfg.get("shown_outputs") or {}
     if not shown_outputs.get("show_spines"):
         return
     if parsed_points is None or "spine" not in parsed_points:
-        warnings.append("Spine plots skipped: parsed point coordinates are unavailable.")
+        warnings.append(
+            "Spine plots skipped: parsed point coordinates are unavailable."
+        )
         return
-    if "LF_Angle" not in results_df.columns or "RF_Angle" not in results_df.columns:
+    if (
+        "LF_Angle" not in results_df.columns
+        or "RF_Angle" not in results_df.columns
+    ):
         warnings.append("Spine plots skipped: missing LF_Angle/RF_Angle columns.")
         return
     spine_settings = dict(cfg.get("spine_plot_settings") or {})
@@ -902,7 +1023,6 @@ def _iter_spine_graphs(
 def build_dot_plot_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """Build all requested dot plot figures. Returns (graphs_dict, warnings)."""
     warnings: List[str] = []
     graphs: Dict[str, GraphSource] = {}
     for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
@@ -913,32 +1033,37 @@ def build_dot_plot_graphs(
 def build_fin_tail_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """Build the fin/tail timeline plot if enabled. Returns (graphs_dict, warnings)."""
     warnings: List[str] = []
     graphs: Dict[str, GraphSource] = {}
     for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
         graphs[name] = fig
     return graphs, warnings
 
-def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> List[List[int]]:
-    """Derive time ranges from config or DataFrame columns."""
+
+def _extract_time_ranges(
+    config: Dict[str, Any], results_df: pd.DataFrame
+) -> List[List[int]]:
     cfg_ranges = (config or {}).get("time_ranges") or []
     if cfg_ranges:
         return [list(map(int, tr)) for tr in cfg_ranges]
 
-    start_cols = [c for c in results_df.columns if c.startswith("timeRangeStart_")]
+    start_cols = [
+        c for c in results_df.columns if c.startswith("timeRangeStart_")
+    ]
     ranges: List[List[int]] = []
     for start_col in sorted(start_cols):
         suffix = start_col.split("timeRangeStart_", 1)[-1]
         end_col = f"timeRangeEnd_{suffix}"
         if end_col not in results_df.columns:
             continue
-
-        start_val = pd.to_numeric(results_df[start_col].iloc[0], errors="coerce")
-        end_val = pd.to_numeric(results_df[end_col].iloc[0], errors="coerce")
+        start_val = pd.to_numeric(
+            results_df[start_col].iloc[0], errors="coerce"
+        )
+        end_val = pd.to_numeric(
+            results_df[end_col].iloc[0], errors="coerce"
+        )
         if pd.isna(start_val) or pd.isna(end_val):
             continue
-
         start_idx = int(start_val)
         end_idx = int(end_val)
         if end_idx < start_idx:
@@ -950,13 +1075,18 @@ def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> Li
     if len(results_df) > 0:
         return [[0, len(results_df) - 1]]
     return []
+
+
 def build_spine_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any], parsed_points: Optional[Dict[str, Any]]
+    results_df: pd.DataFrame,
+    config: Dict[str, Any],
+    parsed_points: Optional[Dict[str, Any]]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """Build spine snapshot plots if enabled. Returns (graphs_dict, warnings)."""
     warnings: List[str] = []
     graphs: Dict[str, GraphSource] = {}
-    for name, fig in _iter_spine_graphs(results_df, config, parsed_points, warnings):
+    for name, fig in _iter_spine_graphs(
+        results_df, config, parsed_points, warnings
+    ):
         graphs[name] = fig
     return graphs, warnings
 
@@ -964,9 +1094,6 @@ def build_spine_graphs(
 def build_head_plot_graphs(
     results_df: pd.DataFrame, config: Dict[str, Any]
 ) -> Tuple[Dict[str, GraphSource], List[str]]:
-    """
-    Build the head orientation (head yaw) plot using the modular render_headplot plotter.
-    """
     graphs: Dict[str, GraphSource] = {}
     warnings: List[str] = []
 
@@ -979,7 +1106,6 @@ def build_head_plot_graphs(
         warnings.append("Head plot skipped: missing HeadYaw column.")
         return graphs, warnings
 
-    # Prevent external plot windows from opening in the GUI
     head_settings = dict(cfg.get("head_plot_settings") or {})
     head_settings["open_plot"] = False
     cfg["head_plot_settings"] = head_settings
@@ -1014,27 +1140,27 @@ def build_head_plot_graphs(
     return graphs, warnings
 
 
-def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session=None) -> None:
-    """
-    Save a Plotly figure as an interactive HTML file in the given directory (best-effort).
-    Uses CDN for plotly JS to keep file size smaller and consistent.
-    """
+def save_to_html(
+    fig: go.Figure,
+    title: str,
+    out_dir: Path,
+    config: Dict[str, Any],
+    session=None
+) -> None:
     try:
         fname = _safe_filename(title) or "graph"
-
         html_path = out_dir / f"{fname}.html"
         png_path = out_dir / f"{fname}.png"
-                
-        # Use CDN for plotly JS to keep file size smaller and consistent
-        pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
 
-        # Also persist a PNG snapshot so the GUI can restore graphs on reopen.
+        pio.write_html(
+            fig, file=str(html_path),
+            include_plotlyjs="cdn", auto_open=False
+        )
+
         try:
             png_bytes = pio.to_image(fig, format="png", scale=2)
             png_path.write_bytes(png_bytes)
-        except Exception as e:
-            # If kaleido is missing, the GUI can't render figures as PNG anyway.
-            # Keep HTML as a best-effort artifact.
+        except Exception:
             png_path = None
 
         if session is not None:
@@ -1048,6 +1174,7 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
             session.save()
     except Exception as e:
         print(f"Could not save '{title}' as HTML: {e}")
+
 
 
 def _safe_dirname(name: str) -> str:
