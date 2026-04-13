@@ -56,7 +56,6 @@ class MainWindow(QMainWindow):
             on_forward=self.go_next_scene
         )
 
-
         # Create a container widget to hold both progress indicator, navigator, and stack
         container = QWidget()
         container_layout = QVBoxLayout()
@@ -107,8 +106,6 @@ class MainWindow(QMainWindow):
         self.scenes["Generate Config"].config_generated.connect(self.goToSelectConfig)
         self.scenes["Select Configuration"].data_generated.connect(self.handle_data)
 
-
-
     def resizeEvent(self, event):
         """Keep floating controls anchored when window size changes."""
         super().resizeEvent(event)
@@ -122,20 +119,20 @@ class MainWindow(QMainWindow):
         self.currentSession = load_session_from_json(path)
         if self.currentSession is None:
             QMessageBox.warning(self, "Bad Session", "Please choose a session.")
-
             return
-        
+
         self.broadcastSession()
 
         # Resume to last scene (Landing is not resumable; fall back to Verify).
-        self._calculation_has_run = bool(getattr(self.currentSession, "calculation_has_run", False))
+        self._calculation_has_run = bool(
+            getattr(self.currentSession, "calculation_has_run", False)
+        )
 
         target = getattr(self.currentSession, "last_scene", None) or "Verify"
         if target == "Landing" or target not in self.scenes:
             target = "Verify"
 
         # If the last scene was Graphs, rebuild graphs on load using the last-used CSV+config.
-        # (This uses the same pipeline as the Select Configuration \"Run Calculation\" button.)
         if target == "Graphs":
             last_csv = getattr(self.currentSession, "last_csv_path", None)
             last_cfg = getattr(self.currentSession, "last_config_path", None)
@@ -167,6 +164,7 @@ class MainWindow(QMainWindow):
         self.scenes["Generate Config"].load_session(self.currentSession)
         self.scenes["Select Configuration"].load_session(self.currentSession)
         self.scenes["Graphs"].load_session(self.currentSession)
+
     def _has_csv_and_config(self):
         """True if current session has at least one CSV with at least one config."""
         if not self.currentSession:
@@ -201,7 +199,7 @@ class MainWindow(QMainWindow):
         self.scene_navigator.set_back_enabled(can_back)
         self.scene_navigator.set_forward_enabled(can_forward)
 
-        # Status text should reflect the *actual* forward target (Verify skips Generate Config).
+        # Status text should reflect the *actual* forward target.
         if not current or not steps:
             self.scene_navigator.set_status_override(None)
             return
@@ -212,13 +210,14 @@ class MainWindow(QMainWindow):
         if current == "Verify":
             right = "Select Configuration"
         elif current == "Select Configuration":
-            # If we jumped here from Verify, show Verify as the back neighbor.
             bt = getattr(self, "_select_config_back_target", None)
             if bt in ("Verify", "Generate Config"):
                 left = bt
 
         if left and right:
-            self.scene_navigator.set_status_override(f"{left}  ←  {current}  →  {right}")
+            self.scene_navigator.set_status_override(
+                f"{left}  ←  {current}  →  {right}"
+            )
         elif left:
             self.scene_navigator.set_status_override(f"{left}  ←  {current}")
         elif right:
@@ -238,13 +237,21 @@ class MainWindow(QMainWindow):
         if data and isinstance(data, dict) and data.get("csv_files"):
             csv_files = list(data.get("csv_files") or [])
             config = data.get("config") or {}
-            config_path = data.get("config_path") or (config.get("config_path") if isinstance(config, dict) else None)
+            config_path = data.get("config_path") or (
+                config.get("config_path") if isinstance(config, dict) else None
+            )
             csv_folder_id = data.get("csv_folder")
             if not csv_files or not isinstance(config, dict):
-                QMessageBox.warning(self, "Bad Input", "Folder payload is missing CSV files or config.")
+                QMessageBox.warning(
+                    self, "Bad Input",
+                    "Folder payload is missing CSV files or config."
+                )
                 return
             if not csv_folder_id or not config_path:
-                QMessageBox.warning(self, "Bad Input", "Folder payload is missing folder id or config path.")
+                QMessageBox.warning(
+                    self, "Bad Input",
+                    "Folder payload is missing folder id or config path."
+                )
                 return
 
             # Phase 1: calculations across files
@@ -253,13 +260,21 @@ class MainWindow(QMainWindow):
 
             total_files = len(csv_files)
             for idx, csv_path in enumerate(csv_files, start=1):
-                config_scene.set_progress(idx, total_files, f"Calculating: {Path(csv_path).name}")
+                config_scene.set_progress(
+                    idx, total_files,
+                    f"Calculating: {Path(csv_path).name}"
+                )
                 try:
                     parsed_points = parser.parse_dlc_csv(csv_path, config)
-                    results_df = calculations.run_calculations(parsed_points, config)
+                    results_df = calculations.run_calculations(
+                        parsed_points, config
+                    )
                 except Exception as exc:
                     config_scene.set_progress(0, 0, "")
-                    QMessageBox.warning(self, "Calculation Failed", f"Failed on {csv_path}:\n{exc}")
+                    QMessageBox.warning(
+                        self, "Calculation Failed",
+                        f"Failed on {csv_path}:\n{exc}"
+                    )
                     return
                 results_by_csv[csv_path] = results_df
                 parsed_by_csv[csv_path] = parsed_points
@@ -280,26 +295,50 @@ class MainWindow(QMainWindow):
 
             if total_graphs <= 0:
                 config_scene.set_progress(0, 0, "")
-                QMessageBox.warning(self, "No Graphs", "No graphs were requested or available for this config.")
+                QMessageBox.warning(
+                    self, "No Graphs",
+                    "No graphs were requested or available for this config."
+                )
                 return
 
             graphs_by_csv = {}
             done = 0
 
             for csv_path, payload in file_payloads:
-                def progress_callback(_n, _total, graph_name, _csv=csv_path):
+                # *** ADDED: capture csv_name for title prefixing ***
+                csv_name = Path(csv_path).name
+
+                def progress_callback(
+                    _n, _total, graph_name, _csv=csv_path
+                ):
                     nonlocal done
                     done += 1
-                    config_scene.set_progress(done, total_graphs, f"{Path(_csv).name} — {graph_name}")
+                    config_scene.set_progress(
+                        done, total_graphs,
+                        f"{Path(_csv).name} — {graph_name}"
+                    )
 
-                graphs, _cfg = graphs_scene.build_graphs_with_progress(payload, progress_callback)
+                graphs, _cfg = graphs_scene.build_graphs_with_progress(
+                    payload, progress_callback
+                )
                 if graphs is None:
                     continue
-                graphs_by_csv[csv_path] = graphs
+
+                # *** ADDED: prefix each graph title with its CSV filename
+                # so users always know which file a graph came from
+                # when switching datasets in the dropdown. ***
+                labeled_graphs = {
+                    f"{csv_name} — {title}": fig
+                    for title, fig in graphs.items()
+                }
+                graphs_by_csv[csv_path] = labeled_graphs
 
             if not graphs_by_csv:
                 config_scene.set_progress(0, 0, "")
-                QMessageBox.warning(self, "No Graphs", "Graphs could not be generated for this folder.")
+                QMessageBox.warning(
+                    self, "No Graphs",
+                    "Graphs could not be generated for this folder."
+                )
                 return
 
             # Persist folder graphs in per-CSV subfolders and record assets in the session.
@@ -314,7 +353,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-            graphs_scene.set_context(csv_id=csv_folder_id, config_path=config_path, csv_files=csv_files)
+            graphs_scene.set_context(
+                csv_id=csv_folder_id,
+                config_path=config_path,
+                csv_files=csv_files
+            )
             graphs_scene.set_graphs_by_csv(graphs_by_csv, config=config)
             self._calculation_has_run = True
             try:
@@ -332,7 +375,9 @@ class MainWindow(QMainWindow):
             total = len(names)
             if total > 0:
                 config_scene.set_progress(0, total, "Loading graphs...")
-        graphs, config = graphs_scene.build_graphs_with_progress(data, progress_callback)
+        graphs, config = graphs_scene.build_graphs_with_progress(
+            data, progress_callback
+        )
 
         if graphs is not None and config is not None:
             config_scene.set_progress(len(graphs), len(graphs), "Loading graphs...")
@@ -340,14 +385,18 @@ class MainWindow(QMainWindow):
             graphs_scene.set_graphs(graphs, config=config)
             try:
                 graphs_scene.set_context(
-                    csv_id=data.get("csv_path") if isinstance(data, dict) else None,
-                    config_path=(config.get("config_path") if isinstance(config, dict) else None),
+                    csv_id=(
+                        data.get("csv_path") if isinstance(data, dict) else None
+                    ),
+                    config_path=(
+                        config.get("config_path")
+                        if isinstance(config, dict) else None
+                    ),
                     csv_files=None,
                 )
             except Exception:
                 pass
             self._calculation_has_run = True
-            # Persist navigation enablement for session resume.
             try:
                 if self.currentSession is not None:
                     self.currentSession.calculation_has_run = True
@@ -362,7 +411,9 @@ class MainWindow(QMainWindow):
 
     def on_verify_csv_selected(self, csv_path):
         if not self.currentSession:
-            QMessageBox.warning(self, "No Session", "Create or load a session first.")
+            QMessageBox.warning(
+                self, "No Session", "Create or load a session first."
+            )
             return
 
         # Store for later JSON attachment
@@ -376,7 +427,9 @@ class MainWindow(QMainWindow):
 
     def on_verify_folder_selected(self, folder_path: str, csv_files):
         if not self.currentSession:
-            QMessageBox.warning(self, "No Session", "Create or load a session first.")
+            QMessageBox.warning(
+                self, "No Session", "Create or load a session first."
+            )
             return
 
         try:
@@ -385,21 +438,29 @@ class MainWindow(QMainWindow):
             files = []
 
         if not folder_path or not files:
-            QMessageBox.warning(self, "Invalid Folder", "No CSV files were provided for this folder.")
+            QMessageBox.warning(
+                self, "Invalid Folder",
+                "No CSV files were provided for this folder."
+            )
             return
 
         try:
             self.currentSession.addCSVFolder(folder_path, files)
             self.currentSession.save()
         except Exception as exc:
-            QMessageBox.warning(self, "Folder Error", f"Failed to add folder to session:\n{exc}")
+            QMessageBox.warning(
+                self, "Folder Error",
+                f"Failed to add folder to session:\n{exc}"
+            )
             return
 
         self._update_navigator()
 
     def on_verify_json_selected(self, json_path):
         if not self.currentSession:
-            QMessageBox.warning(self, "No Session", "Create or load a session first.")
+            QMessageBox.warning(
+                self, "No Session", "Create or load a session first."
+            )
             return
 
         if not self._verify_last_csv_path:
@@ -412,16 +473,22 @@ class MainWindow(QMainWindow):
 
         csv_path = self._verify_last_csv_path
 
-        if not self.currentSession.checkExists(csv_path=csv_path, config_path=json_path):
+        if not self.currentSession.checkExists(
+            csv_path=csv_path, config_path=json_path
+        ):
             self.currentSession.addConfigToCSV(csv_path, json_path)
             self.currentSession.save()
         self._update_navigator()
 
     def goToSelectConfig(self):
-        self._switch_to_scene(self.scenes["Select Configuration"], "Select Configuration")
+        self._switch_to_scene(
+            self.scenes["Select Configuration"], "Select Configuration"
+        )
 
     def goToGenerateConfig(self):
-        self._switch_to_scene(self.scenes["Generate Config"], "Generate Config")
+        self._switch_to_scene(
+            self.scenes["Generate Config"], "Generate Config"
+        )
 
     def toggle_theme(self):
         if self.current_theme == "light":
@@ -430,16 +497,18 @@ class MainWindow(QMainWindow):
             self.current_theme = "light"
 
         apply_theme(self, THEMES[self.current_theme])
-    
+
     """Scene Switch Functions"""
     def go_previous_scene(self):
         steps = self.progress_indicator.steps
-        current_name = self.progress_indicator.steps[self.progress_indicator.current_step_index]
+        current_name = self.progress_indicator.steps[
+            self.progress_indicator.current_step_index
+        ]
 
         if current_name not in steps:
             return
 
-        # Back from Select Configuration should return to the scene we came from (Verify or Generate Config).
+        # Back from Select Configuration should return to the scene we came from.
         if current_name == "Select Configuration":
             target = getattr(self, "_select_config_back_target", None)
             if target in self.scenes:
@@ -489,7 +558,9 @@ class MainWindow(QMainWindow):
         self._current_scene_name = scene_name
 
         # Remember where we came from when entering Select Configuration.
-        if scene_name == "Select Configuration" and prev in ("Verify", "Generate Config"):
+        if scene_name == "Select Configuration" and prev in (
+            "Verify", "Generate Config"
+        ):
             self._select_config_back_target = prev
 
         self.stack.setCurrentWidget(scene)
@@ -500,7 +571,9 @@ class MainWindow(QMainWindow):
         # Persist resume point "as you go" (Landing is intentionally not resumable).
         if self.currentSession is not None and scene_name != "Landing":
             try:
-                if getattr(self.currentSession, "last_scene", None) != scene_name:
+                if getattr(
+                    self.currentSession, "last_scene", None
+                ) != scene_name:
                     self.currentSession.last_scene = scene_name
                 self.currentSession.save()
             except Exception:
