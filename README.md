@@ -69,6 +69,8 @@ tests/
 - - **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
   - - **Cross-Correlation Analysis:** Backend engine for computing cross-correlation between any two movement signals (body part coordinates or derived angles) to identify synchronization and lead/lag relationships.
   - **Dynamic Body Part Detection:** Automatically detects and groups body parts from any DLC CSV file, supporting variable tracking configurations across different labs without hardcoded assumptions.
+  - - **Improved Multi-CSV Navigation:** Graph Viewer now includes Prev/Next navigation buttons alongside the dataset dropdown for smooth switching between datasets, with graph titles clearly labeled by source CSV filename.
+
 
 
 
@@ -211,6 +213,30 @@ Does not crash when body part counts vary across datasets
     "warnings": [],
     "body_part_count": 20
 }
+
+## Multi-CSV Workflow
+
+The Graph Viewer supports batch processing and comparison of multiple CSV datasets.
+
+**How to use:**
+1. In the **Verify** scene, upload a folder containing multiple CSV files
+2. Add a config file and proceed to **Select Configuration**
+3. Click **Run Calculation** — all CSVs are processed automatically
+4. In the **Graphs** scene, use the dataset dropdown to switch between CSVs
+5. Use **◀ Prev** and **Next ▶** buttons to navigate sequentially between datasets
+
+**Features:**
+- Dataset dropdown lists all processed CSV files by name
+- **◀ Prev** and **Next ▶** buttons for sequential dataset navigation
+- Prev/Next buttons automatically disable at the first/last dataset
+- Graph titles prefixed with CSV filename (e.g. `fish1.csv — Head Orientation`)
+- Single CSV mode fully unchanged and backward compatible
+- Hidden in single CSV mode — dropdown and buttons only appear for batch runs
+
+**Acceptance Criteria (Issue #85):**
+- ✅ Multiple CSVs processed without issues
+- ✅ Graphs clearly indicate source file (filename prefix in titles)
+- ✅ Smooth navigation between datasets (dropdown + Prev/Next buttons)
 
 
 ## Known Gaps / Next Steps
