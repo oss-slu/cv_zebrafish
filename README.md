@@ -69,6 +69,8 @@ tests/
 - - **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
   - - **Cross-Correlation Analysis:** Backend engine for computing cross-correlation between any two movement signals (body part coordinates or derived angles) to identify synchronization and lead/lag relationships.
   - **Dynamic Body Part Detection:** Automatically detects and groups body parts from any DLC CSV file, supporting variable tracking configurations across different labs without hardcoded assumptions.
+  - - **Cross-Correlation Analysis UI:** Identify temporal relationships between movement signals with interactive lag vs correlation plots. Select any two signals (e.g., LF_Angle vs RF_Angle) to visualize lead/lag patterns and synchronization.
+
 
 
 
@@ -211,6 +213,47 @@ Does not crash when body part counts vary across datasets
     "warnings": [],
     "body_part_count": 20
 }
+
+## Cross-Correlation Analysis
+
+The Graph Viewer includes a dedicated **Cross-Correlation** tab for analyzing temporal relationships between movement signals.
+
+### How to Use
+1. Run calculations on a CSV file via **Select Configuration** scene
+2. Navigate to the **Graphs** scene
+3. Click the **Cross-Correlation** tab
+4. Select **Signal A** and **Signal B** from the dropdowns (e.g., `LF_Angle` and `RF_Angle`)
+5. Click **Compute Cross-Correlation**
+6. The plot shows correlation coefficient vs lag (in frames)
+
+### What the Plot Shows
+- **X-axis (Lag):** Time offset in frames. Positive lag means Signal A leads Signal B; negative lag means Signal B leads.
+- **Y-axis (Correlation):** Strength of relationship at each lag (-1 to +1)
+- **Red X marker:** Peak correlation (strongest relationship)
+- **Gray dashed line:** Zero lag (perfect alignment)
+
+### Example Use Cases
+- **Fin coordination:** Are left and right fin movements synchronized?
+- **Body wave propagation:** Does head movement lead tail movement?
+- **Reflex timing:** What is the lag between stimulus and response?
+
+### Available Signals
+The dropdown automatically detects all numeric columns from your calculation results:
+- Angle measurements (e.g., `LF_Angle`, `RF_Angle`, `HeadYaw`)
+- Position coordinates (e.g., `HeadX`, `HeadY`)
+- Derived metrics (e.g., `Tail_Distance`, `Furthest_Tail_Point`)
+
+### Technical Details
+- **Algorithm:** Normalized cross-correlation via FFT (fast and accurate)
+- **Missing data:** Frames with NaN values are automatically excluded
+- **Lag range:** Defaults to ±25% of signal length (max 500 frames)
+- **Normalization:** Correlations scaled to [-1, 1] for interpretability
+
+### Acceptance Criteria (Issue #83)
+✅ Users can select variables and view correlation plots  
+✅ Graph updates dynamically on button click  
+✅ Works with any numeric signals from calculations  
+✅ Clear visual indicators (peak marker, zero-lag line)
 
 
 ## Known Gaps / Next Steps
