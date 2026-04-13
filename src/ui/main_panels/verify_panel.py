@@ -1,3 +1,5 @@
+"""Verify Upload main panel: CSV / JSON validation and session hooks."""
+
 import json
 from pathlib import Path
 
@@ -14,26 +16,25 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from core.validation import csv_verifier as input_verifier
-from core.validation import json_verifier
-from app_platform.paths import images_dir
 import pandas as pd
 
+from app_platform.paths import images_dir
+from core.validation import csv_verifier as input_verifier
+from core.validation import json_verifier
 
 UPLOAD_ICON = images_dir() / "upload-button.png"
 FOLDER_ICON = images_dir() / "folder-black.svg"
 
 
-class VerifyScene(QWidget):
+class VerifyWorkspace(QWidget):
     """
-    Combined scene for verifying both CSV and JSON input files.
-    Displays two upload sections (CSV + JSON) and a shared console output.
+    Verifies CSV and JSON input files (same behavior as the former Verify scene).
+    Displays two upload sections plus a shared validation console.
     """
 
     csv_selected = pyqtSignal(str)
     csv_folder_selected = pyqtSignal(str, object)  # (folder_path, [csv_files])
     json_selected = pyqtSignal(str)
-
     generate_json_requested = pyqtSignal()
 
     def __init__(self):
@@ -50,7 +51,7 @@ class VerifyScene(QWidget):
 
         csv_layout = QHBoxLayout()
         csv_label = QLabel("CSV File:")
-        csv_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #5fee55;")
+        csv_label.setObjectName("VerifyFieldLabel")
         csv_layout.addWidget(csv_label)
 
         self.csv_path_field = QLineEdit()
@@ -75,7 +76,7 @@ class VerifyScene(QWidget):
 
         json_layout = QHBoxLayout()
         json_label = QLabel("JSON File:")
-        json_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #5f55ef;")
+        json_label.setObjectName("VerifyFieldLabel")
         json_layout.addWidget(json_label)
 
         self.json_path_field = QLineEdit()
@@ -89,34 +90,26 @@ class VerifyScene(QWidget):
         self.json_button.setCursor(Qt.PointingHandCursor)
         self.json_button.clicked.connect(self.select_json_file)
         json_layout.addWidget(self.json_button)
-        main_layout.addLayout(json_layout)
 
         self.generate_json_button = QPushButton("Generate JSON")
         self.generate_json_button.setCursor(Qt.PointingHandCursor)
         self.generate_json_button.clicked.connect(self.generate_json_requested.emit)
         json_layout.addWidget(self.generate_json_button)
+        main_layout.addLayout(json_layout)
 
         console_label = QLabel("Validation Console:")
-        console_label.setStyleSheet("font-size: 16px; font-weight: bold; ")
+        console_label.setObjectName("VerifyConsoleLabel")
         main_layout.addWidget(console_label)
 
         self.feedback_box = QTextEdit()
+        self.feedback_box.setObjectName("VerifyFeedbackBox")
         self.feedback_box.setReadOnly(True)
         self.feedback_box.setMinimumHeight(200)
-        self.feedback_box.setStyleSheet(
-            """
-            font-family: Consolas, monospace;
-            font-size: 13px;
-            background-color: #f9f9f9;
-            border: 1px solid #aaa;
-            color: black;
-            """
-        )
+        self.feedback_box.setAttribute(Qt.WA_StyledBackground, True)
         main_layout.addWidget(self.feedback_box)
 
         self.setLayout(main_layout)
 
-    # CSV handling
     def select_csv_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select CSV File", "", "CSV Files (*.csv)"
@@ -168,15 +161,18 @@ class VerifyScene(QWidget):
         self.csv_path_field.setText(str(folder_path))
         self.feedback_box.append(f"\n--- Validating CSV Folder ---\n{folder_path}\n")
 
-        # Reject subfolders
         subdirs = [p for p in folder_path.iterdir() if p.is_dir()]
         if subdirs:
-            self.feedback_box.append("Error: Selected folder contains subfolders. Please select a folder with only CSV files.\n")
+            self.feedback_box.append(
+                "Error: Selected folder contains subfolders. Please select a folder with only CSV files.\n"
+            )
             for sd in subdirs:
                 self.feedback_box.append(f" - Subfolder: {sd.name}")
             return
 
-        csv_files = sorted([p for p in folder_path.iterdir() if p.is_file() and p.suffix.lower() == ".csv"])
+        csv_files = sorted(
+            [p for p in folder_path.iterdir() if p.is_file() and p.suffix.lower() == ".csv"]
+        )
         if not csv_files:
             self.feedback_box.append("Error: No .csv files found in the selected folder.\n")
             return
@@ -200,7 +196,6 @@ class VerifyScene(QWidget):
                 all_warnings.append(f"{p.name}:")
                 all_warnings.extend([f"  {w}" for w in warnings])
 
-            # Format signature check (columns + header rows 0/1 like the verifier expects)
             try:
                 df_head = pd.read_csv(str(p), nrows=2)
                 sig = (
@@ -236,10 +231,11 @@ class VerifyScene(QWidget):
             self.feedback_box.append("\nError: Folder failed validation.\n")
             return
 
-        self.feedback_box.append(f"Success: Folder passed validation. {len(csv_files)} files ready.\n")
+        self.feedback_box.append(
+            f"Success: Folder passed validation. {len(csv_files)} files ready.\n"
+        )
         self.csv_folder_selected.emit(str(folder_path), [str(p) for p in csv_files])
 
-    # JSON handling
     def select_json_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select JSON File", "", "JSON Files (*.json)"
@@ -272,9 +268,7 @@ class VerifyScene(QWidget):
 
         valid = not errors
         if errors:
-            self.feedback_box.append(
-                "\nError: Validation failed with the following issues:"
-            )
+            self.feedback_box.append("\nError: Validation failed with the following issues:")
             for err in errors:
                 self.feedback_box.append(f" - {err}")
         else:
@@ -288,3 +282,13 @@ class VerifyScene(QWidget):
                     self.feedback_box.append(f" - {message}")
 
         return valid
+
+
+class VerifyPanel(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.verify = VerifyWorkspace()
+        layout.addWidget(self.verify)
