@@ -9,6 +9,7 @@ from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -97,6 +98,7 @@ class GraphViewerScene(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("GraphViewerRoot")
 
         self._graphs: Dict[str, GraphSource] = {}
         self._graphs_by_csv: Optional[Dict[str, Dict[str, GraphSource]]] = None
@@ -121,28 +123,38 @@ class GraphViewerScene(QWidget):
         # Context banner
         self.context_icon = QLabel()
         self.context_icon.setFixedWidth(18)
+        self.context_icon.setObjectName("GraphViewerContextIcon")
         self.context_text = QLabel("")
+        self.context_text.setObjectName("GraphViewerContextText")
         self.context_text.setWordWrap(True)
-        self.context_text.setStyleSheet("color: #6c757d;")
 
         # CSV selector dropdown
         self.csv_combo = QComboBox()
+        self.csv_combo.setObjectName("GraphViewerCsvCombo")
         self.csv_combo.setVisible(False)
         self.csv_combo.currentIndexChanged.connect(self._on_csv_changed)
 
         # Graph list
         self.list = QListWidget()
+        self.list.setObjectName("GraphViewerGraphList")
         self.list.setMinimumWidth(240)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list.setTextElideMode(Qt.ElideRight)
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
 
         # Image area for graphs
         self.image_label = QLabel("Select a graph on the left")
+        self.image_label.setObjectName("GraphViewerImageLabel")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.image_label.setWordWrap(True)
+        self.image_label.setAttribute(Qt.WA_StyledBackground, True)
 
         self.scroll = QScrollArea()
+        self.scroll.setObjectName("GraphViewerImageScroll")
         self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setAttribute(Qt.WA_StyledBackground, True)
         self.scroll.setWidget(self.image_label)
 
         # ---------------------------------------------------------------
@@ -155,6 +167,7 @@ class GraphViewerScene(QWidget):
         context_row.addWidget(self.context_text, 1)
 
         context_widget = QWidget()
+        context_widget.setObjectName("GraphViewerContextBar")
         context_widget.setLayout(context_row)
 
         # Tab widget
@@ -662,7 +675,30 @@ class GraphViewerScene(QWidget):
         if self._original_pixmap:
             self._update_scaled_pixmap()
 
-    def load_session(self, session):
+    def prepare_for_session_load(self) -> None:
+        """Clear viewer UI before attaching a new session (avoids stale list/graphs)."""
+        self._graphs_by_csv = None
+        self._csv_order = []
+        self._data = None
+        try:
+            self.csv_combo.blockSignals(True)
+            self.csv_combo.clear()
+            self.csv_combo.setVisible(False)
+            self.csv_combo.blockSignals(False)
+        except Exception:
+            pass
+        self._graphs.clear()
+        self.list.clear()
+        self._show_empty_state("No graphs available.")
+        self.set_context(None, None, None)
+
+    def load_session(self, session, *, preload_saved_graphs: bool = False):
+        """Attach session and output paths; optionally restore PNGs from disk.
+
+        By default does **not** load graph images (avoids heavy restore on app open).
+        Use ``show_graphs_for_csv_config`` from Select & Run or set ``preload_saved_graphs=True``.
+        """
+        self.prepare_for_session_load()
         self.current_session = session
         try:
             csv_id = getattr(self.current_session, "last_csv_path", None)
@@ -677,6 +713,11 @@ class GraphViewerScene(QWidget):
         self._out_dir = sessions_dir() / (self.current_session.getName())
         self._out_dir.mkdir(parents=True, exist_ok=True)
 
+        if not preload_saved_graphs:
+            self._show_empty_state("Click a graph icon in Select & Run to load saved outputs.")
+            return
+
+        # If the session is currently focused on a CSV folder run, restore graphs grouped by CSV.
         try:
             last_csv_id = getattr(self.current_session, "last_csv_path", None)
             last_cfg = getattr(self.current_session, "last_config_path", None)
@@ -713,6 +754,74 @@ class GraphViewerScene(QWidget):
 
     def has_graphs(self) -> bool:
         return bool(self._graphs)
+
+    def show_graphs_for_csv_config(self, csv_path: str, config_path: str) -> None:
+        """Load saved PNG outputs for this CSV/folder + config (e.g. from Select & Run graph icon)."""
+        if not self.current_session or not csv_path or not config_path:
+            return
+        try:
+            self.current_session.last_csv_path = csv_path
+            self.current_session.last_config_path = config_path
+            self.current_session.save()
+        except Exception:
+            pass
+
+        csv_files = None
+        if self.current_session.is_folder_csv(csv_path):
+            csv_files = self.current_session.get_folder_files(csv_path)
+        self.set_context(csv_id=csv_path, config_path=config_path, csv_files=csv_files)
+
+        if csv_files:
+            per_csv_assets = self.current_session.getFolderGraphs(csv_path, config_path)
+            graphs_by_csv: Dict[str, Dict[str, GraphSource]] = {}
+            for csv_file, assets in (per_csv_assets or {}).items():
+                g: Dict[str, GraphSource] = {}
+                for a in assets or []:
+                    try:
+                        p = Path(a)
+                    except Exception:
+                        continue
+                    if p.suffix.lower() != ".png" or not p.exists():
+                        continue
+                    title = p.stem.replace("_", " ").strip() or p.name
+                    if title not in g:
+                        g[title] = p
+                if g:
+                    graphs_by_csv[csv_file] = g
+            if graphs_by_csv:
+                self.set_graphs_by_csv(graphs_by_csv, config=None)
+            else:
+                self._show_empty_state("No saved graphs for this folder + configuration.")
+            return
+
+        paths = (self.current_session.csvs.get(csv_path, {}) or {}).get(config_path, []) or []
+        graphs: Dict[str, GraphSource] = {}
+        seen: set[str] = set()
+        for p_raw in paths:
+            try:
+                pp = Path(p_raw)
+            except Exception:
+                continue
+            if pp.suffix.lower() != ".png" or not pp.exists():
+                continue
+            try:
+                key = str(pp.resolve())
+            except Exception:
+                key = str(pp)
+            if key in seen:
+                continue
+            seen.add(key)
+            title = pp.stem.replace("_", " ").strip() or pp.name
+            base = title
+            i = 2
+            while title in graphs:
+                title = f"{base} ({i})"
+                i += 1
+            graphs[title] = pp
+        if graphs:
+            self.set_graphs(graphs, config=None)
+        else:
+            self._show_empty_state("No saved graphs for this configuration.")
 
     def _update_scaled_pixmap(self):
         if not self._original_pixmap:

@@ -49,5 +49,8 @@ package.json
 sessions
 session_registry.json
 
+# machine-local app state (session registry: paths + last opened)
+data/local/
+
 # results
 results/

@@ -14,7 +14,8 @@ packages = [
     'cvzebrafish.session',
     'cvzebrafish.ui',
     'cvzebrafish.ui.components',
-    'cvzebrafish.ui.scenes',
+    'cvzebrafish.ui.main_panels',
+    'cvzebrafish.ui.popup_panels',
 ]
 
 package_dir = {
@@ -30,7 +31,8 @@ package_dir = {
     'cvzebrafish.session': 'src/session',
     'cvzebrafish.ui': 'src/ui',
     'cvzebrafish.ui.components': 'src/ui/components',
-    'cvzebrafish.ui.scenes': 'src/ui/scenes',
+    'cvzebrafish.ui.main_panels': 'src/ui/main_panels',
+    'cvzebrafish.ui.popup_panels': 'src/ui/popup_panels',
 }
 
 setup(

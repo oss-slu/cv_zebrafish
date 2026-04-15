@@ -6,7 +6,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QApplication
 
-from ui.scenes.GraphViewerScene import GraphViewerScene
+from ui.main_panels.graph_viewer_widget import GraphViewerScene
 
 
 @pytest.fixture(scope="session")
