@@ -29,18 +29,23 @@ def getDataFromColumn(df, columnPointDict):
     y_idx = int(columnPointDict.get("y", -1))
     c_idx = int(columnPointDict.get("conf", -1))
 
-    # If any required column is missing, return a NaN point of the correct length
+    # If x/y are missing, return a NaN point of the correct length
     # instead of accidentally indexing the last column (pandas iloc[-1]).
-    if x_idx < 0 or y_idx < 0 or c_idx < 0:
+    if x_idx < 0 or y_idx < 0:
         return _empty_point(n_frames)
 
     xColumn = pd.to_numeric(df.iloc[1:, x_idx], errors="coerce")
     yColumn = pd.to_numeric(df.iloc[1:, y_idx], errors="coerce")
-    confColumn = pd.to_numeric(df.iloc[1:, c_idx], errors="coerce")
+    # XY-only exports omit likelihood; treat confidence as fully trusted so downstream
+    # filters (spine plots, optional min_conf gates) do not drop frames.
+    if c_idx < 0:
+        conf_vals = np.ones(n_frames, dtype=float)
+    else:
+        conf_vals = pd.to_numeric(df.iloc[1:, c_idx], errors="coerce").values
     return {
         "x": xColumn.values,
         "y": yColumn.values,
-        "conf": confColumn.values
+        "conf": conf_vals,
     }
 
 
