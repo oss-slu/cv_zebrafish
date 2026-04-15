@@ -66,6 +66,13 @@ DARK_THEME = {
     # Generate Config: neutral grey selection on dark panels
     "generate_selection_bg": "#4a4a54",
     "generate_selection_fg": "#f2f2f8",
+    # View Output graph viewer: dark tab chips, light text (dark app mode)
+    "graph_viewer_tab_fg": "#b8bac8",
+    "graph_viewer_tab_bg": "#18181c",
+    "graph_viewer_tab_sel_bg": "#2a2a32",
+    "graph_viewer_tab_sel_fg": "#f2f2f8",
+    "graph_viewer_tab_hover_bg": "#32323c",
+    "graph_viewer_tab_hover_fg": "#ececf0",
 }
 
 THEMES = {
@@ -92,6 +99,12 @@ def apply_theme(app, theme):
     vcfg = theme.get("verify_console_fg", tx)
     gsel_bg = theme.get("generate_selection_bg", accent)
     gsel_fg = theme.get("generate_selection_fg", "#ffffff")
+    gv_tab_fg = theme.get("graph_viewer_tab_fg", tx)
+    gv_tab_bg = theme.get("graph_viewer_tab_bg", pc)
+    gv_tab_sel_bg = theme.get("graph_viewer_tab_sel_bg", pm)
+    gv_tab_sel_fg = theme.get("graph_viewer_tab_sel_fg", tx)
+    gv_tab_hover_bg = theme.get("graph_viewer_tab_hover_bg", cb)
+    gv_tab_hover_fg = theme.get("graph_viewer_tab_hover_fg", gv_tab_sel_fg)
 
     qss = f"""
         QWidget {{
@@ -225,6 +238,36 @@ def apply_theme(app, theme):
         }}
         QWidget#WorkspaceMain QComboBox#GraphViewerCsvCombo {{
             min-width: 0px;
+        }}
+        QWidget#WorkspaceMain QTabWidget#GraphViewerTabWidget::pane {{
+            border: 1px solid {line};
+            border-radius: 0 0 8px 8px;
+            top: -1px;
+            background-color: {pm};
+        }}
+        QWidget#WorkspaceMain QTabWidget#GraphViewerTabWidget QTabBar::tab {{
+            background-color: {gv_tab_bg};
+            color: {gv_tab_fg};
+            padding: 6px 16px;
+            margin-right: 2px;
+            border: 1px solid {line};
+            border-bottom: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            min-width: 4em;
+        }}
+        QWidget#WorkspaceMain QTabWidget#GraphViewerTabWidget QTabBar::tab:selected {{
+            background-color: {gv_tab_sel_bg};
+            color: {gv_tab_sel_fg};
+            font-weight: bold;
+        }}
+        QWidget#WorkspaceMain QTabWidget#GraphViewerTabWidget QTabBar::tab:!selected:hover {{
+            background-color: {gv_tab_hover_bg};
+            color: {gv_tab_hover_fg};
+        }}
+        QWidget#WorkspaceMain QTabWidget#GraphViewerTabWidget QTabBar::tab:disabled {{
+            background-color: {gv_tab_bg};
+            color: {tmu};
         }}
 
         QDialog#GenerateConfigDialog {{
