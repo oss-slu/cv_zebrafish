@@ -47,6 +47,7 @@ package.json
 
 # sessions
 sessions
+session_registry.json
 
 # results
 results/
