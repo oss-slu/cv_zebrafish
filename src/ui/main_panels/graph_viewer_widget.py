@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +26,13 @@ import plotly.io as pio
 
 from src.core.graphs.loader_bundle import GraphDataBundle
 from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headplot, render_spines
+
+# Cross-correlation imports
+from src.core.analysis.cross_correlation import (
+    compute_cross_correlation_from_dataframe,
+    get_available_signals,
+)
+from src.core.graphs.plots.crosscorr_plot import render_crosscorr_plot
 
 from src.session import session
 from src.app_platform.paths import images_dir, sessions_dir
@@ -83,17 +91,9 @@ DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
 
 class GraphViewerScene(QWidget):
     """
-    Simple static graph viewer:
-      - Left: list of graph names
-      - Right: image area (QLabel) that displays the selected graph
-
-    Public functions:
-      set_graphs({ name: figure })
-      add_graph(name, figure)
-      set_data({ results of calculations }) will be called at button press
-
-    Accepted source:
-      - plotly.graph_objs.Figure  (converted to PNG via kaleido)
+    Graph viewer with two tabs:
+      1. Graphs - standard plots (dot, fin/tail, spine, head)
+      2. Cross-Correlation - signal pair analysis
     """
 
     def __init__(self):
@@ -102,6 +102,7 @@ class GraphViewerScene(QWidget):
 
         self._graphs: Dict[str, GraphSource] = {}
         self._graphs_by_csv: Optional[Dict[str, Dict[str, GraphSource]]] = None
+        self._results_by_csv: Optional[Dict[str, pd.DataFrame]] = None
         self._csv_order: List[str] = []
         self._context_csv_id: Optional[str] = None
         self._context_config_path: Optional[str] = None
@@ -114,7 +115,13 @@ class GraphViewerScene(QWidget):
         self.current_session = None
         self._kaleido_available = _is_kaleido_available()
 
-        # Context banner (CSV/folder + config used to generate graphs)
+        # Cross-correlation state
+        self._crosscorr_available = False
+        self._crosscorr_signals = []
+        self._current_crosscorr_fig = None
+        self._current_df = None
+
+        # Context banner
         self.context_icon = QLabel()
         self.context_icon.setFixedWidth(18)
         self.context_icon.setObjectName("GraphViewerContextIcon")
@@ -122,15 +129,12 @@ class GraphViewerScene(QWidget):
         self.context_text.setObjectName("GraphViewerContextText")
         self.context_text.setWordWrap(True)
 
-        # ---------------------------------------------------------------
-        # CSV selector dropdown
-        # ---------------------------------------------------------------
+        # CSV selector + Prev/Next (batch mode); combo also lives on Cross-Correlation tab when needed
         self.csv_combo = QComboBox()
         self.csv_combo.setObjectName("GraphViewerCsvCombo")
         self.csv_combo.setVisible(False)
         self.csv_combo.currentIndexChanged.connect(self._on_csv_changed)
 
-        # Prev / Next CSV navigation buttons (shown only in batch mode)
         self.prev_csv_btn = QPushButton("◀ Prev")
         self.prev_csv_btn.setToolTip("Switch to previous dataset")
         self.prev_csv_btn.setFixedHeight(28)
@@ -143,7 +147,6 @@ class GraphViewerScene(QWidget):
         self.next_csv_btn.setVisible(False)
         self.next_csv_btn.clicked.connect(self._go_next_csv)
 
-        # Nav row: prev button + combo + next button
         self.csv_nav_row = QWidget()
         csv_nav_layout = QHBoxLayout(self.csv_nav_row)
         csv_nav_layout.setContentsMargins(0, 0, 0, 0)
@@ -153,9 +156,6 @@ class GraphViewerScene(QWidget):
         csv_nav_layout.addWidget(self.next_csv_btn)
         self.csv_nav_row.setVisible(False)
 
-        # ---------------------------------------------------------------
-        # Graph list sidebar
-        # ---------------------------------------------------------------
         self.list = QListWidget()
         self.list.setObjectName("GraphViewerGraphList")
         self.list.setMinimumWidth(240)
@@ -163,7 +163,7 @@ class GraphViewerScene(QWidget):
         self.list.setTextElideMode(Qt.ElideRight)
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
 
-        # Image area (inside a scroll area for large images)
+        # Image area for graphs
         self.image_label = QLabel("Select a graph on the left")
         self.image_label.setObjectName("GraphViewerImageLabel")
         self.image_label.setAlignment(Qt.AlignCenter)
@@ -178,7 +178,9 @@ class GraphViewerScene(QWidget):
         self.scroll.setAttribute(Qt.WA_StyledBackground, True)
         self.scroll.setWidget(self.image_label)
 
-        # Layout
+        # ---------------------------------------------------------------
+        # Layout with tabs
+        # ---------------------------------------------------------------
         context_row = QHBoxLayout()
         context_row.setContentsMargins(0, 0, 0, 0)
         context_row.setSpacing(8)
@@ -189,28 +191,89 @@ class GraphViewerScene(QWidget):
         context_widget.setObjectName("GraphViewerContextBar")
         context_widget.setLayout(context_row)
 
+        # Tab widget (objectName for theme: dark-mode tab labels use dark ink on light tabs)
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setObjectName("GraphViewerTabWidget")
+
+        # Tab 1: Graphs
+        graph_tab = QWidget()
+        graph_layout = QHBoxLayout(graph_tab)
+        graph_layout.setContentsMargins(0, 0, 0, 0)
+
+        left_graph = QVBoxLayout()
+        left_graph.addWidget(self.csv_nav_row)
+        left_graph.addWidget(self.list, stretch=1)
+
+        right_graph = QVBoxLayout()
+        right_graph.addWidget(self.scroll, stretch=1)
+
+        graph_layout.addLayout(left_graph)
+        graph_layout.addLayout(right_graph, stretch=1)
+
+        self.tab_widget.addTab(graph_tab, "Graphs")
+
+        # Tab 2: Cross-Correlation
+        crosscorr_tab = QWidget()
+        crosscorr_layout = QVBoxLayout(crosscorr_tab)
+
+        # Folder runs: pick which CSV's metrics drive cross-correlation (mirrors Graphs tab combo).
+        cc_csv_row = QHBoxLayout()
+        cc_csv_row.setContentsMargins(0, 0, 0, 0)
+        cc_csv_row.addWidget(QLabel("CSV file:"))
+        self.crosscorr_csv_combo = QComboBox()
+        self.crosscorr_csv_combo.setObjectName("GraphViewerCsvCombo")
+        self.crosscorr_csv_combo.setVisible(False)
+        self.crosscorr_csv_combo.currentIndexChanged.connect(self._on_crosscorr_csv_changed)
+        cc_csv_row.addWidget(self.crosscorr_csv_combo, stretch=1)
+        crosscorr_layout.addLayout(cc_csv_row)
+
+        # Signal pair selection
+        pair_row = QHBoxLayout()
+        pair_row.addWidget(QLabel("Signal A:"))
+        self.signal_a_combo = QComboBox()
+        self.signal_a_combo.setMinimumWidth(150)
+        pair_row.addWidget(self.signal_a_combo)
+
+        pair_row.addWidget(QLabel("Signal B:"))
+        self.signal_b_combo = QComboBox()
+        self.signal_b_combo.setMinimumWidth(150)
+        pair_row.addWidget(self.signal_b_combo)
+
+        self.compute_crosscorr_btn = QPushButton("Compute Cross-Correlation")
+        self.compute_crosscorr_btn.clicked.connect(self._compute_crosscorr)
+        pair_row.addWidget(self.compute_crosscorr_btn)
+        pair_row.addStretch()
+
+        crosscorr_layout.addLayout(pair_row)
+
+        # Cross-correlation display
+        self.crosscorr_label = QLabel("Select two signals and click Compute.")
+        self.crosscorr_label.setAlignment(Qt.AlignCenter)
+        self.crosscorr_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.crosscorr_label.setWordWrap(True)
+
+        self.crosscorr_scroll = QScrollArea()
+        self.crosscorr_scroll.setWidgetResizable(True)
+        self.crosscorr_scroll.setWidget(self.crosscorr_label)
+
+        crosscorr_layout.addWidget(self.crosscorr_scroll, stretch=1)
+
+        self.tab_widget.addTab(crosscorr_tab, "Cross-Correlation")
+        self.tab_widget.setTabEnabled(1, False)  # disabled until data loads
+
+        # Main layout
         right = QVBoxLayout()
         right.addWidget(context_widget)
-        right.addWidget(self.scroll, stretch=1)
-
-        left = QVBoxLayout()
-        left.addWidget(self.csv_nav_row)
-        left.addWidget(self.list, stretch=1)
-
-        content = QHBoxLayout()
-        content.addLayout(left)
-        content.addLayout(right, stretch=1)
+        right.addWidget(self.tab_widget, stretch=1)
 
         outer = QVBoxLayout()
-        outer.addLayout(content, stretch=1)
+        outer.addLayout(right, stretch=1)
         self.setLayout(outer)
 
-        # Start in an empty state
         self._show_empty_state("No graphs available.")
         self._refresh_context_banner()
 
     def set_context(self, csv_id: Optional[str], config_path: Optional[str], csv_files: Optional[List[str]] = None):
-        """Set which CSV/folder+config the current graphs correspond to."""
         self._context_csv_id = csv_id
         self._context_config_path = config_path
         self._context_csv_files = list(csv_files) if csv_files is not None else None
@@ -220,7 +283,6 @@ class GraphViewerScene(QWidget):
     def _refresh_context_banner(self):
         csv_id = self._context_csv_id
         cfg = self._context_config_path
-
         config_name = Path(cfg).name if cfg else "(no config)"
 
         is_folder = False
@@ -260,22 +322,21 @@ class GraphViewerScene(QWidget):
             self.context_text.setText(text)
             return
 
-        # Single CSV
         csv_name = Path(csv_id).name if csv_id else "(no csv)"
         self.context_icon.setVisible(False)
         self.context_text.setText(f"{csv_name} • {config_name}")
 
-    # ------------------------------------------------------------------
-    # Public functions to call to construct the viewer
-    # ------------------------------------------------------------------
-
-    def set_graphs(self, graphs: Dict[str, GraphSource], config: Dict[str, Any] = None):
-        """Replace all graphs."""
-        # If we're switching to a single-CSV view, clear any multi-CSV state.
+    def set_graphs(
+        self,
+        graphs: Dict[str, GraphSource],
+        config: Dict[str, Any] = None,
+        *,
+        results_df: Optional[pd.DataFrame] = None,
+    ):
+        """Replace all graphs; clears multi-CSV state when switching to single-CSV view."""
         self._graphs_by_csv = None
+        self._results_by_csv = None
         self._csv_order = []
-
-        # Hide nav row in single mode
         try:
             self.csv_combo.blockSignals(True)
             self.csv_combo.clear()
@@ -284,6 +345,10 @@ class GraphViewerScene(QWidget):
             self.csv_nav_row.setVisible(False)
             self.prev_csv_btn.setVisible(False)
             self.next_csv_btn.setVisible(False)
+            self.crosscorr_csv_combo.blockSignals(True)
+            self.crosscorr_csv_combo.clear()
+            self.crosscorr_csv_combo.setVisible(False)
+            self.crosscorr_csv_combo.blockSignals(False)
         except Exception:
             pass
 
@@ -291,7 +356,6 @@ class GraphViewerScene(QWidget):
         self._graphs.update(graphs)
         self.list.clear()
         self.list.addItems(list(self._graphs.keys()))
-        # Keep banner in sync for single-CSV views.
         self._context_selected_csv = self._context_csv_id
         self._refresh_context_banner()
 
@@ -304,6 +368,10 @@ class GraphViewerScene(QWidget):
                 "or (conda):\n"
                 "  conda install -c conda-forge python-kaleido"
             )
+            if isinstance(results_df, pd.DataFrame) and not results_df.empty:
+                self._enable_crosscorr(results_df)
+            else:
+                self._clear_crosscorr_state()
             return
 
         if self.list.count() > 0:
@@ -316,50 +384,101 @@ class GraphViewerScene(QWidget):
             for name, fig in self._graphs.items():
                 save_to_html(fig, name, self._out_dir, config, self.current_session)
 
+        if isinstance(results_df, pd.DataFrame) and not results_df.empty:
+            self._enable_crosscorr(results_df)
+        else:
+            self._clear_crosscorr_state()
+
     def set_graphs_by_csv(
         self,
         graphs_by_csv: Dict[str, Dict[str, GraphSource]],
-        config: Dict[str, Any] = None
+        config: Dict[str, Any] = None,
+        *,
+        results_by_csv: Optional[Dict[str, pd.DataFrame]] = None,
     ):
-        """
-        Provide graphs grouped by CSV path. Enables a CSV dropdown
-        with Prev/Next navigation to switch between datasets.
-        graphs_by_csv: { csv_path: { graph_name: figure } }
-        """
+        """Graphs grouped by CSV path; Graphs-tab Prev/Next + combo; optional per-file metrics for cross-corr."""
         self._graphs_by_csv = dict(graphs_by_csv or {})
         self._csv_order = list(self._graphs_by_csv.keys())
+        self._results_by_csv = (
+            {str(k): v for k, v in (results_by_csv or {}).items() if isinstance(v, pd.DataFrame)}
+            if results_by_csv
+            else None
+        )
 
         if len(self._csv_order) <= 1:
+            self.crosscorr_csv_combo.blockSignals(True)
+            self.crosscorr_csv_combo.clear()
+            self.crosscorr_csv_combo.setVisible(False)
+            self.crosscorr_csv_combo.blockSignals(False)
             self.csv_nav_row.setVisible(False)
             self.prev_csv_btn.setVisible(False)
             self.next_csv_btn.setVisible(False)
             self.csv_combo.setVisible(False)
             only = self._csv_order[0] if self._csv_order else None
+            df_one: Optional[pd.DataFrame] = None
+            if self._results_by_csv and only:
+                df_one = self._results_by_csv.get(only)
+            elif self._results_by_csv and len(self._results_by_csv) == 1:
+                df_one = next(iter(self._results_by_csv.values()))
             self.set_graphs(
                 self._graphs_by_csv.get(only, {}) if only else {},
-                config=config
+                config=config,
+                results_df=df_one,
             )
             return
 
         self.csv_combo.blockSignals(True)
+        self.crosscorr_csv_combo.blockSignals(True)
         self.csv_combo.clear()
+        self.crosscorr_csv_combo.clear()
         for csv_path in self._csv_order:
             label = Path(csv_path).name if csv_path else "(unknown)"
             self.csv_combo.addItem(label, userData=csv_path)
+            self.crosscorr_csv_combo.addItem(label, userData=csv_path)
         self.csv_combo.setVisible(True)
+        self.crosscorr_csv_combo.setVisible(bool(self._results_by_csv))
         self.csv_combo.setCurrentIndex(0)
+        self.crosscorr_csv_combo.setCurrentIndex(0)
         self.csv_combo.blockSignals(False)
+        self.crosscorr_csv_combo.blockSignals(False)
 
-        # Show nav row and update button states
         self.csv_nav_row.setVisible(True)
         self.prev_csv_btn.setVisible(True)
         self.next_csv_btn.setVisible(True)
         self._update_csv_nav_buttons()
         self._apply_selected_csv(config=config)
+        self._apply_crosscorr_for_current_folder_csv()
 
     def _on_csv_changed(self, _idx: int):
         self._update_csv_nav_buttons()
+        if self.crosscorr_csv_combo.count() == self.csv_combo.count() and self.crosscorr_csv_combo.count() > 0:
+            self.crosscorr_csv_combo.blockSignals(True)
+            self.crosscorr_csv_combo.setCurrentIndex(self.csv_combo.currentIndex())
+            self.crosscorr_csv_combo.blockSignals(False)
         self._apply_selected_csv(config=None)
+        self._apply_crosscorr_for_current_folder_csv()
+
+    def _on_crosscorr_csv_changed(self, _idx: int) -> None:
+        if self.csv_combo.count() == self.crosscorr_csv_combo.count() and self.csv_combo.count() > 0:
+            self.csv_combo.blockSignals(True)
+            self.csv_combo.setCurrentIndex(self.crosscorr_csv_combo.currentIndex())
+            self.csv_combo.blockSignals(False)
+        self._update_csv_nav_buttons()
+        self._apply_selected_csv(config=None)
+        self._apply_crosscorr_for_current_folder_csv()
+
+    def _apply_crosscorr_for_current_folder_csv(self) -> None:
+        """Use metrics for the CSV selected in the folder combo (Graphs + Cross-Correlation)."""
+        if not self._results_by_csv:
+            return
+        csv_path = self.csv_combo.currentData()
+        if csv_path is None:
+            return
+        df = self._results_by_csv.get(str(csv_path))
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            self._enable_crosscorr(df)
+        else:
+            self._clear_crosscorr_state()
 
     def _go_prev_csv(self):
         """Switch to the previous CSV in the dropdown."""
@@ -475,7 +594,6 @@ class GraphViewerScene(QWidget):
             pass
 
     def add_graph(self, name: str, graph: GraphSource):
-        """Add or replace a single graph."""
         new_item = name not in self._graphs
         self._graphs[name] = graph
         if new_item:
@@ -485,7 +603,6 @@ class GraphViewerScene(QWidget):
                 self.list.setCurrentRow(0)
 
     def set_data(self, data):
-        """Consume calculation payload and build the requested dot plots."""
         self._data = data
         self._graphs.clear()
         self.list.clear()
@@ -543,7 +660,7 @@ class GraphViewerScene(QWidget):
             self._show_empty_state(message)
             return
 
-        self.set_graphs(graphs, config=config)
+        self.set_graphs(graphs, config=config, results_df=results_df)
 
     def build_graphs_with_progress(self, data, progress_callback):
         """
@@ -585,6 +702,115 @@ class GraphViewerScene(QWidget):
             progress_callback(index, total, name)
             graphs[name] = fig
         return graphs, config
+
+    # ------------------------------------------------------------------
+    # Cross-correlation support
+    # ------------------------------------------------------------------
+
+    def _clear_crosscorr_state(self) -> None:
+        """No metrics DataFrame (e.g. PNG-only graphs): hide cross-correlation tab contents."""
+        self._crosscorr_available = False
+        self._current_df = None
+        try:
+            self.signal_a_combo.blockSignals(True)
+            self.signal_b_combo.blockSignals(True)
+            self.signal_a_combo.clear()
+            self.signal_b_combo.clear()
+            self.signal_a_combo.blockSignals(False)
+            self.signal_b_combo.blockSignals(False)
+        except Exception:
+            pass
+        self.tab_widget.setTabEnabled(1, False)
+
+    def _enable_crosscorr(self, df: pd.DataFrame):
+        try:
+            signals = get_available_signals(df)
+            if len(signals) < 2:
+                self._crosscorr_available = False
+                self.tab_widget.setTabEnabled(1, False)
+                return
+
+            self._crosscorr_available = True
+            self._crosscorr_signals = signals
+            self._current_df = df
+
+            self.signal_a_combo.blockSignals(True)
+            self.signal_b_combo.blockSignals(True)
+
+            self.signal_a_combo.clear()
+            self.signal_b_combo.clear()
+
+            self.signal_a_combo.addItems(signals)
+            self.signal_b_combo.addItems(signals)
+
+            if len(signals) >= 2:
+                self.signal_a_combo.setCurrentIndex(0)
+                self.signal_b_combo.setCurrentIndex(1)
+
+            self.signal_a_combo.blockSignals(False)
+            self.signal_b_combo.blockSignals(False)
+
+            self.tab_widget.setTabEnabled(1, True)
+
+        except Exception as e:
+            print(f"[GraphViewerScene] Could not enable cross-correlation: {e}")
+            self._crosscorr_available = False
+            self.tab_widget.setTabEnabled(1, False)
+
+    def _compute_crosscorr(self):
+        if not self._crosscorr_available:
+            self.crosscorr_label.setText("Cross-correlation not available for this dataset.")
+            return
+
+        signal_a = self.signal_a_combo.currentText()
+        signal_b = self.signal_b_combo.currentText()
+
+        if not signal_a or not signal_b:
+            self.crosscorr_label.setText("Please select both signals.")
+            return
+
+        if signal_a == signal_b:
+            self.crosscorr_label.setText("Please select two different signals.")
+            return
+
+        try:
+            df = self._current_df
+            if df is None:
+                self.crosscorr_label.setText("No data available.")
+                return
+
+            result = compute_cross_correlation_from_dataframe(df, signal_a, signal_b)
+
+            fig = render_crosscorr_plot(
+                lags=result.lags.tolist(),
+                correlations=result.correlations.tolist(),
+                signal_a_name=signal_a,
+                signal_b_name=signal_b,
+                peak_lag=result.peak_lag,
+                peak_correlation=result.peak_correlation,
+            )
+
+            pix = self._figure_to_pixmap(fig)
+            if pix and not pix.isNull():
+                self._current_crosscorr_pixmap = pix
+                self._update_crosscorr_pixmap()
+                self.crosscorr_label.setText("")
+            else:
+                self.crosscorr_label.setText("Could not render cross-correlation plot.")
+
+        except Exception as e:
+            self.crosscorr_label.setText(f"Error computing cross-correlation:\n{str(e)}")
+            print(f"[GraphViewerScene] Cross-correlation error: {e}")
+
+    def _update_crosscorr_pixmap(self):
+        if not hasattr(self, "_current_crosscorr_pixmap") or self._current_crosscorr_pixmap is None:
+            return
+
+        viewport_size = self.crosscorr_scroll.viewport().size()
+        target_w = max(50, viewport_size.width() - 16)
+        scaled = self._current_crosscorr_pixmap.scaledToWidth(target_w, Qt.SmoothTransformation)
+        self.crosscorr_label.setPixmap(scaled)
+        self.crosscorr_label.setText("")
 
     # ------------------------------------------------------------------
     # Internal functions
@@ -640,10 +866,13 @@ class GraphViewerScene(QWidget):
         super().resizeEvent(event)
         if self._original_pixmap:
             self._update_scaled_pixmap()
+        if getattr(self, "_current_crosscorr_pixmap", None) is not None:
+            self._update_crosscorr_pixmap()
 
     def prepare_for_session_load(self) -> None:
         """Clear viewer UI before attaching a new session (avoids stale list/graphs)."""
         self._graphs_by_csv = None
+        self._results_by_csv = None
         self._csv_order = []
         self._data = None
         try:
@@ -651,12 +880,20 @@ class GraphViewerScene(QWidget):
             self.csv_combo.clear()
             self.csv_combo.setVisible(False)
             self.csv_combo.blockSignals(False)
+            self.csv_nav_row.setVisible(False)
+            self.prev_csv_btn.setVisible(False)
+            self.next_csv_btn.setVisible(False)
+            self.crosscorr_csv_combo.blockSignals(True)
+            self.crosscorr_csv_combo.clear()
+            self.crosscorr_csv_combo.setVisible(False)
+            self.crosscorr_csv_combo.blockSignals(False)
         except Exception:
             pass
         self._graphs.clear()
         self.list.clear()
         self._show_empty_state("No graphs available.")
         self.set_context(None, None, None)
+        self._clear_crosscorr_state()
 
     def load_session(self, session, *, preload_saved_graphs: bool = False):
         """Attach session and output paths; optionally restore PNGs from disk.
@@ -1148,9 +1385,7 @@ def build_fin_tail_graphs(
     return graphs, warnings
 
 
-def _extract_time_ranges(
-    config: Dict[str, Any], results_df: pd.DataFrame
-) -> List[List[int]]:
+def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> List[List[int]]:
     cfg_ranges = (config or {}).get("time_ranges") or []
     if cfg_ranges:
         return [list(map(int, tr)) for tr in cfg_ranges]
@@ -1164,12 +1399,8 @@ def _extract_time_ranges(
         end_col = f"timeRangeEnd_{suffix}"
         if end_col not in results_df.columns:
             continue
-        start_val = pd.to_numeric(
-            results_df[start_col].iloc[0], errors="coerce"
-        )
-        end_val = pd.to_numeric(
-            results_df[end_col].iloc[0], errors="coerce"
-        )
+        start_val = pd.to_numeric(results_df[start_col].iloc[0], errors="coerce")
+        end_val = pd.to_numeric(results_df[end_col].iloc[0], errors="coerce")
         if pd.isna(start_val) or pd.isna(end_val):
             continue
         start_idx = int(start_val)
@@ -1248,22 +1479,13 @@ def build_head_plot_graphs(
     return graphs, warnings
 
 
-def save_to_html(
-    fig: go.Figure,
-    title: str,
-    out_dir: Path,
-    config: Dict[str, Any],
-    session=None
-) -> None:
+def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session=None) -> None:
     try:
         fname = _safe_filename(title) or "graph"
         html_path = out_dir / f"{fname}.html"
         png_path = out_dir / f"{fname}.png"
 
-        pio.write_html(
-            fig, file=str(html_path),
-            include_plotlyjs="cdn", auto_open=False
-        )
+        pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
 
         try:
             png_bytes = pio.to_image(fig, format="png", scale=2)
@@ -1282,21 +1504,3 @@ def save_to_html(
             session.save()
     except Exception as e:
         print(f"Could not save '{title}' as HTML: {e}")
-
-
-
-def _safe_dirname(name: str) -> str:
-    """Filesystem-safe directory name (no extension)."""
-    return _safe_filename(name) or "item"
-
-
-def _is_kaleido_available() -> bool:
-    """
-    Best-effort check for Kaleido availability.
-    Plotly's PNG export requires Kaleido; if it's missing, to_image() raises.
-    """
-    try:
-        import kaleido  # noqa: F401
-    except Exception:
-        return False
-    return True

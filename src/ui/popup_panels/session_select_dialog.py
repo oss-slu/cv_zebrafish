@@ -22,11 +22,13 @@ from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -318,6 +320,36 @@ class SessionSelectDialog(QDialog):
         self._session_status.setText(t)
         self._session_status.show()
 
+    def _shell_theme_name(self) -> str:
+        p = self.parentWidget()
+        while p is not None:
+            t = getattr(p, "current_theme", None)
+            if t in THEMES:
+                return str(t)
+            p = p.parentWidget()
+        return "dark"
+
+    def _prompt_new_session_name(self) -> str | None:
+        """Line edit with placeholder ``session``; OK with empty field uses ``session``."""
+        theme_name = self._shell_theme_name()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Create New Session")
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel("Session name:"))
+        edit = QLineEdit()
+        edit.setPlaceholderText("session")
+        layout.addWidget(edit)
+        bbox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bbox.accepted.connect(dlg.accept)
+        bbox.rejected.connect(dlg.reject)
+        layout.addWidget(bbox)
+        apply_theme(dlg, THEMES.get(theme_name, THEMES["dark"]))
+        edit.setFocus()
+        if dlg.exec_() != QDialog.Accepted:
+            return None
+        raw = edit.text().strip()
+        return raw or "session"
+
     def _populate_table(self) -> None:
         rows = _rows_from_registry()
         self._table.setRowCount(len(rows))
@@ -548,14 +580,11 @@ class SessionSelectDialog(QDialog):
         self._show_dialog_status(f"Removed “{name}” from the session list.")
 
     def _on_create_new(self) -> None:
-        text, ok = QInputDialog.getText(self, "Create New Session", "Session name:")
-        if not ok:
+        name = self._prompt_new_session_name()
+        if name is None:
             return
-        desired = _safe_session_stem(text)
-        if not desired:
-            self._show_dialog_status("Please enter a session name.")
-            return
-        stem = unique_session_stem(text)
+        desired = _safe_session_stem(name) or "session"
+        stem = unique_session_stem(name)
         suffix = ""
         if stem != desired:
             suffix = f"\n\nName was adjusted to “{stem}” because that name was already taken."

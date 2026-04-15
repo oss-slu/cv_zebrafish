@@ -10,6 +10,8 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 import src.core.calculations.Driver as calculations
 import src.core.parsing.Parser as parser
 from PyQt5.QtCore import QEvent, QPoint, QSize, Qt
@@ -486,7 +488,11 @@ class MainShellWindow(QMainWindow):
                 pass
 
             graphs_scene.set_context(csv_id=csv_folder_id, config_path=config_path, csv_files=csv_files)
-            graphs_scene.set_graphs_by_csv(graphs_by_csv, config=config)
+            graphs_scene.set_graphs_by_csv(
+                graphs_by_csv,
+                config=config,
+                results_by_csv=results_by_csv,
+            )
             self._persist_calculation_succeeded()
             self._show_view_output_panel()
             config_scene.set_progress(0, 0, "")
@@ -502,7 +508,12 @@ class MainShellWindow(QMainWindow):
         if graphs is not None and cfg is not None:
             config_scene.set_progress(len(graphs), len(graphs), "Loading graphs...")
             QApplication.processEvents()
-            graphs_scene.set_graphs(graphs, config=cfg)
+            df = data.get("results_df")
+            graphs_scene.set_graphs(
+                graphs,
+                config=cfg,
+                results_df=df if isinstance(df, pd.DataFrame) else None,
+            )
             try:
                 graphs_scene.set_context(
                     csv_id=data.get("csv_path") if isinstance(data, dict) else None,
