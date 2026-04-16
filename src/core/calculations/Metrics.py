@@ -201,6 +201,31 @@ def calc_tail_angle(clp1, clp2, tp):
     ])
 
 
+def _signed_perp_distance_to_axis(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    xt: float,
+    yt: float,
+    eps: float = 1e-9,
+) -> float:
+    """
+    Signed perpendicular distance from (xt, yt) to the infinite line through (x1,y1)-(x2,y2).
+
+    Matches the sign of ``(m*xt - yt + b) / sqrt(m**2+1)`` from the old ``np.polyfit`` formulation,
+    but avoids ``polyfit`` entirely so vertical axes (x1 == x2) and near-degenerate segments do not
+    raise ``LinAlgError`` / ``RankWarning`` (the latter can become an exception under strict filters).
+    """
+    dx = float(x2) - float(x1)
+    dy = float(y2) - float(y1)
+    denom = float(np.hypot(dx, dy))
+    if denom < eps or not np.isfinite(denom):
+        return float("nan")
+    rel = (dy * (float(xt) - float(x1)) - dx * (float(yt) - float(y1))) / denom
+    return float(rel) if np.isfinite(rel) else float("nan")
+
+
 def calc_tail_side_and_distance(clp1, clp2, tp, scale_factor):
     """
     Determine tail side (Left/Right) and signed distance from the body axis.
@@ -225,16 +250,17 @@ def calc_tail_side_and_distance(clp1, clp2, tp, scale_factor):
         x1, y1 = clp1["x"][i], clp1["y"][i]
         x2, y2 = clp2["x"][i], clp2["y"][i]
         xt, yt = tp["x"][i], tp["y"][i]
-        m, b = np.polyfit([x1, x2], [y1, y2], 1)
-        rel_pos = (m * xt - yt + b) / np.sqrt(m**2 + 1)
+        rel_pos = _signed_perp_distance_to_axis(x1, y1, x2, y2, xt, yt)
         signed_dist = rel_pos * scale_factor
-        if rel_pos < 0:
+        if not np.isfinite(rel_pos):
+            sides[i] = "On the line"
+        elif rel_pos < 0:
             sides[i] = "Right"
         elif rel_pos > 0:
             sides[i] = "Left"
         else:
             sides[i] = "On the line"
-        distances_scaled[i] = signed_dist
+        distances_scaled[i] = signed_dist if np.isfinite(rel_pos) else np.nan
         distances_raw[i] = rel_pos
     return sides, distances_scaled, distances_raw
 
@@ -257,12 +283,13 @@ def calc_furthest_tail_point(clp1, clp2, tail, tail_points):
     for i in range(n):
         x1, y1 = clp1["x"][i], clp1["y"][i]
         x2, y2 = clp2["x"][i], clp2["y"][i]
-        m, b = np.polyfit([x1, x2], [y1, y2], 1)
-        max_abs_dist = 0
+        max_abs_dist = 0.0
         furthest = tail_points[0]
         for p, pt in enumerate(tail):
             xt, yt = pt["x"][i], pt["y"][i]
-            rel_pos = (m * xt - yt + b) / np.sqrt(m**2 + 1)
+            rel_pos = _signed_perp_distance_to_axis(x1, y1, x2, y2, xt, yt)
+            if not np.isfinite(rel_pos):
+                continue
             if abs(rel_pos) > max_abs_dist:
                 max_abs_dist = abs(rel_pos)
                 furthest = tail_points[p]

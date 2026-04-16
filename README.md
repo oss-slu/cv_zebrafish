@@ -66,9 +66,12 @@ tests/
 - **Graphs:** Modular Plotly plotters (fin-tail timelines, spine snapshots) with Kaleido PNG rendering.
 - **UI:** Multi-scene PyQt flow with session save/load to resume work.
 - **Legacy parity:** Legacy pipeline kept under `legacy/` for comparison.
-- - **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
-  - - **Cross-Correlation Analysis:** Backend engine for computing cross-correlation between any two movement signals (body part coordinates or derived angles) to identify synchronization and lead/lag relationships.
-  - **Dynamic Body Part Detection:** Automatically detects and groups body parts from any DLC CSV file, supporting variable tracking configurations across different labs without hardcoded assumptions.
+- **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
+- **Cross-Correlation Analysis (backend):** Computes cross-correlation between movement signals (coordinates or derived angles) for synchronization and lead/lag analysis.
+- **Dynamic Body Part Detection:** Automatically detects and groups body parts from any DLC CSV file, supporting variable tracking configurations across different labs without hardcoded assumptions.
+- **Multi-CSV navigation:** Graph Viewer Prev/Next plus dataset dropdown for batch runs, with graph titles labeled by source CSV filename.
+- **Cross-Correlation UI:** Graph Viewer **Cross-Correlation** tab with lag vs correlation plots; pick two signals (e.g. LF_Angle vs RF_Angle) and compute.
+
 
 
 
@@ -211,6 +214,63 @@ Does not crash when body part counts vary across datasets
     "warnings": [],
     "body_part_count": 20
 }
+
+## Multi-CSV Workflow
+
+The Graph Viewer supports batch processing and comparison of multiple CSV datasets.
+
+**How to use:**
+1. In the **Verify** scene, upload a folder containing multiple CSV files
+2. Add a config file and proceed to **Select Configuration**
+3. Click **Run Calculation** — all CSVs are processed automatically
+4. Open **View Output** and use the **Graphs** tab: dataset dropdown plus **◀ Prev** / **Next ▶** to switch CSVs
+5. For folder runs with saved metrics, use the **Cross-Correlation** tab’s **CSV file** dropdown to match the dataset used for signals
+
+**Features:**
+- Dataset dropdown lists all processed CSV files by name
+- **◀ Prev** and **Next ▶** for sequential navigation (disabled at ends)
+- Graph titles prefixed with CSV filename (e.g. `fish1.csv — Head Orientation`)
+- Single-CSV mode unchanged; nav controls appear only for batch runs
+
+**Acceptance Criteria (Issue #85):**
+- Multiple CSVs processed without issues
+- Graphs clearly indicate source file (filename prefix in titles)
+- Smooth navigation between datasets (dropdown + Prev/Next buttons)
+
+## Cross-Correlation (Graph Viewer tab)
+
+The Graph Viewer includes a **Cross-Correlation** tab for temporal relationships between movement signals.
+
+### How to Use
+1. Run calculations on a CSV (or folder of CSVs) via **Select & Run**
+2. Open **View Output** → **Graphs** tab (for context); switch to **Cross-Correlation**
+3. For folder runs, pick **CSV file** if more than one dataset contributed metrics
+4. Select **Signal A** and **Signal B**, then **Compute Cross-Correlation**
+
+### What the Plot Shows
+- **X-axis (Lag):** Frame offset. Positive lag: A leads B; negative: B leads A.
+- **Y-axis (Correlation):** Strength at each lag (-1 to +1)
+- **Red X marker:** Peak correlation
+- **Gray dashed line:** Zero lag
+
+### Example Use Cases
+- **Fin coordination:** Left vs right fin synchronization
+- **Body wave:** Head vs tail timing
+- **Reflex timing:** Stimulus–response lag
+
+### Available Signals
+Numeric columns from calculation results (angles, coordinates, derived metrics).
+
+### Technical Details
+- **Algorithm:** Normalized cross-correlation (FFT)
+- **Missing data:** NaN frames excluded
+- **Lag range:** Defaults to ±25% of signal length (capped)
+
+### Acceptance Criteria (Issue #83)
+- Users can select variables and view correlation plots
+- Graph updates on button click
+- Works with numeric signals from calculations
+- Clear peak and zero-lag indicators
 
 
 ## Known Gaps / Next Steps

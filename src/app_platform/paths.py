@@ -235,7 +235,19 @@ def default_sample_csv() -> Path:
 
 
 def default_sample_config() -> Path:
-    return sample_json_dir() / "BaseConfig.json"
+    """
+    Preferred sample config for “test output” / demos.
+
+    ``BaseConfig.json`` is the canonical name under ``data/samples/jsons/``; if it is
+    missing (e.g. not checked out), fall back to another sample file so callers still
+    get an existing path when possible.
+    """
+    d = sample_json_dir()
+    for fname in ("BaseConfig.json", "config_autogen.json", "extraConfig.json"):
+        p = d / fname
+        if p.is_file():
+            return p
+    return d / "BaseConfig.json"
 
 
 def default_last_config() -> Path:

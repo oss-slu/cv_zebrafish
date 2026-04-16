@@ -23,6 +23,8 @@ from PyQt5.QtWidgets import (
 import src.core.calculations.Driver as calculations
 import src.core.parsing.Parser as parser
 
+from ui.components.branding import view_output_tool_icon
+
 from src.app_platform.paths import default_sample_config, default_sample_csv
 from src.app_platform.paths import images_dir
 
@@ -53,6 +55,7 @@ class ConfigSelectionScene(QWidget):
         self.csv_path = None
         self.config_path = None
         self.previous_settings = {"csv_path": None, "config_path": None}
+        self._tree_theme = "dark"
 
         # --- Layout setup ---
         layout = QVBoxLayout(self)
@@ -185,9 +188,36 @@ class ConfigSelectionScene(QWidget):
         self._update_calc_button_state()
         self.set_progress(0, 0, "")
 
+    def _graph_output_column_icon(self) -> QIcon:
+        ic = view_output_tool_icon(self._tree_theme, active=True)
+        if ic is None or ic.isNull():
+            return self.style().standardIcon(QStyle.SP_FileDialogInfoView)
+        return ic
+
+    def _refresh_view_output_icons_in_tree(self) -> None:
+        """Re-apply View Output column icons when theme changes (SVG is theme-specific)."""
+        if not self.current_session:
+            return
+        graph_icon = self._graph_output_column_icon()
+        for i in range(self.file_tree.topLevelItemCount()):
+            csv_item = self.file_tree.topLevelItem(i)
+            if not csv_item:
+                continue
+            csv_path = csv_item.data(0, Qt.UserRole)
+            if not csv_path or str(csv_path).startswith("("):
+                continue
+            for j in range(csv_item.childCount()):
+                cfg_item = csv_item.child(j)
+                cfg_path = cfg_item.data(1, Qt.UserRole) if cfg_item else None
+                if cfg_item and cfg_path and self._config_row_has_graphs(csv_path, cfg_path):
+                    cfg_item.setIcon(2, graph_icon)
+
     def polish_tree_for_theme(self, theme_name: str) -> None:
         """Brighter expand/collapse affordance in dark mode (palette mid tones)."""
         from PyQt5.QtGui import QColor, QPalette
+
+        self._tree_theme = theme_name or "dark"
+        self._refresh_view_output_icons_in_tree()
 
         if theme_name == "dark":
             pal = QPalette(self.file_tree.palette())
@@ -268,7 +298,7 @@ class ConfigSelectionScene(QWidget):
                 placeholder.setDisabled(True)
                 csv_item.addChild(placeholder)
             else:
-                graph_icon = self.style().standardIcon(QStyle.SP_FileDialogInfoView)
+                graph_icon = self._graph_output_column_icon()
                 for cfg in configs.keys():
                     cfg_name = path.basename(cfg) or cfg
                     cfg_item = QTreeWidgetItem(["", cfg_name, ""])
@@ -464,9 +494,10 @@ class ConfigSelectionScene(QWidget):
             self.previous_settings["csv_path"] = self.csv_path
             self.previous_settings["config_path"] = self.config_path
             self.csv_path = str(default_sample_csv())
-            self.config_path = str(default_sample_config())
+            cfg = default_sample_config()
+            self.config_path = str(cfg)
             self.status_label.setText(
-                "Using test config: correct_format.csv + BaseConfig.json"
+                f"Using test config: {Path(self.csv_path).name} + {cfg.name}"
             )
             self._update_calc_button_state()
         else:
