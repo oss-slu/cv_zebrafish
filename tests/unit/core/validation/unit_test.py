@@ -37,6 +37,23 @@ def test_valid_csv(tmp_path: Path):
     assert warnings == []
 
 
+def test_valid_csv_xy_only(tmp_path: Path):
+    path = tmp_path / "xy.csv"
+    path.write_text(
+        "\n".join(
+            [
+                "scorer,body1,body1",
+                "bodyparts,body1,body1",
+                "coords,x,y",
+                "frame0,10,20",
+            ]
+        )
+    )
+    errors, warnings = verify_deeplabcut_csv(str(path))
+    assert errors == []
+    assert warnings == []
+
+
 def test_wrong_columns(tmp_path: Path):
     path = tmp_path / "wrong_columns.csv"
     path.write_text(

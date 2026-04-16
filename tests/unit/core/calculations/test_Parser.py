@@ -47,3 +47,32 @@ def test_parse_dlc_csv_shapes_and_values(tmp_path: Path):
     npt.assert_allclose(parsed["right_fin"][0]["x"], np.array([30.0, 31.0]))
     assert parsed["tailPoints"] == ["LF1", "LE"]
     npt.assert_allclose(parsed["tail"][0]["conf"], np.array([0.7, 0.71]))
+
+
+def test_parse_dlc_csv_xy_only_defaults_confidence(tmp_path: Path):
+    """XY-only DLC (no likelihood column): parse x/y and use conf=1.0."""
+    csv_path = tmp_path / "sample_xy.csv"
+    csv_path.write_text(
+        "scorer,DLC,DLC,DLC,DLC,DLC,DLC\n"
+        "bodyparts,Head,Head,LE,LE,LF1,LF1\n"
+        "coords,x,y,x,y,x,y\n"
+        "0,10,20,30,40,50,60\n"
+        "1,11,21,31,41,51,61\n"
+    )
+
+    config = {
+        "points": {
+            "spine": ["Head", "LE", "LF1"],
+            "left_fin": ["LF1"],
+            "right_fin": ["LE"],
+            "head": {"pt1": "Head", "pt2": "LE"},
+            "tail": ["LF1", "LE"],
+        }
+    }
+
+    parsed = parse_dlc_csv(str(csv_path), config)
+
+    npt.assert_allclose(parsed["spine"][0]["x"], np.array([10.0, 11.0]))
+    npt.assert_allclose(parsed["spine"][0]["y"], np.array([20.0, 21.0]))
+    npt.assert_allclose(parsed["spine"][0]["conf"], np.array([1.0, 1.0]))
+    npt.assert_allclose(parsed["left_fin"][0]["conf"], np.array([1.0, 1.0]))

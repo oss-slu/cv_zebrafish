@@ -30,8 +30,9 @@ def verify_deeplabcut_csv(file_path, img_width=None, img_height=None):
         bp_groups.setdefault(bp, []).append(coord)
 
     for bp, coord_list in bp_groups.items():
-        expected = ["x", "y", "likelihood"]
-        if coord_list != expected:
+        expected_full = ["x", "y", "likelihood"]
+        expected_xy = ["x", "y"]
+        if coord_list not in (expected_full, expected_xy):
             errors.append(
                 f"[ERROR] Bodypart '{bp}' has wrong columns: {coord_list}")
 

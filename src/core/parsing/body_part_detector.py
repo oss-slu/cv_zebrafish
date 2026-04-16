@@ -77,8 +77,8 @@ def detect_body_parts(csv_path: str) -> BodyPartDetectionResult:
     """
     Automatically detect body parts from a CSV file.
 
-    Supports two CSV formats:
-    1. Raw DLC output: has 'bodyparts' and 'coords' header rows
+    Supports CSV formats:
+    1. Raw DLC output: has `scorer` / `bodyparts` / `coords` header rows (classic x,y,likelihood or XY-only x,y per part)
     2. Enriched output: has prefixed columns like Spine_Head_x, LeftFin_LF1_x
 
     Args:
@@ -234,14 +234,24 @@ def _detect_format_from_columns(columns: List[str]) -> str:
 # Private: DLC raw CSV detection
 # ---------------------------------------------------------------------------
 
+def _dlc_coord_stride_from_coords_row(coords_row: List[Any]) -> int:
+    """
+    Return 3 for classic DLC (x, y, likelihood) or 2 for XY-only exports (x, y).
+
+    Detection is based on the coords header row (row 2 in a raw DLC file).
+    """
+    lowered = [str(v).strip().lower() for v in coords_row]
+    return 3 if any(c == "likelihood" for c in lowered) else 2
+
+
 def _detect_from_dlc_raw(path: Path, warn_list: List[str]) -> BodyPartDetectionResult:
     """
     Detect body parts from a raw DLC CSV file.
 
     DLC CSV structure:
         Row 0: scorer    - model name repeated
-        Row 1: bodyparts - body part name repeated 3x per part
-        Row 2: coords    - x, y, likelihood repeated
+        Row 1: bodyparts - body part name repeated per coordinate column
+        Row 2: coords    - x, y, [likelihood] repeated for each bodypart
         Row 3+: data
     """
     try:
@@ -249,7 +259,10 @@ def _detect_from_dlc_raw(path: Path, warn_list: List[str]) -> BodyPartDetectionR
     except Exception as exc:
         raise ValueError(f"Could not read DLC CSV at {path}: {exc}")
 
-    # Row 1 contains body part names (repeated 3x each: x, y, likelihood)
+    coords_header = raw.iloc[2, 1:].tolist()  # Skip first column (label)
+    stride = _dlc_coord_stride_from_coords_row(coords_header)
+
+    # Row 1 contains body part names (repeated once per coordinate column)
     bodyparts_row = raw.iloc[1, 1:].tolist()  # Skip first column (label)
 
     seen: Set[str] = set()
@@ -268,11 +281,18 @@ def _detect_from_dlc_raw(path: Path, warn_list: List[str]) -> BodyPartDetectionR
             ordered_parts.append(name_str)
             # Column index offset by 1 for the label column
             col_offset = idx + 1
-            column_map[name_str] = {
-                "x": col_offset,
-                "y": col_offset + 1,
-                "conf": col_offset + 2,
-            }
+            if stride == 3:
+                column_map[name_str] = {
+                    "x": col_offset,
+                    "y": col_offset + 1,
+                    "conf": col_offset + 2,
+                }
+            else:
+                column_map[name_str] = {
+                    "x": col_offset,
+                    "y": col_offset + 1,
+                    "conf": -1,
+                }
 
     if not ordered_parts:
         warn_list.append("No body parts detected in the DLC CSV bodyparts row.")
@@ -296,7 +316,8 @@ def _detect_from_dlc_df(
     (the bodyparts row as header), which is how parser.py loads files.
 
     Column names look like:
-        Head, Head.1, Head.2, LE, LE.1, LE.2 ...
+        Head, Head.1, Head.2, LE, LE.1, LE.2 ... (with likelihood)
+        or Head, Head.1, LE, LE.1 ... (XY-only; no .2 likelihood column)
     The base name (without .N suffix) is the body part name.
     """
     columns = list(df.columns)
@@ -334,9 +355,9 @@ def _detect_from_dlc_df(
                 "conf": conf_idx,
             }
 
-            if y_idx == -1 or conf_idx == -1:
+            if y_idx == -1:
                 warn_list.append(
-                    f"Body part '{col_str}' is missing y or confidence columns."
+                    f"Body part '{col_str}' is missing y column."
                 )
 
     if not ordered_parts:
