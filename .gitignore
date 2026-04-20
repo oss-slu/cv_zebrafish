@@ -54,3 +54,9 @@ data/local/
 
 # results
 results/
+.venv/
+venv/
+source/
+*.pyc
+__pycache__/
+*.egg-info/
