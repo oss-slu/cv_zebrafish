@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+from typing import Optional, Sequence
+
 from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtWidgets import QDialog, QHBoxLayout, QLabel, QToolButton, QWidget
 
+from ui.components.scene_help import create_scene_help_button
+
 
 class DialogTitleBar(QWidget):
-    def __init__(self, dialog: QDialog, title: str, parent: QWidget | None = None):
+    def __init__(
+        self,
+        dialog: QDialog,
+        title: str,
+        parent: QWidget | None = None,
+        *,
+        help_title: Optional[str] = None,
+        help_paragraph: Optional[str] = None,
+        help_tips: Optional[Sequence[str]] = None,
+    ):
+        # help_title is the window name for the help dialog only; the modal title is f"Help - {help_title}".
         super().__init__(parent)
         self.setObjectName("AppTitleBar")
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -23,6 +37,15 @@ class DialogTitleBar(QWidget):
         layout.addWidget(self._title, 0, Qt.AlignVCenter)
 
         layout.addStretch(1)
+
+        if help_title and help_paragraph:
+            hb = create_scene_help_button(
+                self,
+                title=help_title,
+                paragraph=help_paragraph,
+                tips=tuple(help_tips) if help_tips is not None else None,
+            )
+            layout.addWidget(hb, 0, Qt.AlignVCenter)
 
         self._btn_close = QToolButton()
         self._btn_close.setObjectName("TitleChromeClose")

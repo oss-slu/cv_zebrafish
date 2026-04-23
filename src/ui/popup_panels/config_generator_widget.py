@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QRect
+from PyQt5.QtGui import QCursor, QFontMetrics
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -25,11 +26,15 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
+    QStyle,
+    QStyleOptionComboBox,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 from core.validation import generate_json
+from ui.components.bodypart_pool_list import BodypartPaletteList, BodypartSequenceList, ChipDelegate
 from app_platform.paths import sessions_dir
 
 
@@ -118,6 +123,8 @@ class ConfigGeneratorScene(QWidget):
 
         body_content = QWidget()
         body_content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self._body_form_content = body_content
+        self._scroll_body = scroll_body
         form = QVBoxLayout(body_content)
         form.setSpacing(10)
         form.setContentsMargins(0, 0, 0, 0)
@@ -128,6 +135,14 @@ class ConfigGeneratorScene(QWidget):
         self.fin_l_2 = QComboBox()
         self.head_1 = QComboBox()
         self.head_2 = QComboBox()
+        self._body_part_combos = (
+            self.fin_r_1,
+            self.fin_r_2,
+            self.fin_l_1,
+            self.fin_l_2,
+            self.head_1,
+            self.head_2,
+        )
 
         for combo, label_text in [
             (self.fin_r_1, "Right Fin #1"),
@@ -138,27 +153,53 @@ class ConfigGeneratorScene(QWidget):
             (self.head_2, "Head pt2"),
         ]:
             form.addWidget(QLabel(label_text))
-            form.addWidget(combo)
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(combo, 0)
+            row.addStretch(1)
+            form.addLayout(row)
 
         form.addWidget(_section_rule())
 
-        form.addWidget(QLabel("Spine Points"))
-        self.spine_list = QListWidget()
-        self.spine_list.setSelectionMode(QListWidget.MultiSelection)
-        self.spine_list.setMinimumHeight(120)
-        self.spine_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.spine_list.setTextElideMode(Qt.ElideLeft)
-        form.addWidget(self.spine_list)
+        # 2×2: each row = [Available] [Spine|Tail] so it’s clear which palette feeds which list.
+        self.bp_available_spine = BodypartPaletteList()
+        self.bp_available_tail = BodypartPaletteList()
+        self.spine_list = BodypartSequenceList()
+        self.tail_list = BodypartSequenceList()
+        self.spine_list.set_palette(self.bp_available_spine)
+        self.tail_list.set_palette(self.bp_available_tail)
+        self.bp_available_spine.set_add_callback(self._on_palette_add_spine)
+        self.bp_available_tail.set_add_callback(self._on_palette_add_tail)
+        self.spine_list.set_return_callback(lambda _n: self._refill_available_pools())
+        self.tail_list.set_return_callback(lambda _n: self._refill_available_pools())
+        self.bp_available_spine.set_after_sequence_drop(self._refill_available_pools)
+        self.bp_available_tail.set_after_sequence_drop(self._refill_available_pools)
+        self.bp_pool_delegate_av1 = ChipDelegate(self.bp_available_spine)
+        self.bp_pool_delegate_av2 = ChipDelegate(self.bp_available_tail)
+        self.bp_pool_delegate_s = ChipDelegate(self.spine_list)
+        self.bp_pool_delegate_t = ChipDelegate(self.tail_list)
+        self.bp_available_spine.set_chip_delegate(self.bp_pool_delegate_av1)
+        self.bp_available_tail.set_chip_delegate(self.bp_pool_delegate_av2)
+        self.spine_list.set_chip_delegate(self.bp_pool_delegate_s)
+        self.tail_list.set_chip_delegate(self.bp_pool_delegate_t)
 
-        form.addWidget(_section_rule())
-
-        form.addWidget(QLabel("Tail Points"))
-        self.tail_list = QListWidget()
-        self.tail_list.setSelectionMode(QListWidget.MultiSelection)
-        self.tail_list.setMinimumHeight(120)
-        self.tail_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.tail_list.setTextElideMode(Qt.ElideLeft)
-        form.addWidget(self.tail_list)
+        pools = QGridLayout()
+        pools.setHorizontalSpacing(12)
+        pools.setVerticalSpacing(10)
+        pools.addWidget(QLabel("Available (spine)"), 0, 0, Qt.AlignHCenter)
+        pools.addWidget(self.bp_available_spine, 1, 0)
+        pools.addWidget(QLabel("Spine (top → down)"), 0, 1, Qt.AlignHCenter)
+        pools.addWidget(self.spine_list, 1, 1)
+        pools.addWidget(QLabel("Available (tail)"), 2, 0, Qt.AlignHCenter)
+        pools.addWidget(self.bp_available_tail, 3, 0)
+        pools.addWidget(QLabel("Tail (top → down)"), 2, 1, Qt.AlignHCenter)
+        pools.addWidget(self.tail_list, 3, 1)
+        for c in (0, 1):
+            pools.setColumnStretch(c, 1)
+        form.addLayout(pools)
+        self._apply_chip_pool_styles()
+        self._apply_bodypart_field_widths()
+        self._polish_bodypart_combos()
 
         form.addWidget(_section_rule())
 
@@ -277,6 +318,7 @@ class ConfigGeneratorScene(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._update_csv_display()
+        self._apply_bodypart_field_widths()
 
     def _update_csv_display(self):
         path = (self.csv_id or self.csv_path or "").strip()
@@ -352,6 +394,8 @@ class ConfigGeneratorScene(QWidget):
             combo.blockSignals(True)
             combo.clear()
             combo.blockSignals(False)
+        self.bp_available_spine.clear()
+        self.bp_available_tail.clear()
         self.spine_list.clear()
         self.tail_list.clear()
         self._sync_angle_dropdowns(changed=None)
@@ -409,11 +453,7 @@ class ConfigGeneratorScene(QWidget):
         self._sync_angle_dropdowns(changed=None)
         self.angle_ccw.setChecked(False)
 
-        self.spine_list.clear()
-        self.tail_list.clear()
-        for bodypart in self.bodyparts:
-            self.spine_list.addItem(QListWidgetItem(bodypart))
-            self.tail_list.addItem(QListWidgetItem(bodypart))
+        self._rebuild_bodypart_pools()
         self._update_csv_display()
         self._update_tab_enabled_state()
 
@@ -519,6 +559,187 @@ class ConfigGeneratorScene(QWidget):
 
         return True, ""
 
+    def _body_content_width(self) -> int:
+        w = 400
+        if self._body_form_content is not None and self._body_form_content.width() > 80:
+            w = self._body_form_content.width()
+        elif self._stack.width() > 120:
+            w = max(200, self._stack.width() - 220)
+        return w
+
+    def _apply_bodypart_field_widths(self) -> None:
+        w = self._body_content_width()
+        fm = self.fontMetrics()
+        ch8 = max(1, fm.horizontalAdvance("0" * 8)) + 48
+        # Previously ~0.33*w; 3x that ≈ use most of the row; floor at ~8 chars.
+        min_wide = int(w * 0.33) * 3
+        combo_max = min(w - 16, max(ch8, min(w - 8, min_wide)))
+        for c in self._body_part_combos:
+            c.setMaximumWidth(16777215)  # reset
+            c.setMinimumWidth(ch8)
+            c.setMaximumWidth(combo_max)
+        col = max(160, (w - 32) // 2)
+        # Don’t cap pool lists too hard — a tight max+min pair made columns effectively zero-wide in edge layouts.
+        for pl in (self.bp_available_spine, self.bp_available_tail, self.spine_list, self.tail_list):
+            pl.setMaximumWidth(16777215)
+            pl.setMinimumWidth(min(220, col))
+
+    def _apply_chip_pool_styles(self) -> None:
+        """Rounded chip look + pool surface; :hover / :selected differ so clicks read as feedback."""
+        for obj in (self.bp_available_spine, self.bp_available_tail, self.spine_list, self.tail_list):
+            obj.setStyleSheet(
+                """
+                QListWidget {
+                    background-color: rgba(40, 40, 48, 0.85);
+                    border: 1px solid rgba(100, 100, 120, 0.9);
+                    border-radius: 8px;
+                    padding: 6px;
+                    outline: none;
+                }
+                QListWidget::item {
+                    background-color: rgba(50, 50, 60, 0.95);
+                    border: 1px solid rgba(120, 120, 140, 0.85);
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                    margin: 2px;
+                }
+                QListWidget::item:hover {
+                    background-color: rgba(70, 72, 90, 0.98);
+                    border: 1px solid rgba(160, 165, 200, 0.95);
+                }
+                QListWidget::item:selected, QListWidget::item:selected:active {
+                    background-color: rgba(60, 90, 150, 0.85);
+                    border: 1px solid rgba(140, 180, 255, 0.9);
+                }
+                QListWidget::item:pressed {
+                    background-color: rgba(90, 100, 140, 0.95);
+                }
+            """
+            )
+
+    def _polish_bodypart_combos(self) -> None:
+        def _tip_from_elide(cc: QComboBox, t: str) -> None:
+            t = t or ""
+            if not t:
+                cc.setToolTip("")
+                return
+            opt = QStyleOptionComboBox()
+            opt.initFrom(cc)
+            opt.editable = False
+            opt.currentText = t
+            ar = self.style().subControlRect(QStyle.CC_ComboBox, opt, QStyle.SC_ComboBoxEditField, cc)
+            avail = max(1, ar.width() - 6)
+            fm = QFontMetrics(cc.font())
+            if fm.horizontalAdvance(t) > avail:
+                cc.setToolTip(t)
+            else:
+                cc.setToolTip("")
+
+        for combo in self._body_part_combos:
+
+            def _on_text(t: str, cc: QComboBox = combo) -> None:
+                _tip_from_elide(cc, t)
+
+            combo.currentTextChanged.connect(_on_text)
+            try:
+                v = combo.view()
+                v.setMouseTracking(True)
+
+                def _on_hov(idx, cc: QComboBox = combo) -> None:
+                    self._on_combo_list_hover(cc, idx)
+
+                v.entered.connect(_on_hov)
+            except Exception:
+                pass
+            _tip_from_elide(combo, combo.currentText())
+            combo.setMinimumContentsLength(8)
+
+    def _on_combo_list_hover(self, combo: QComboBox, index) -> None:
+        t = (combo.model().data(index, Qt.DisplayRole) or "")
+        t = str(t) if t is not None else ""
+        if t:
+            QToolTip.showText(QCursor.pos(), t, combo, QRect(), 5000)
+        else:
+            QToolTip.hideText()
+
+    def _refill_available_pools(self) -> None:
+        """Each Available list only shows bodyparts not already placed in the paired Spine or Tail list."""
+        self.bp_available_spine.clear()
+        self.bp_available_tail.clear()
+        if not self.bodyparts:
+            return
+        in_spine = {
+            (self.spine_list.item(i).text() or "").strip()
+            for i in range(self.spine_list.count())
+            if self.spine_list.item(i)
+        }
+        in_tail = {
+            (self.tail_list.item(i).text() or "").strip()
+            for i in range(self.tail_list.count())
+            if self.tail_list.item(i)
+        }
+        for bp in sorted(self.bodyparts, key=str.lower):
+            if bp not in in_spine:
+                self.bp_available_spine.addItem(QListWidgetItem(bp))
+            if bp not in in_tail:
+                self.bp_available_tail.addItem(QListWidgetItem(bp))
+
+    def _on_palette_add_spine(self, t: str) -> None:
+        n = (t or "").strip()
+        if n and self.spine_list.add_name(n):
+            self._refill_available_pools()
+
+    def _on_palette_add_tail(self, t: str) -> None:
+        n = (t or "").strip()
+        if n and self.tail_list.add_name(n):
+            self._refill_available_pools()
+
+    def _rebuild_bodypart_pools(
+        self,
+        spine_order: list | None = None,
+        tail_order: list | None = None,
+    ) -> None:
+        """Rebuild spine/tail from saved order, then each Available = bodyparts not in that list."""
+        self.bp_available_spine.clear()
+        self.bp_available_tail.clear()
+        self.spine_list.clear()
+        self.tail_list.clear()
+        if not self.bodyparts:
+            return
+        bset = set(self.bodyparts)
+        s_list: list[str] = []
+        for x in spine_order or []:
+            t = str(x)
+            if t in bset and t not in s_list:
+                s_list.append(t)
+        t_list: list[str] = []
+        for x in tail_order or []:
+            t = str(x)
+            if t in bset and t not in t_list:
+                t_list.append(t)
+        for n in s_list:
+            self.spine_list.add_name(n)
+        for n in t_list:
+            self.tail_list.add_name(n)
+        self._refill_available_pools()
+
+    def _config_namespace_dir(self) -> Path:
+        """
+        Backlog #4: each CSV gets its own folder so `config.json` names do not collide in a shared flat dir.
+        """
+        if self.current_session is None:
+            return Path(sessions_dir()) / "unnamed"
+        session_folder = Path(sessions_dir()) / self.current_session.getName()
+        session_folder.mkdir(parents=True, exist_ok=True)
+        key = self.csv_id or self.csv_path
+        if not key:
+            return session_folder
+        stem = Path(str(key)).stem
+        safe = re.sub(r"[^\w\-.]+", "_", stem).strip("_")[:80] or "csv"
+        d = session_folder / "by_csv" / safe
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     def _next_available_path(self, folder: Path, base: str) -> Path:
         if not base.lower().endswith(".json"):
             base = base + ".json"
@@ -545,8 +766,8 @@ class ConfigGeneratorScene(QWidget):
             self._user_message("Warning: No session loaded. Start or load a session first.", tab=0)
             return
 
-        spine_points = [item.text() for item in self.spine_list.selectedItems()]
-        tail_points = [item.text() for item in self.tail_list.selectedItems()]
+        spine_points = [self.spine_list.item(i).text() for i in range(self.spine_list.count())]
+        tail_points = [self.tail_list.item(i).text() for i in range(self.tail_list.count())]
 
         if len(spine_points) < 2 or len(tail_points) < 2:
             self._user_message(
@@ -555,6 +776,18 @@ class ConfigGeneratorScene(QWidget):
             )
             return
 
+        if len(spine_points) != len(set(spine_points)):
+            self._user_message(
+                "Error: duplicate point name in Spine. Each body part can appear only once.",
+                tab=1,
+            )
+            return
+        if len(tail_points) != len(set(tail_points)):
+            self._user_message(
+                "Error: duplicate point name in Tail. Each body part can appear only once.",
+                tab=1,
+            )
+            return
         points = {
             "right_fin": [self.fin_r_1.currentText(), self.fin_r_2.currentText()],
             "left_fin": [self.fin_l_1.currentText(), self.fin_l_2.currentText()],
@@ -584,17 +817,13 @@ class ConfigGeneratorScene(QWidget):
         so["show_tail_left_fin_moving_dot_plot"] = self.chk_dot_lf_mov.isChecked()
         so["show_tail_right_fin_moving_dot_plot"] = self.chk_dot_rf_mov.isChecked()
 
-        session_name = self.current_session.getName()
-        session_folder = Path(sessions_dir()) / session_name
-        session_folder.mkdir(parents=True, exist_ok=True)
-
         config_name = self._resolved_config_name()
         ok, msg = self._validate_config_name(config_name)
         if not ok:
             self._user_message(f"Warning: {msg}", tab=0)
             return
 
-        save_path = self._next_available_path(session_folder, config_name)
+        save_path = self._next_available_path(self._config_namespace_dir(), config_name)
         save_path = str(save_path)
 
         try:
@@ -678,16 +907,7 @@ class ConfigGeneratorScene(QWidget):
             _set_combo(self.head_1, str(head.get("pt1", "")))
             _set_combo(self.head_2, str(head.get("pt2", "")))
 
-        for lst, names in (
-            (self.spine_list, pts.get("spine") or []),
-            (self.tail_list, pts.get("tail") or []),
-        ):
-            lst.clearSelection()
-            names_set = {str(n) for n in names}
-            for i in range(lst.count()):
-                it = lst.item(i)
-                if it.text() in names_set:
-                    it.setSelected(True)
+        self._rebuild_bodypart_pools(pts.get("spine") or [], pts.get("tail") or [])
 
         so = cfg.get("shown_outputs") or {}
         self.chk_fin_tail.setChecked(bool(so.get("show_angle_and_distance_plot", True)))

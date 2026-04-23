@@ -13,8 +13,9 @@ from pathlib import Path
 import pandas as pd
 
 import src.core.calculations.Driver as calculations
+from src.core.calculations.cancelled import CalculationAborted
 import src.core.parsing.Parser as parser
-from PyQt5.QtCore import QEvent, QPoint, QSize, Qt
+from PyQt5.QtCore import QEvent, QPoint, QTimer, QSize, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QApplication,
@@ -36,7 +37,11 @@ from ui.components.error_toast import ErrorToast
 from ui.components.custom_title_bar import CustomTitleBar
 from ui.components.shell_menus import build_file_help_menus
 from ui.components.sidebar_tools import SidebarTools
-from ui.main_panels.graph_viewer_widget import get_graph_names_to_build
+from ui.main_panels.graph_viewer_widget import (
+    count_figures_in_folder_runs,
+    count_figures_in_graph_dict,
+    get_graph_names_to_build,
+)
 from ui.main_panels.workspace_widget import WorkspaceWidget
 from ui.popup_panels.generate_config_dialog import GenerateConfigDialog
 from ui.popup_panels.session_select_dialog import SessionSelectDialog
@@ -400,120 +405,275 @@ class MainShellWindow(QMainWindow):
             pass
         self._refresh_sidebar_capabilities()
 
-    def _handle_calculation_data(self, data) -> None:
-        """Orchestrate graph build after Run Calculation."""
-        if data is None:
-            return
-        config_scene = self.workspace.select_run_panel.selection
-        graphs_scene = self.workspace.view_output_panel.viewer
+    def _calculation_cancelled(self) -> bool:
+        return self.workspace.select_run_panel.selection.is_calculation_cancelled()
 
-        def progress_callback(n, total, graph_name):
-            config_scene.set_progress(n, total, graph_name)
-
-        if data and isinstance(data, dict) and data.get("csv_files"):
-            csv_files = list(data.get("csv_files") or [])
-            config = data.get("config") or {}
-            config_path = data.get("config_path") or (
-                config.get("config_path") if isinstance(config, dict) else None
-            )
-            csv_folder_id = data.get("csv_folder")
-            if not csv_files or not isinstance(config, dict):
-                self._show_error_toast("Bad Input", "Folder payload is missing CSV files or config.")
-                return
-            if not csv_folder_id or not config_path:
-                self._show_error_toast("Bad Input", "Folder payload is missing folder id or config path.")
-                return
-
-            results_by_csv = {}
-            parsed_by_csv = {}
-            total_files = len(csv_files)
-            for idx, csv_path in enumerate(csv_files, start=1):
-                config_scene.set_progress(idx, total_files, f"Calculating: {Path(csv_path).name}")
-                try:
-                    parsed_points = parser.parse_dlc_csv(csv_path, config)
-                    results_df = calculations.run_calculations(parsed_points, config)
-                except Exception as exc:
-                    config_scene.set_progress(0, 0, "")
-                    self._show_error_toast("Calculation Failed", f"Failed on {csv_path}:\n{exc}")
-                    return
-                results_by_csv[csv_path] = results_df
-                parsed_by_csv[csv_path] = parsed_points
-
-            total_graphs = 0
-            file_payloads = []
-            for csv_path in csv_files:
-                payload = {
-                    "results_df": results_by_csv[csv_path],
-                    "config": config,
-                    "csv_path": csv_path,
-                    "parsed_points": parsed_by_csv[csv_path],
-                }
-                names = get_graph_names_to_build(payload)
-                total_graphs += len(names)
-                file_payloads.append((csv_path, payload))
-
-            if total_graphs <= 0:
-                config_scene.set_progress(0, 0, "")
-                self._show_error_toast("No Graphs", "No graphs were requested or available for this config.")
-                return
-
-            graphs_by_csv = {}
-            done = 0
-
-            for csv_path, payload in file_payloads:
-                def progress_callback2(_n, _total, graph_name, _csv=csv_path):
-                    nonlocal done
-                    done += 1
-                    config_scene.set_progress(done, total_graphs, f"{Path(_csv).name} — {graph_name}")
-
-                graphs, _cfg = graphs_scene.build_graphs_with_progress(payload, progress_callback2)
-                if graphs is None:
-                    continue
-                graphs_by_csv[csv_path] = graphs
-
-            if not graphs_by_csv:
-                config_scene.set_progress(0, 0, "")
-                self._show_error_toast("No Graphs", "Graphs could not be generated for this folder.")
-                return
-
-            try:
-                graphs_scene.save_folder_graphs(
-                    csv_folder_id=csv_folder_id,
-                    csv_files=csv_files,
-                    config_path=config_path,
-                    graphs_by_csv=graphs_by_csv,
-                    config=config,
-                )
-            except Exception:
-                pass
-
-            graphs_scene.set_context(csv_id=csv_folder_id, config_path=config_path, csv_files=csv_files)
-            graphs_scene.set_graphs_by_csv(
-                graphs_by_csv,
-                config=config,
-                results_by_csv=results_by_csv,
-            )
+    def _deferred_view_output_after_ready(self, config_scene) -> None:
+        """After 100% 'Ready', hold ~1s so the label is readable, then open Graphs and clear the bar."""
+        def _go() -> None:
             self._persist_calculation_succeeded()
             self._show_view_output_panel()
             config_scene.set_progress(0, 0, "")
+
+        QTimer.singleShot(1000, _go)
+
+    def _handle_calculation_data(self, data) -> None:
+        """Orchestrate graph build after Run Calculation. Progress is monotonic; 100% only when UI is ready (#91)."""
+        config_scene = self.workspace.select_run_panel.selection
+        if data is None:
+            config_scene.finish_calculation_run()
+            return
+        graphs_scene = self.workspace.view_output_panel.viewer
+        is_cancel = self._calculation_cancelled
+
+        try:
+            if data and isinstance(data, dict) and data.get("csv_files"):
+                self._run_folder_calculation(
+                    data, config_scene, graphs_scene, is_cancel
+                )
+                return
+            self._run_single_csv_calculation(
+                data, config_scene, graphs_scene, is_cancel
+            )
+        except CalculationAborted:
+            config_scene.set_progress(0, 0, "")
+        finally:
+            config_scene.finish_calculation_run()
+
+    def _run_folder_calculation(
+        self, data, config_scene, graphs_scene, is_cancel
+    ) -> None:
+        if is_cancel():
+            raise CalculationAborted()
+        csv_files = list(data.get("csv_files") or [])
+        config = data.get("config") or {}
+        config_path = data.get("config_path") or (
+            config.get("config_path") if isinstance(config, dict) else None
+        )
+        csv_folder_id = data.get("csv_folder")
+        if not csv_files or not isinstance(config, dict):
+            self._show_error_toast("Bad Input", "Folder payload is missing CSV files or config.")
+            return
+        if not csv_folder_id or not config_path:
+            self._show_error_toast("Bad Input", "Folder payload is missing folder id or config path.")
             return
 
+        config_scene.set_progress(0, 0, "")
+        config_scene.start_progress_run()
+        total_files = len(csv_files)
+        tot_phase1 = 5 * max(1, total_files) + 3
+        step = 0
+        results_by_csv: dict = {}
+        parsed_by_csv: dict = {}
+        g_counts: list = []
+
+        for idx, csv_path in enumerate(csv_files, start=1):
+            if is_cancel():
+                raise CalculationAborted()
+            base = f"({idx}/{total_files})  {Path(csv_path).name}"
+            step += 1
+            config_scene.set_progress(step, tot_phase1, f"{base}  —  reading")
+            try:
+                parsed_points = parser.parse_dlc_csv(csv_path, config)
+            except Exception as exc:
+                config_scene.set_progress(0, 0, "")
+                self._show_error_toast("Calculation Failed", f"Failed on {csv_path}:\n{exc}")
+                return
+            QApplication.processEvents()
+            step += 1
+            config_scene.set_progress(step, tot_phase1, f"{base}  —  computing…")
+            try:
+                results_df = calculations.run_calculations(
+                    parsed_points, config, cancel_check=is_cancel
+                )
+            except CalculationAborted:
+                raise
+            except Exception as exc:
+                config_scene.set_progress(0, 0, "")
+                self._show_error_toast("Calculation Failed", f"Failed on {csv_path}:\n{exc}")
+                return
+            results_by_csv[csv_path] = results_df
+            parsed_by_csv[csv_path] = parsed_points
+            payload = {
+                "results_df": results_df,
+                "config": config,
+                "csv_path": csv_path,
+                "parsed_points": parsed_points,
+            }
+            g_counts.append(len(get_graph_names_to_build(payload)))
+            QApplication.processEvents()
+
+        total_graphs = int(sum(g_counts))
+        if total_graphs <= 0:
+            config_scene.set_progress(0, 0, "")
+            self._show_error_toast("No Graphs", "No graphs were requested or available for this config.")
+            return
+
+        total_steps = 2 * total_files + 2 * total_graphs + 2
+        config_scene.set_progress(
+            2 * total_files,
+            total_steps,
+            "All metrics ready — building graphs…",
+        )
+        QApplication.processEvents()
+
+        step = 2 * total_files
+        file_payloads = [
+            (
+                p,
+                {
+                    "results_df": results_by_csv[p],
+                    "config": config,
+                    "csv_path": p,
+                    "parsed_points": parsed_by_csv[p],
+                },
+            )
+            for p in csv_files
+        ]
+        graphs_by_csv: dict = {}
+        for csv_path, payload in file_payloads:
+            if is_cancel():
+                raise CalculationAborted()
+
+            def progress_callback2(
+                n: int, gtotal: int, graph_name: str, _csv: str = csv_path
+            ) -> None:
+                nonlocal step
+                if is_cancel():
+                    raise CalculationAborted()
+                step += 1
+                config_scene.set_progress(
+                    step,
+                    total_steps,
+                    f"{Path(_csv).name}  —  {n}/{gtotal}  —  {graph_name}",
+                )
+                QApplication.processEvents()
+
+            graphs, _cfg = graphs_scene.build_graphs_with_progress(
+                payload, progress_callback2, is_cancelled=is_cancel
+            )
+            if graphs is None:
+                continue
+            graphs_by_csv[csv_path] = graphs
+
+        if not graphs_by_csv:
+            config_scene.set_progress(0, 0, "")
+            self._show_error_toast("No Graphs", "Graphs could not be generated for this folder.")
+            return
+
+        n_save = count_figures_in_folder_runs(graphs_by_csv)
+        total_steps = 2 * total_files + total_graphs + n_save + 2
+        step = 2 * total_files + total_graphs
+
+        def _folder_save_progress(done: int, n: int, detail: str) -> None:
+            nonlocal step
+            if is_cancel():
+                raise CalculationAborted()
+            step = 2 * total_files + total_graphs + done
+            config_scene.set_progress(
+                step, total_steps, f"Saving {done}/{n}  —  {detail}"
+            )
+            QApplication.processEvents()
+
+        try:
+            graphs_scene.save_folder_graphs(
+                csv_folder_id=csv_folder_id,
+                csv_files=csv_files,
+                config_path=config_path,
+                graphs_by_csv=graphs_by_csv,
+                config=config,
+                save_progress=_folder_save_progress,
+                is_cancelled=is_cancel,
+            )
+        except CalculationAborted:
+            raise
+        except Exception:
+            pass
+        if is_cancel():
+            raise CalculationAborted()
+        QApplication.processEvents()
+        step = 2 * total_files + total_graphs + n_save
+        step += 1
+        config_scene.set_progress(step, total_steps, "Preparing graph viewer…")
+        QApplication.processEvents()
+        graphs_scene.set_context(
+            csv_id=csv_folder_id, config_path=config_path, csv_files=csv_files
+        )
+        graphs_scene.set_graphs_by_csv(
+            graphs_by_csv,
+            config=config,
+            results_by_csv=results_by_csv,
+        )
+        QApplication.processEvents()
+        step += 1
+        config_scene.set_progress(step, total_steps, "Ready")
+        QApplication.processEvents()
+        self._deferred_view_output_after_ready(config_scene)
+
+    def _run_single_csv_calculation(
+        self, data, config_scene, graphs_scene, is_cancel
+    ) -> None:
+        gcount: int = 0
+        if is_cancel():
+            raise CalculationAborted()
         if data and isinstance(data, dict) and data.get("results_df") is not None:
             names = get_graph_names_to_build(data)
-            total = len(names)
-            if total > 0:
-                config_scene.set_progress(0, total, "Loading graphs...")
-        graphs, cfg = graphs_scene.build_graphs_with_progress(data, progress_callback)
+            gcount = len(names)
+            if gcount == 0:
+                graphs, cfg = graphs_scene.build_graphs_with_progress(
+                    data, lambda n, t, g: None, is_cancelled=is_cancel
+                )
+            else:
+                _st = [2 + 2 * gcount + 2]
+                config_scene.start_progress_run()
+                config_scene.set_progress(2, _st[0], f"0/{gcount} — building graphs")
+                def _single_progress(n, total, graph_name: str) -> None:
+                    if is_cancel():
+                        raise CalculationAborted()
+                    config_scene.set_progress(2 + n, _st[0], f"{n}/{total} — {graph_name}")
+                    QApplication.processEvents()
+
+                graphs, cfg = graphs_scene.build_graphs_with_progress(
+                    data, _single_progress, is_cancelled=is_cancel
+                )
+        else:
+            graphs, cfg = graphs_scene.build_graphs_with_progress(
+                data, lambda n, t, g: None, is_cancelled=is_cancel
+            )
 
         if graphs is not None and cfg is not None:
-            config_scene.set_progress(len(graphs), len(graphs), "Loading graphs...")
-            QApplication.processEvents()
             df = data.get("results_df")
-            graphs_scene.set_graphs(
-                graphs,
-                config=cfg,
-                results_df=df if isinstance(df, pd.DataFrame) else None,
-            )
+            n_fig = count_figures_in_graph_dict(graphs) if isinstance(graphs, dict) else 0
+            st_final = 2 + gcount + n_fig + 2
+
+            def _save_p(i, nt, name):
+                if is_cancel():
+                    raise CalculationAborted()
+                config_scene.set_progress(2 + gcount + i, st_final, f"Saving {i}/{nt}  —  {name}")
+                QApplication.processEvents()
+
+            def _prep():
+                if is_cancel():
+                    raise CalculationAborted()
+                config_scene.set_progress(2 + gcount + n_fig + 1, st_final, "Preparing graph viewer…")
+                QApplication.processEvents()
+
+            set_graphs_kw: dict = {}
+            if gcount > 0:
+                set_graphs_kw = {
+                    "save_progress": _save_p,
+                    "on_preparing_viewer": _prep,
+                    "is_cancelled": is_cancel,
+                }
+            try:
+                graphs_scene.set_graphs(
+                    graphs,
+                    config=cfg,
+                    results_df=df if isinstance(df, pd.DataFrame) else None,
+                    **set_graphs_kw,
+                )
+            except CalculationAborted:
+                raise
             try:
                 graphs_scene.set_context(
                     csv_id=data.get("csv_path") if isinstance(data, dict) else None,
@@ -522,14 +682,21 @@ class MainShellWindow(QMainWindow):
                 )
             except Exception:
                 pass
-            self._persist_calculation_succeeded()
-            self._show_view_output_panel()
+            QApplication.processEvents()
+            if gcount > 0:
+                config_scene.set_progress(st_final, st_final, "Ready")
+                QApplication.processEvents()
+                self._deferred_view_output_after_ready(config_scene)
+            else:
+                self._persist_calculation_succeeded()
+                self._show_view_output_panel()
         else:
             graphs_scene.set_data(data)
             self._view_output_sidebar_unlocked = True
             self._show_view_output_panel()
             self._refresh_sidebar_capabilities()
-        config_scene.set_progress(0, 0, "")
+        if not (graphs is not None and cfg is not None and gcount > 0):
+            config_scene.set_progress(0, 0, "")
 
     def _toggle_theme(self) -> None:
         self.current_theme = "dark" if self.current_theme == "light" else "light"

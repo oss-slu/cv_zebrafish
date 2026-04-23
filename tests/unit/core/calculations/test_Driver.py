@@ -2,6 +2,9 @@ import numpy as np
 import numpy.testing as npt
 import pandas as pd
 
+import pytest
+
+from cvzebrafish.core.calculations.cancelled import CalculationAborted
 from cvzebrafish.core.calculations.Driver import run_calculations
 
 
@@ -58,6 +61,13 @@ def _build_config():
         "auto_find_time_ranges": False,
         "time_ranges": [[0, 2]],
     }
+
+
+def test_run_calculations_respects_cancel_check():
+    parsed_points = _build_parsed_points()
+    config = _build_config()
+    with pytest.raises(CalculationAborted):
+        run_calculations(parsed_points, config, cancel_check=lambda: True)
 
 
 def test_run_calculations_returns_expected_dataframe():
