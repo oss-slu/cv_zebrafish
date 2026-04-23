@@ -46,7 +46,7 @@ class VerifyWorkspace(QWidget):
 
         header = QLabel("Verify Input Files")
         header.setAlignment(Qt.AlignHCenter)
-        header.setStyleSheet("font-size: 24px; font-weight: bold;")
+        header.setStyleSheet("font-size: 20px; font-weight: bold;")
         main_layout.addWidget(header)
 
         csv_layout = QHBoxLayout()

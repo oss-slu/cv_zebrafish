@@ -68,6 +68,11 @@ from PyQt5.QtWidgets import QApplication
 from ui.main_window_shell import MainShellWindow
 
 app = QApplication(sys.argv)
+# ISSUE #90:INCREASING FONT SIZE
+_qss_path = Path(__file__).resolve().parent / "src" / "ui" / "styles" / "app.qss"
+if _qss_path.exists():
+    app.setStyleSheet(_qss_path.read_text(encoding="utf-8"))
+
 window = MainShellWindow()
 window.show()
 app.exec()
