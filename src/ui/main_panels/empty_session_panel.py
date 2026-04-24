@@ -52,7 +52,7 @@ class EmptySessionPanel(QWidget):
         hint = QLabel("+ Load Session")
         hint.setAlignment(Qt.AlignCenter)
         f = QFont()
-        f.setPointSize(14)
+        f.setPointSize(15)
         hint.setFont(f)
         hint.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(hint)
