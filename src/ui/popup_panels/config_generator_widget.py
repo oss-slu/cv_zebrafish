@@ -636,6 +636,28 @@ class ConfigGeneratorScene(QWidget):
 
         self._refresh_csv_list()
         self._set_tab_index(0)
+         def load_session(self, session):
+    # ... existing code ...
+    
+    self._refresh_csv_list()
+    self._set_tab_index(0)
+
+    # === AUTO-SELECTION ADDITION START ===
+    if session is not None:
+        csvs = session.getAllCSVs()
+        if csvs:
+            first_csv = csvs[0]
+            self.csv_id = first_csv
+            self.csv_path = first_csv
+            for i in range(self.csv_list.count()):
+                item = self.csv_list.item(i)
+                if item and item.text() == first_csv:
+                    self.csv_list.setCurrentItem(item)
+                    break
+            self.load_csv()
+    # === AUTO-SELECTION ADDITION END ===
+
+        
 
     def prefill_from_copy(self, csv_path: str, json_path: str | None) -> None:
         """After ``load_session``, select a session CSV and optionally apply an existing JSON as a template."""
