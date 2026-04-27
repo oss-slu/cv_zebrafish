@@ -47,7 +47,20 @@ class GenerateConfigDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        self._title_bar = DialogTitleBar(self, "Generate Config", self)
+        self._title_bar = DialogTitleBar(
+            self,
+            "Generate Config",
+            self,
+            help_title="Generate Config",
+            help_paragraph=(
+                "Click through the tabs to set body points, video scale, and graph options, then save so the new JSON is part of the current session. "
+                "Select & Run will use that file after you finish. "
+                "Scroll the window to reach every section."
+            ),
+            help_tips=(
+                "If the app opened this dialog with a path, some fields may already be filled from that file.",
+            ),
+        )
         outer.addWidget(self._title_bar)
         outer.addWidget(horizontal_separator())
 

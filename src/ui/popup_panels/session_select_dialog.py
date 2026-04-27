@@ -240,7 +240,21 @@ class SessionSelectDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        self._title_bar = DialogTitleBar(self, "Session Select", self)
+        self._title_bar = DialogTitleBar(
+            self,
+            "Session Select",
+            self,
+            help_title="Session Select",
+            help_paragraph=(
+                "Click a row in the list to open that session. "
+                "Click + Create New or Upload New to add a new session file. "
+                "Grey rows mean the file is missing or broken. "
+                "Right-click a row and select Find location… to repoint that session to a file on your disk."
+            ),
+            help_tips=(
+                "If you move or rename files on your computer, use Verify and Select & Run to fix paths if something breaks.",
+            ),
+        )
         outer.addWidget(self._title_bar)
         outer.addWidget(horizontal_separator())
 

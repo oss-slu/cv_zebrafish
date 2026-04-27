@@ -46,7 +46,19 @@ class ConsoleViewerDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        outer.addWidget(DialogTitleBar(self, "Console", self))
+        outer.addWidget(
+            DialogTitleBar(
+                self,
+                "Console",
+                self,
+                help_title="Console",
+                help_paragraph=(
+                    "Open this from the Help menu when you need to read recent log text and in-app toasts. "
+                    "Click Refresh to load the latest buffer, select text in the box, and use Ctrl+C (or your usual copy command) to paste it elsewhere. "
+                    "Click Close when you are done. Most runs do not need this — it is for debugging when something looks wrong."
+                ),
+            )
+        )
         outer.addWidget(horizontal_separator())
 
         body = QWidget()

@@ -1,16 +1,23 @@
 """High-level orchestration for the zebrafish kinematic calculation pipeline."""
 
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import pandas as pd
+
+from .cancelled import CalculationAborted
 from .Metrics import (
     calc_fin_angle, calc_yaw, calc_spine_angles, calc_tail_angle,
     calc_tail_side_and_distance, calc_furthest_tail_point, detect_fin_peaks, get_time_ranges,
 )
 from .custom_angle import build_three_point_angle_column
 
-def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> pd.DataFrame:
+def run_calculations(
+    parsed_points: Dict[str, Any],
+    config: Dict[str, Any],
+    *,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> pd.DataFrame:
     """
     Execute the full set of movement calculations on pre-parsed DLC points.
 
@@ -21,6 +28,8 @@ def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> p
     Returns:
         pd.DataFrame: Tabular metrics for each frame, including fin/tail angles, yaw, bout metadata, and peaks.
     """
+    if cancel_check is not None and cancel_check():
+        raise CalculationAborted()
     n_frames = len(parsed_points["spine"][0]["x"]) 
     vp = config["video_parameters"]
     scale_factor = vp["pixel_scale_factor"] * vp["dish_diameter_m"] / vp["pixel_diameter"]
@@ -63,6 +72,8 @@ def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> p
     for start, end in time_ranges:
         bout_yaw_center = head_yaw[start]
         for i in range(start, end + 1):
+            if (i - start) & 0x3FF == 0 and cancel_check is not None and cancel_check():
+                raise CalculationAborted()
             bout_head_yaw[i] = head_yaw[i] - bout_yaw_center
 
     results_dict = {
@@ -83,6 +94,8 @@ def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> p
     }
 
     for seg in range(spine_angles.shape[1]):
+        if (seg & 0x1F) == 0 and cancel_check is not None and cancel_check():
+            raise CalculationAborted()
         results_dict[f"TailAngle_{seg}"] = spine_angles[:, seg]
 
     # Optional custom calculation: directed three-point angle
@@ -92,6 +105,8 @@ def run_calculations(parsed_points: Dict[str, Any], config: Dict[str, Any]) -> p
         results_dict[output_col] = ang
         print(log_msg)
 
+    if cancel_check is not None and cancel_check():
+        raise CalculationAborted()
     result_df = pd.DataFrame(results_dict)
 
     # Build new time range columns in one go

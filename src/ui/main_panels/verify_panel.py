@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 import pandas as pd
 
 from app_platform.paths import images_dir
+from ui.components.scene_help import create_scene_help_button
 from core.validation import csv_verifier as input_verifier
 from core.validation import json_verifier
 
@@ -44,10 +45,30 @@ class VerifyWorkspace(QWidget):
         main_layout.setContentsMargins(40, 30, 40, 30)
         main_layout.setSpacing(20)
 
+        head_row = QHBoxLayout()
+        head_row.setContentsMargins(0, 0, 0, 0)
+        head_row.addStretch(1)
         header = QLabel("Verify Input Files")
-        header.setAlignment(Qt.AlignHCenter)
-        header.setStyleSheet("font-size: 20px; font-weight: bold;")
-        main_layout.addWidget(header)
+        header.setStyleSheet("font-size: 24px; font-weight: bold;")
+        head_row.addWidget(header, 0, Qt.AlignVCenter)
+        head_row.addStretch(1)
+        head_row.addWidget(
+            create_scene_help_button(
+                self,
+                title="Verify Input",
+                paragraph=(
+                    "To check your files before you run: click Upload CSV to pick one file, or Upload Multiple CSV to point at a whole folder. "
+                    "Click Upload JSON to pick a config, or click Generate JSON to open the builder when you need a new one. "
+                    "Read the console below for pass/fail and validation messages."
+                ),
+                tips=(
+                    "Use Upload Multiple CSV when you want batch runs in Select & Run with every CSV in that folder.",
+                ),
+            ),
+            0,
+            Qt.AlignRight | Qt.AlignTop,
+        )
+        main_layout.addLayout(head_row)
 
         csv_layout = QHBoxLayout()
         csv_label = QLabel("CSV File:")

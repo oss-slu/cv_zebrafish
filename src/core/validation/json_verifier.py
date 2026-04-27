@@ -79,6 +79,22 @@ def extra_checks(config: dict):
                         errors.append(
                             f"{part_key}[{idx}] must be a string, got {type(v).__name__}")
 
+    # Backlog #2: unique names and no spine/tail overlap
+    sp = points.get("spine")
+    ta = points.get("tail")
+    if isinstance(sp, list) and sp and all(isinstance(x, str) for x in sp):
+        if len(sp) != len(set(sp)):
+            errors.append("spine must not contain duplicate point names")
+    if isinstance(ta, list) and ta and all(isinstance(x, str) for x in ta):
+        if len(ta) != len(set(ta)):
+            errors.append("tail must not contain duplicate point names")
+    if isinstance(sp, list) and isinstance(ta, list):
+        ov = set(sp) & set(ta)
+        if ov:
+            errors.append(
+                f"spine and tail must not share the same point names: {sorted(ov)}"
+            )
+
     # head must contain pt1 and pt2 as single string points
     head = points.get("head", {})
     if not isinstance(head, dict):
