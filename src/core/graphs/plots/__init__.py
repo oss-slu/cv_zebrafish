@@ -4,6 +4,7 @@ from .dotplot import DotPlotResult, render_dot_plot
 from .fin_tail import FinTailPlotResult, render_fin_tail
 from .spines import SpineFrameDiagnostics, SpinePlotResult, render_spines
 from .headplot import HeadPlotResult, render_headplot
+from .custom_angle import render_custom_angle
 
 
 
@@ -17,5 +18,7 @@ __all__ = [
     "SpineFrameDiagnostics",
     "render_headplot",
     "HeadPlotResult",
+    "render_custom_angle",
+
 
 ]
