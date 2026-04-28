@@ -28,6 +28,7 @@ import plotly.io as pio
 from src.core.graphs.loader_bundle import GraphDataBundle
 from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headplot, render_spines
 
+
 # Cross-correlation imports
 from src.core.analysis.cross_correlation import (
     compute_cross_correlation_from_dataframe,
@@ -961,6 +962,9 @@ class GraphViewerScene(QWidget):
 
     def set_data(self, data):
         self._data = data
+        for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
+            graphs[name] = fig
+
         self._graphs.clear()
         self.list.clear()
 
@@ -1068,6 +1072,13 @@ class GraphViewerScene(QWidget):
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
+        for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
+            if is_cancelled is not None and is_cancelled():
+                raise CalculationAborted()
+            index += 1
+            progress_callback(index, total, name)
+            graphs[name] = fig
+
         return graphs, config
 
     # ------------------------------------------------------------------
@@ -1584,6 +1595,12 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
 
     if shown_outputs.get("show_head_plot") and "HeadYaw" in results_df.columns:
         names.append("Head Orientation")
+            # Issue #93: custom angle graph
+    tpa = ((config or {}).get("custom_calculations") or {}).get("three_point_angle") or {}
+    out_col = str(tpa.get("output_column") or "ThreePointAngle")
+    if tpa.get("enabled", False) and out_col in results_df.columns:
+        names.append(f"Custom Angle: {out_col}")
+
 
     return names
 
@@ -1646,6 +1663,36 @@ def _iter_dot_plot_graphs(
             warnings.append(f"Failed to render '{spec['title']}': {exc}")
             continue
         yield (spec["title"], result.figure)
+def _iter_custom_angle_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
+):
+    custom = (config or {}).get("custom_calculations") or {}
+    tpa = custom.get("three_point_angle") or {}
+    output_col = str(tpa.get("output_column") or "ThreePointAngle")
+    enabled = bool(tpa.get("enabled", False))
+
+    # If you prefer data-driven behavior, replace `if not enabled:` with:
+    # if output_col not in results_df.columns: return
+    if not enabled:
+        return
+
+    if output_col not in results_df.columns:
+        warnings.append(f"Custom angle enabled but column missing: {output_col}")
+        return
+
+    y = pd.to_numeric(results_df[output_col], errors="coerce").to_numpy()
+    x = list(range(len(y)))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=output_col))
+    fig.update_layout(
+        title=f"Custom Angle: {output_col}",
+        xaxis_title="Frame",
+        yaxis_title="Angle (deg)",
+        template="plotly_white",
+    )
+
+    yield (f"Custom Angle: {output_col}", fig)
 
 
 def _iter_fin_tail_graphs(
@@ -1893,3 +1940,4 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
             session.save()
     except Exception as e:
         print(f"Could not save '{title}' as HTML: {e}")
+
