@@ -562,7 +562,7 @@ class GraphViewerScene(QWidget):
 
                     pio.write_html(
                         src, file=str(html_path),
-                        include_plotlyjs="cdn", auto_open=False
+                        include_plotlyjs=True, auto_open=False
                     )
                     wrote_png = False
                     if _is_kaleido_available():
@@ -1494,7 +1494,7 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
         html_path = out_dir / f"{fname}.html"
         png_path = out_dir / f"{fname}.png"
 
-        pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
+        pio.write_html(fig, file=str(html_path), include_plotlyjs=True, auto_open=False)
 
         try:
             png_bytes = pio.to_image(fig, format="png", scale=2)

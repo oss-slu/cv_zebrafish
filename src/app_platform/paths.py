@@ -176,6 +176,88 @@ def relocate_flat_registry_path_to_bundle(missing_path_str: str) -> str | None:
         return str(bundle_jp)
 
 
+def resolve_graph_asset_path(stored_path_str: str, session_name: str | None = None) -> str | None:
+    """Return an on-disk path for a session / export graph file if it exists.
+
+    Session JSON stores absolute paths. When the repo is copied or renamed (e.g.
+    ``…/Desktop/cv_zebrafish`` → ``…/Desktop/Zebrafish/cv_zebrafish``), those paths
+    go stale. This helper re-resolves under the *current* :func:`project_root` and
+    the session bundle folder when possible.
+    """
+    if not stored_path_str:
+        return None
+    p = Path(stored_path_str).expanduser()
+    try:
+        if p.is_file():
+            return str(p.resolve())
+    except OSError:
+        if p.is_file():
+            return str(p)
+
+    # Same path relative to repo top-level dirs (data/, configs/, …) after moving the clone.
+    _TOP = frozenset({"data", "configs", "assets", "src"})
+    try:
+        parts = p.parts
+        idx = next(i for i, part in enumerate(parts) if part.lower() in _TOP)
+        rel = Path(*parts[idx:])
+        cand = project_root() / rel
+        if cand.is_file():
+            try:
+                return str(cand.resolve())
+            except OSError:
+                return str(cand)
+    except (StopIteration, OSError, ValueError):
+        pass
+
+    if session_name:
+        bundle = session_bundle_dir(session_name)
+        name_lower = session_name.lower()
+        try:
+            for i, part in enumerate(p.parts):
+                if part.lower() == name_lower:
+                    tail = Path(*p.parts[i + 1 :])
+                    if tail.parts:
+                        cand = bundle / tail
+                        if cand.is_file():
+                            try:
+                                return str(cand.resolve())
+                            except OSError:
+                                return str(cand)
+                    break
+        except (OSError, ValueError):
+            pass
+        cand = bundle / p.name
+        if cand.is_file():
+            try:
+                return str(cand.resolve())
+            except OSError:
+                return str(cand)
+
+    return None
+
+
+def resolve_folder_graphs_asset_paths(folder_graphs: dict, session_name: str) -> dict:
+    """Rebuild *folder_graphs* with assets re-pointed via :func:`resolve_graph_asset_path`."""
+    out: dict = {}
+    for folder_path, cfgs in (folder_graphs or {}).items():
+        new_cfgs: dict = {}
+        for config_path, per_csv in (cfgs or {}).items():
+            new_per_csv: dict = {}
+            for csv_file, assets in (per_csv or {}).items():
+                new_assets: list = []
+                for a in assets or []:
+                    r = resolve_graph_asset_path(a, session_name)
+                    if r:
+                        new_assets.append(r)
+                if new_assets:
+                    new_per_csv[csv_file] = new_assets
+            if new_per_csv:
+                new_cfgs[config_path] = new_per_csv
+        if new_cfgs:
+            out[folder_path] = new_cfgs
+    return out
+
+
 def canonical_session_json_path(path_str: str) -> str:
     """Single on-disk path for a session: prefer bundle ``…/<name>/session.json`` over legacy flat ``…/<name>.json``."""
     try:
@@ -275,6 +357,8 @@ __all__ = [
     "migrate_flat_session_json_into_bundle_dirs",
     "relocate_flat_registry_path_to_bundle",
     "canonical_session_json_path",
+    "resolve_graph_asset_path",
+    "resolve_folder_graphs_asset_paths",
     "local_data_dir",
     "session_registry_path",
 ]
