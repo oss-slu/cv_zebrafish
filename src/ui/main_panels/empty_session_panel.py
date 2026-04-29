@@ -1,8 +1,9 @@
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ui.components.branding import fish_pixmap
+from ui.components.scene_help import create_scene_help_button
 
 
 class EmptySessionPanel(QWidget):
@@ -19,6 +20,27 @@ class EmptySessionPanel(QWidget):
         layout.setContentsMargins(40, 30, 40, 30)
         layout.setSpacing(20)
 
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.addStretch(1)
+        top.addWidget(
+            create_scene_help_button(
+                self,
+                title="No Session Window",
+                paragraph=(
+                    "To create a session: click anywhere on this screen to open Session Select, or use the File menu and choose Session Select…. "
+                    "There you can click + Create New or Upload New to add a new session file, or click a row in the list to open a session you already have. "
+                    "After you have a session, add your data and work from the other screens."
+                ),
+                tips=(
+                    "To repoint a missing file, open Session Select, right-click the row, and choose Find location…",
+                ),
+            ),
+            0,
+            Qt.AlignRight | Qt.AlignTop,
+        )
+        layout.addLayout(top)
+
         layout.addStretch(2)
 
         self._logo = QLabel()
@@ -30,7 +52,7 @@ class EmptySessionPanel(QWidget):
         hint = QLabel("+ Load Session")
         hint.setAlignment(Qt.AlignCenter)
         f = QFont()
-        f.setPointSize(14)
+        f.setPointSize(15)
         hint.setFont(f)
         hint.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(hint)

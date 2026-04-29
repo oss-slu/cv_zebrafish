@@ -68,6 +68,45 @@ def create_dlc_raw_csv(
 
     return tmp.name
 
+
+def create_dlc_raw_csv_xy_only(
+    body_parts: List[str],
+    n_frames: int = 5
+) -> str:
+    """Create a temporary raw DLC CSV with two columns (x, y) per bodypart."""
+    scorer_row = ["scorer"] + ["DLC_model"] * (len(body_parts) * 2)
+    bodyparts_row = ["bodyparts"]
+    coords_row = ["coords"]
+
+    for part in body_parts:
+        bodyparts_row += [part, part]
+        coords_row += ["x", "y"]
+
+    data_rows = []
+    for i in range(n_frames):
+        row = [str(i)]
+        for _ in body_parts:
+            row += [
+                str(round(100.0 + i, 2)),
+                str(round(200.0 + i, 2)),
+            ]
+        data_rows.append(row)
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".csv", delete=False, newline=""
+    )
+    import csv
+    writer = csv.writer(tmp)
+    writer.writerow(scorer_row)
+    writer.writerow(bodyparts_row)
+    writer.writerow(coords_row)
+    for row in data_rows:
+        writer.writerow(row)
+    tmp.close()
+
+    return tmp.name
+
+
 def create_enriched_csv(
     body_parts_by_group: Dict[str, List[str]],
     n_frames: int = 5
@@ -200,7 +239,7 @@ class TestDetectBodyParts:
         assert result.source_type == "enriched"
 
     def test_column_map_has_xyz_for_each_part(self, dlc_raw_csv_path):
-        """Each body part should have x, y, conf in column map."""
+        """Each body part should have x, y, conf file indices (classic DLC)."""
         result = detect_body_parts(dlc_raw_csv_path)
 
         for part, indices in result.column_map.items():
@@ -208,6 +247,18 @@ class TestDetectBodyParts:
             assert "y" in indices
             assert "conf" in indices
             assert isinstance(indices["x"], int)
+            assert indices["conf"] >= 1
+
+    def test_xy_only_column_map_omits_conf_index(self):
+        """XY-only raw DLC maps conf to -1 (no likelihood column on disk)."""
+        path = create_dlc_raw_csv_xy_only(["Head", "LF1"])
+        try:
+            result = detect_body_parts(path)
+            assert result.column_map["Head"]["conf"] == -1
+            assert result.column_map["LF1"]["conf"] == -1
+            assert result.column_map["Head"]["y"] == result.column_map["Head"]["x"] + 1
+        finally:
+            os.unlink(path)
 
     def test_file_not_found_raises_error(self):
         """Should raise FileNotFoundError for non-existent file."""
@@ -336,6 +387,18 @@ class TestFromDataFrame:
         result = detect_body_parts_from_dataframe(dlc_dataframe)
         assert isinstance(result, BodyPartDetectionResult)
         assert len(result.all_body_parts) > 0
+
+    def test_dlc_dataframe_xy_only(self):
+        """DataFrame from XY-only DLC should report conf index -1 in column_map."""
+        path = create_dlc_raw_csv_xy_only(["Head", "ET"])
+        try:
+            df = pd.read_csv(path, header=1)
+            result = detect_body_parts_from_dataframe(df, source_type="dlc_raw")
+            assert "Head" in result.all_body_parts
+            assert result.column_map["Head"]["conf"] == -1
+            assert result.column_map["Head"]["y"] == result.column_map["Head"]["x"] + 1
+        finally:
+            os.unlink(path)
 
     def test_auto_detects_dlc_format(self, dlc_dataframe):
         """Auto detection should identify DLC format from column names."""

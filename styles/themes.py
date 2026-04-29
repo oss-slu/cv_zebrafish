@@ -155,6 +155,9 @@ def apply_theme(app, theme):
             border: 1px solid {line};
             border-radius: 8px;
         }}
+        QTreeWidget#ConfigSelectionTree::item {{
+            border: none;
+        }}
         QTreeWidget#ConfigSelectionTree::item:selected {{
             background-color: {cb};
             color: {tx};
@@ -166,8 +169,8 @@ def apply_theme(app, theme):
         QTreeWidget#ConfigSelectionTree::branch:closed:has-children:has-siblings,
         QTreeWidget#ConfigSelectionTree::branch:open:has-children:has-siblings,
         QTreeWidget#ConfigSelectionTree::branch:open:has-children:!has-siblings {{
-            background-color: {tmenu};
-            border-radius: 2px;
+            background-color: transparent;
+            border: none;
         }}
         QTreeWidget#ConfigSelectionTree QHeaderView::section {{
             background-color: {pc};
@@ -269,11 +272,53 @@ def apply_theme(app, theme):
             background-color: {gv_tab_bg};
             color: {tmu};
         }}
+        /* Compare tab — left controls column scrolls when selectors are tall (multi-CSV, long names) */
+        QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll {{
+            background-color: {pm};
+            border: 1px solid {line};
+            border-radius: 8px;
+        }}
+        QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar:vertical {{
+            background-color: {pm};
+            width: 10px;
+            border: none;
+        }}
+        QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar::handle:vertical {{
+            background-color: {cb};
+            border-radius: 4px;
+            margin: 2px;
+        }}
+        QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar::handle:vertical:hover {{
+            background-color: {line};
+        }}
+        QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar::groove:vertical {{
+            background-color: {pm};
+            border: none;
+        }}
+        QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar::add-line:vertical,
+        QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar::sub-line:vertical {{
+            height: 0px;
+        }}
 
         QDialog#GenerateConfigDialog {{
             background-color: {pm};
             color: {tx};
             border: 1px solid {line};
+        }}
+        QDialog#SceneHelpDialog {{
+            background-color: {pm};
+            color: {tx};
+            border: 1px solid {line};
+        }}
+        QDialog#SceneHelpDialog QWidget#SceneHelpDialogBody {{
+            background-color: {pm};
+            color: {tx};
+        }}
+        QDialog#SceneHelpDialog QPlainTextEdit#SceneHelpDialogText {{
+            background-color: {pm};
+            color: {tx};
+            border: none;
+            selection-background-color: {cb};
         }}
         QWidget#GenerateConfigBody {{
             background-color: {pm};
@@ -537,6 +582,29 @@ def apply_theme(app, theme):
         QToolButton#SidebarTool[activeTool="true"]:disabled {{
             background-color: transparent;
             border: 1px solid transparent;
+        }}
+
+        /* #94 — help (ⓘ) on main scenes, graph context bar, and DialogTitleBar */
+        QToolButton#SceneHelpButton {{
+            background-color: transparent;
+            color: {tmu};
+            border: 1px solid transparent;
+            border-radius: 14px;
+            min-width: 28px;
+            max-width: 28px;
+            min-height: 28px;
+            max-height: 28px;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 0px;
+        }}
+        QToolButton#SceneHelpButton:hover {{
+            background-color: {cb};
+            color: {tmenu_h};
+            border: 1px solid {line};
+        }}
+        QToolButton#SceneHelpButton:pressed {{
+            background-color: {line};
         }}
 
         QWidget#ErrorToast {{

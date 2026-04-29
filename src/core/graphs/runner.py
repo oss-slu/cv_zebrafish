@@ -11,7 +11,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from .io import OutputContext, get_output_context
 from .loader_bundle import GraphDataBundle
-from .plots import render_fin_tail, render_spines, render_headplot
+from .plots import render_fin_tail, render_spines, render_headplot, render_custom_angle
+
 
 # A plotter accepts the bundle + output context and returns arbitrary metadata.
 Plotter = Callable[[GraphDataBundle, Optional[OutputContext]], Dict[str, Any]]
@@ -66,7 +67,13 @@ def get_default_plotters(bundle: GraphDataBundle) -> List[Plotter]:
         plotters.append(render_spines)
     if shown.get("show_head_plot", False):
         plotters.append(render_headplot)
+            # Issue #93: show custom angle output in Graph Viewer
+    tpa = (config.get("custom_calculations") or {}).get("three_point_angle") or {}
+    if tpa.get("enabled", False):
+        plotters.append(render_custom_angle)
+
     return plotters
 
 
 __all__ = ["run_all_graphs", "Plotter", "get_default_plotters"]
+

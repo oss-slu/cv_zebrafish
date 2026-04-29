@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import re
 import numpy as np
@@ -8,6 +8,7 @@ from pathlib import Path
 from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -27,6 +28,7 @@ import plotly.io as pio
 from src.core.graphs.loader_bundle import GraphDataBundle
 from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headplot, render_spines
 
+
 # Cross-correlation imports
 from src.core.analysis.cross_correlation import (
     compute_cross_correlation_from_dataframe,
@@ -35,12 +37,30 @@ from src.core.analysis.cross_correlation import (
 from src.core.graphs.plots.crosscorr_plot import render_crosscorr_plot
 
 from src.ui.components.InteractiveGraph import InteractiveGraph
+from ui.components.scene_help import create_scene_help_button
+from src.core.calculations.cancelled import CalculationAborted
 from src.session import session
 from src.app_platform.paths import images_dir, sessions_dir
 
 FOLDER_ICON = images_dir() / "folder-black.svg"
 
 GraphSource = Any  # go.Figure or a saved image path (str/Path)
+
+
+def count_figures_in_graph_dict(graphs: Optional[Dict[str, Any]]) -> int:
+    """How many `go.Figure` entries (each will be written to session disk when saving)."""
+    if not graphs:
+        return 0
+    return sum(1 for s in graphs.values() if isinstance(s, go.Figure))
+
+
+def count_figures_in_folder_runs(
+    graphs_by_csv: Optional[Dict[str, Dict[str, Any]]],
+) -> int:
+    """Total Plotly figures across a folder (multi-CSV) result."""
+    if not graphs_by_csv:
+        return 0
+    return sum(count_figures_in_graph_dict(d) for d in graphs_by_csv.values())
 
 DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
     {
@@ -92,10 +112,15 @@ DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
 
 class GraphViewerScene(QWidget):
     """
-    Graph viewer with two tabs:
-      1. Graphs - standard plots (dot, fin/tail, spine, head)
-      2. Cross-Correlation - signal pair analysis
+    Graph viewer with three tabs:
+      1. Graphs — standard plots (dot, fin/tail, spine, head)
+      2. Cross-Correlation — signal pair analysis
+      3. Compare — two standard graphs side by side (any CSVs / any graph names)
     """
+
+    TAB_GRAPHS = 0
+    TAB_CROSS = 1
+    TAB_COMPARE = 2
 
     def __init__(self):
         super().__init__()
@@ -121,6 +146,8 @@ class GraphViewerScene(QWidget):
         self._crosscorr_signals = []
         self._current_crosscorr_fig = None
         self._current_df = None
+        # Last single-CSV run metrics (for re-open Cross-Correlation tab; backlog #1)
+        self._last_single_run_df: Optional[pd.DataFrame] = None
 
         # Context banner
         self.context_icon = QLabel()
@@ -159,7 +186,7 @@ class GraphViewerScene(QWidget):
 
         self.list = QListWidget()
         self.list.setObjectName("GraphViewerGraphList")
-        self.list.setMinimumWidth(240)
+        self.list.setMinimumWidth(180)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.setTextElideMode(Qt.ElideRight)
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
@@ -192,8 +219,22 @@ class GraphViewerScene(QWidget):
         context_row = QHBoxLayout()
         context_row.setContentsMargins(0, 0, 0, 0)
         context_row.setSpacing(8)
-        context_row.addWidget(self.context_icon, 0, Qt.AlignLeft)
-        context_row.addWidget(self.context_text, 1)
+        context_row.addWidget(self.context_icon, 0, Qt.AlignLeft | Qt.AlignTop)
+        context_row.addWidget(self.context_text, 1, Qt.AlignTop)
+        self._help_btn = create_scene_help_button(
+            self,
+            title="Graph Viewer",
+            paragraph=(
+                "On the Graphs tab, click a name in the list on the left to show that plot on the right. "
+                "If the session has a folder of CSVs, use the drop-down and Prev/Next to choose which file you are viewing. "
+                "Open the Compare tab to place two standard graphs side by side — pick dataset(s) and a graph for each side (same or different files). "
+                "Open Cross-Correlation when you need that analysis — it is a different tool than Compare."
+            ),
+            tips=(
+                "In Select & Run, when a CSV has more than one config, the small tree icon can open View Output for a specific pair.",
+            ),
+        )
+        context_row.addWidget(self._help_btn, 0, Qt.AlignRight | Qt.AlignTop)
 
         context_widget = QWidget()
         context_widget.setObjectName("GraphViewerContextBar")
@@ -268,19 +309,292 @@ class GraphViewerScene(QWidget):
         crosscorr_layout.addWidget(self.crosscorr_scroll, stretch=1)
 
         self.tab_widget.addTab(crosscorr_tab, "Cross-Correlation")
-        self.tab_widget.setTabEnabled(1, False)  # disabled until data loads
+        self.tab_widget.setTabEnabled(self.TAB_CROSS, False)  # disabled until data loads
 
-        # Main layout
+        self._init_compare_tab()
+        self.tab_widget.addTab(self._compare_tab_root, "Compare")
+        self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+        self.tab_widget.currentChanged.connect(self._on_main_tab_changed)
+
+        # Main layout — panel margins match other workspace scenes so ⓘ stays in the same top-right relationship.
         right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(8)
         right.addWidget(context_widget)
         right.addWidget(self.tab_widget, stretch=1)
 
         outer = QVBoxLayout()
+        outer.setContentsMargins(40, 30, 40, 30)
+        outer.setSpacing(0)
         outer.addLayout(right, stretch=1)
         self.setLayout(outer)
 
         self._show_empty_state("No graphs available.")
         self._refresh_context_banner()
+
+    def _init_compare_tab(self) -> None:
+        self._compare_tab_root = QWidget()
+        self._compare_tab_root.setObjectName("GraphViewerCompareTab")
+        compare_outer = QHBoxLayout(self._compare_tab_root)
+        compare_outer.setContentsMargins(0, 0, 0, 0)
+        compare_outer.setSpacing(8)
+
+        self._compare_left_scroll = QScrollArea()
+        self._compare_left_scroll.setObjectName("GraphViewerCompareLeftScroll")
+        self._compare_left_scroll.setWidgetResizable(True)
+        self._compare_left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._compare_left_scroll.setMaximumWidth(320)
+        self._compare_left_inner = QWidget()
+        cl = QVBoxLayout(self._compare_left_inner)
+        cl.setSpacing(12)
+        cl.addWidget(QLabel("<b>Graph A</b>"))
+        self.compare_csv_a = QComboBox()
+        self.compare_csv_a.setObjectName("GraphViewerCompareCsvA")
+        self.compare_csv_a.currentIndexChanged.connect(self._on_compare_inputs_changed)
+        cl.addWidget(self.compare_csv_a)
+        self.compare_graph_a = QComboBox()
+        self.compare_graph_a.setObjectName("GraphViewerCompareGraphA")
+        self.compare_graph_a.currentIndexChanged.connect(self._on_compare_inputs_changed)
+        cl.addWidget(self.compare_graph_a)
+        cl.addSpacing(8)
+        cl.addWidget(QLabel("<b>Graph B</b>"))
+        self.compare_csv_b = QComboBox()
+        self.compare_csv_b.setObjectName("GraphViewerCompareCsvB")
+        self.compare_csv_b.currentIndexChanged.connect(self._on_compare_inputs_changed)
+        cl.addWidget(self.compare_csv_b)
+        self.compare_graph_b = QComboBox()
+        self.compare_graph_b.setObjectName("GraphViewerCompareGraphB")
+        self.compare_graph_b.currentIndexChanged.connect(self._on_compare_inputs_changed)
+        cl.addWidget(self.compare_graph_b)
+        cl.addStretch(1)
+        self._compare_left_scroll.setWidget(self._compare_left_inner)
+        compare_outer.addWidget(self._compare_left_scroll)
+
+        self._compare_scroll_a = QScrollArea()
+        self._compare_scroll_a.setObjectName("GraphViewerCompareScrollA")
+        self._compare_scroll_a.setWidgetResizable(True)
+        self._compare_scroll_a.setFrameShape(QFrame.NoFrame)
+        self.compare_label_a = QLabel("—")
+        self.compare_label_a.setObjectName("GraphViewerCompareImageA")
+        self.compare_label_a.setAlignment(Qt.AlignCenter)
+        self.compare_label_a.setWordWrap(True)
+        self.compare_label_a.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._compare_scroll_a.setWidget(self.compare_label_a)
+
+        self._compare_scroll_b = QScrollArea()
+        self._compare_scroll_b.setObjectName("GraphViewerCompareScrollB")
+        self._compare_scroll_b.setWidgetResizable(True)
+        self._compare_scroll_b.setFrameShape(QFrame.NoFrame)
+        self.compare_label_b = QLabel("—")
+        self.compare_label_b.setObjectName("GraphViewerCompareImageB")
+        self.compare_label_b.setAlignment(Qt.AlignCenter)
+        self.compare_label_b.setWordWrap(True)
+        self.compare_label_b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._compare_scroll_b.setWidget(self.compare_label_b)
+
+        right_split = QHBoxLayout()
+        right_split.setContentsMargins(0, 0, 0, 0)
+        right_split.addWidget(self._compare_scroll_a, 1)
+        right_split.addWidget(self._compare_scroll_b, 1)
+        compare_outer.addLayout(right_split, stretch=1)
+
+        self._compare_pix_a: Optional[QPixmap] = None
+        self._compare_pix_b: Optional[QPixmap] = None
+        self._compare_syncing = False
+
+    def _on_main_tab_changed(self, index: int) -> None:
+        if index == self.TAB_COMPARE:
+            # Compare is populated/updated in set_graphs / _apply_selected_csv. Re-syncing here
+            # re-cleared combos, re-ran slow kaleido work, and reset selection on every visit.
+            self._rescale_compare_images()
+        elif index == self.TAB_CROSS:
+            # Backlog #1: re-apply enablement / signals when re-entering this tab.
+            if self._results_by_csv and self.csv_combo.count() > 0:
+                self._apply_crosscorr_for_current_folder_csv()
+            elif self._last_single_run_df is not None:
+                self._enable_crosscorr(self._last_single_run_df)
+
+    def _graph_datasets(self) -> List[Tuple[str, Dict[str, GraphSource]]]:
+        if self._graphs_by_csv and len(self._csv_order) > 1:
+            return [(p, self._graphs_by_csv.get(p, {})) for p in self._csv_order]
+        key = str(self._context_csv_id) if self._context_csv_id else "current"
+        return [(key, dict(self._graphs))]
+
+    def _has_any_graphs(self) -> bool:
+        for _p, g in self._graph_datasets():
+            if g:
+                return True
+        return False
+
+    def _dict_for_compare_csv(self, csv_path: str) -> Dict[str, GraphSource]:
+        if self._graphs_by_csv and len(self._csv_order) > 1:
+            return dict(self._graphs_by_csv.get(csv_path, {}))
+        return dict(self._graphs)
+
+    def _sync_compare_pane(self) -> None:
+        if not self._has_any_graphs():
+            self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+            return
+        self.tab_widget.setTabEnabled(self.TAB_COMPARE, True)
+        dsets = self._graph_datasets()
+        paths = [p for p, _g in dsets if _g]
+        if not paths:
+            self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+            return
+        multi = len(paths) > 1
+        old_ca = self.compare_csv_a.currentData()
+        old_cb = self.compare_csv_b.currentData()
+        old_ga = self.compare_graph_a.currentData()
+        old_gb = self.compare_graph_b.currentData()
+        self._compare_syncing = True
+        try:
+            for combo in (self.compare_csv_a, self.compare_csv_b):
+                combo.blockSignals(True)
+                combo.clear()
+                for p in paths:
+                    combo.addItem(Path(p).name if p != "current" else "(current file)", p)
+                combo.setVisible(multi)
+            for combo, prev, fallback in (
+                (self.compare_csv_a, old_ca, 0),
+                (self.compare_csv_b, old_cb, min(1, len(paths) - 1) if multi and len(paths) > 1 else 0),
+            ):
+                if prev is not None and combo.findData(prev) >= 0:
+                    combo.setCurrentIndex(combo.findData(prev))
+                else:
+                    combo.setCurrentIndex(min(fallback, max(0, combo.count() - 1)))
+        finally:
+            for combo in (self.compare_csv_a, self.compare_csv_b):
+                combo.blockSignals(False)
+        pa = str(self.compare_csv_a.currentData() or "current")
+        pb = str(self.compare_csv_b.currentData() or "current")
+        self._fill_compare_graph_combo(
+            self.compare_graph_a, self._dict_for_compare_csv(pa), preferred_name=old_ga
+        )
+        self._fill_compare_graph_combo(
+            self.compare_graph_b, self._dict_for_compare_csv(pb), preferred_name=old_gb
+        )
+        self._update_compare_images()
+        self._compare_syncing = False
+
+    def _refill_compare_graph_combos(self) -> None:
+        old_ga = self.compare_graph_a.currentData()
+        old_gb = self.compare_graph_b.currentData()
+        pa = str(self.compare_csv_a.currentData() or "current")
+        pb = str(self.compare_csv_b.currentData() or "current")
+        self._fill_compare_graph_combo(
+            self.compare_graph_a, self._dict_for_compare_csv(pa), preferred_name=old_ga
+        )
+        self._fill_compare_graph_combo(
+            self.compare_graph_b, self._dict_for_compare_csv(pb), preferred_name=old_gb
+        )
+
+    def _fill_compare_graph_combo(
+        self, combo: QComboBox, graph_dict: Dict[str, GraphSource], preferred_name: Optional[str] = None
+    ) -> None:
+        names = list(graph_dict.keys())
+        combo.blockSignals(True)
+        combo.clear()
+        for n in names:
+            combo.addItem(n, n)
+        if names:
+            if preferred_name and preferred_name in graph_dict:
+                i = next((k for k, n in enumerate(names) if n == preferred_name), 0)
+                combo.setCurrentIndex(i)
+            else:
+                combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
+    def _on_compare_inputs_changed(self, *_args) -> None:
+        if self._compare_syncing:
+            return
+        if self.sender() in (self.compare_csv_a, self.compare_csv_b):
+            self._refill_compare_graph_combos()
+        self._update_compare_images()
+
+    def _source_to_pixmap_safe(self, source: Optional[GraphSource]) -> Optional[QPixmap]:
+        if source is None:
+            return None
+        if isinstance(source, go.Figure):
+            if not self._kaleido_available:
+                return None
+            try:
+                png_bytes = pio.to_image(source, format="png", scale=2)
+                pix = QPixmap()
+                if pix.loadFromData(png_bytes) and not pix.isNull():
+                    return pix
+            except Exception:
+                return None
+            return None
+        try:
+            p = QPixmap(str(source))
+            return p if not p.isNull() else None
+        except Exception:
+            return None
+
+    def _update_compare_images(self) -> None:
+        if not self._has_any_graphs():
+            self.compare_label_a.setText("No graphs to compare.")
+            self.compare_label_b.setText("No graphs to compare.")
+            self._compare_pix_a = None
+            self._compare_pix_b = None
+            return
+        ca = self.compare_csv_a.currentData() or "current"
+        cb = self.compare_csv_b.currentData() or "current"
+        da = self._dict_for_compare_csv(str(ca) if ca is not None else "")
+        db = self._dict_for_compare_csv(str(cb) if cb is not None else "")
+        na = self.compare_graph_a.currentData()
+        nb = self.compare_graph_b.currentData()
+        for lbl, d, n, which in (
+            (self.compare_label_a, da, na, "A"),
+            (self.compare_label_b, db, nb, "B"),
+        ):
+            if not n or n not in d:
+                lbl.setText(f"Select graph {which}.")
+                lbl.setPixmap(QPixmap())
+                if which == "A":
+                    self._compare_pix_a = None
+                else:
+                    self._compare_pix_b = None
+            else:
+                pix = self._source_to_pixmap_safe(d.get(n))
+                if pix and not pix.isNull():
+                    if which == "A":
+                        self._compare_pix_a = pix
+                    else:
+                        self._compare_pix_b = pix
+                else:
+                    if which == "A":
+                        self._compare_pix_a = None
+                    else:
+                        self._compare_pix_b = None
+                    lbl.setText(
+                        "Could not render (install kaleido for Plotly, or use PNG outputs)."
+                    )
+                    lbl.setPixmap(QPixmap())
+        self._rescale_compare_images()
+
+    @staticmethod
+    def _fit_pixmap_to_box(full_pix: QPixmap, w: int, h: int) -> QPixmap:
+        """Largest size that fits in w×h, aspect ratio preserved (no vertical overflow from width-only fit)."""
+        if full_pix is None or full_pix.isNull():
+            return QPixmap()
+        w = max(1, w)
+        h = max(1, h)
+        return full_pix.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+    def _rescale_compare_images(self) -> None:
+        for scroll, full_pix, label in (
+            (self._compare_scroll_a, self._compare_pix_a, self.compare_label_a),
+            (self._compare_scroll_b, self._compare_pix_b, self.compare_label_b),
+        ):
+            if not full_pix or full_pix.isNull():
+                continue
+            vp = scroll.viewport().size()
+            w = max(50, vp.width() - 8)
+            h = max(50, vp.height() - 8)
+            scaled = self._fit_pixmap_to_box(full_pix, w, h)
+            label.setPixmap(scaled)
+            label.setText("")
 
     def set_context(self, csv_id: Optional[str], config_path: Optional[str], csv_files: Optional[List[str]] = None):
         self._context_csv_id = csv_id
@@ -341,11 +655,15 @@ class GraphViewerScene(QWidget):
         config: Dict[str, Any] = None,
         *,
         results_df: Optional[pd.DataFrame] = None,
+        save_progress: Optional[Callable[[int, int, str], None]] = None,
+        on_preparing_viewer: Optional[Callable[[], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ):
         """Replace all graphs; clears multi-CSV state when switching to single-CSV view."""
         self._graphs_by_csv = None
         self._results_by_csv = None
         self._csv_order = []
+        self._last_single_run_df = None
         try:
             self.csv_combo.blockSignals(True)
             self.csv_combo.clear()
@@ -368,7 +686,7 @@ class GraphViewerScene(QWidget):
         self._context_selected_csv = self._context_csv_id
         self._refresh_context_banner()
 
-        #removed needs_kaleido
+        # Interactive Plotly figures render in QWebEngine without Kaleido; PNG export still needs it.
 
         if self.list.count() > 0:
             self.list.setEnabled(True)
@@ -377,13 +695,29 @@ class GraphViewerScene(QWidget):
             self._show_empty_state("No graphs available.")
 
         if config and self.current_session is not None and self._out_dir is not None:
-            for name, fig in self._graphs.items():
+            fig_items = [
+                (n, f) for n, f in self._graphs.items() if isinstance(f, go.Figure)
+            ]
+            ntot = len(fig_items)
+            for i, (name, fig) in enumerate(fig_items, start=1):
+                if is_cancelled is not None and is_cancelled():
+                    raise CalculationAborted()
+                if save_progress is not None:
+                    save_progress(i, ntot, name)
                 save_to_html(fig, name, self._out_dir, config, self.current_session)
+                QApplication.processEvents()
+
+        if on_preparing_viewer is not None:
+            on_preparing_viewer()
+            QApplication.processEvents()
 
         if isinstance(results_df, pd.DataFrame) and not results_df.empty:
+            self._last_single_run_df = results_df
             self._enable_crosscorr(results_df)
         else:
+            self._last_single_run_df = None
             self._clear_crosscorr_state()
+        self._sync_compare_pane()
 
     def set_graphs_by_csv(
         self,
@@ -393,6 +727,7 @@ class GraphViewerScene(QWidget):
         results_by_csv: Optional[Dict[str, pd.DataFrame]] = None,
     ):
         """Graphs grouped by CSV path; Graphs-tab Prev/Next + combo; optional per-file metrics for cross-corr."""
+        self._last_single_run_df = None
         self._graphs_by_csv = dict(graphs_by_csv or {})
         self._csv_order = list(self._graphs_by_csv.keys())
         self._results_by_csv = (
@@ -511,6 +846,9 @@ class GraphViewerScene(QWidget):
             self.list.setCurrentRow(0)
         else:
             self._show_empty_state("No graphs available.")
+        if self._results_by_csv:
+            self._apply_crosscorr_for_current_folder_csv()
+        self._sync_compare_pane()
 
     def save_folder_graphs(
         self,
@@ -519,6 +857,9 @@ class GraphViewerScene(QWidget):
         config_path: str,
         graphs_by_csv: Dict[str, Dict[str, GraphSource]],
         config: Dict[str, Any],
+        *,
+        save_progress: Optional[Callable[[int, int, str], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> None:
         """
         Persist folder-run graph outputs under:
@@ -548,13 +889,21 @@ class GraphViewerScene(QWidget):
             out_dir.mkdir(parents=True, exist_ok=True)
             csv_dir_for_path[csv_path] = out_dir
 
+        n_total = count_figures_in_folder_runs(graphs_by_csv)
+        done = 0
         for csv_path, graphs in (graphs_by_csv or {}).items():
             out_dir = csv_dir_for_path.get(csv_path)
             if out_dir is None:
                 continue
+            csv_label = Path(csv_path).name
             for title, src in (graphs or {}).items():
                 if not isinstance(src, go.Figure):
                     continue
+                if is_cancelled is not None and is_cancelled():
+                    raise CalculationAborted()
+                done += 1
+                if save_progress is not None and n_total > 0:
+                    save_progress(done, n_total, f"{csv_label}  —  {title}")
                 try:
                     fname = _safe_filename(title) or "graph"
                     html_path = out_dir / f"{fname}.html"
@@ -582,7 +931,9 @@ class GraphViewerScene(QWidget):
                             csv_folder_id, config_path, csv_path, str(html_path)
                         )
                 except Exception:
-                    continue
+                    pass
+                # Keep the UI responsive during long Plotly I/O (folder runs).
+                QApplication.processEvents()
 
         try:
             self.current_session.save()
@@ -600,6 +951,9 @@ class GraphViewerScene(QWidget):
 
     def set_data(self, data):
         self._data = data
+        for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
+            graphs[name] = fig
+
         self._graphs.clear()
         self.list.clear()
 
@@ -658,7 +1012,9 @@ class GraphViewerScene(QWidget):
 
         self.set_graphs(graphs, config=config, results_df=results_df)
 
-    def build_graphs_with_progress(self, data, progress_callback):
+    def build_graphs_with_progress(
+        self, data, progress_callback, is_cancelled: Optional[Callable[[], bool]] = None
+    ):
         """
         Build graphs one-by-one, calling progress_callback(n, total, graph_name)
         for each. Returns (graphs_dict, config) or (None, None) if invalid.
@@ -678,25 +1034,40 @@ class GraphViewerScene(QWidget):
         graphs: Dict[str, GraphSource] = {}
         index = 0
         for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
+            if is_cancelled is not None and is_cancelled():
+                raise CalculationAborted()
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
         for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
+            if is_cancelled is not None and is_cancelled():
+                raise CalculationAborted()
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
         for name, fig in _iter_spine_graphs(
             results_df, config, parsed_points, warnings
         ):
+            if is_cancelled is not None and is_cancelled():
+                raise CalculationAborted()
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
         head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
         warnings.extend(head_warnings)
         for name, fig in head_graphs.items():
+            if is_cancelled is not None and is_cancelled():
+                raise CalculationAborted()
             index += 1
             progress_callback(index, total, name)
             graphs[name] = fig
+        for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
+            if is_cancelled is not None and is_cancelled():
+                raise CalculationAborted()
+            index += 1
+            progress_callback(index, total, name)
+            graphs[name] = fig
+
         return graphs, config
 
     # ------------------------------------------------------------------
@@ -716,14 +1087,17 @@ class GraphViewerScene(QWidget):
             self.signal_b_combo.blockSignals(False)
         except Exception:
             pass
-        self.tab_widget.setTabEnabled(1, False)
+        self.tab_widget.setTabEnabled(self.TAB_CROSS, False)
+        if hasattr(self, "compute_crosscorr_btn"):
+            self.compute_crosscorr_btn.setEnabled(False)
 
     def _enable_crosscorr(self, df: pd.DataFrame):
         try:
             signals = get_available_signals(df)
             if len(signals) < 2:
                 self._crosscorr_available = False
-                self.tab_widget.setTabEnabled(1, False)
+                self.tab_widget.setTabEnabled(self.TAB_CROSS, False)
+                self.compute_crosscorr_btn.setEnabled(False)
                 return
 
             self._crosscorr_available = True
@@ -746,12 +1120,14 @@ class GraphViewerScene(QWidget):
             self.signal_a_combo.blockSignals(False)
             self.signal_b_combo.blockSignals(False)
 
-            self.tab_widget.setTabEnabled(1, True)
+            self.tab_widget.setTabEnabled(self.TAB_CROSS, True)
+            self.compute_crosscorr_btn.setEnabled(True)
 
         except Exception as e:
             print(f"[GraphViewerScene] Could not enable cross-correlation: {e}")
             self._crosscorr_available = False
-            self.tab_widget.setTabEnabled(1, False)
+            self.tab_widget.setTabEnabled(self.TAB_CROSS, False)
+            self.compute_crosscorr_btn.setEnabled(False)
 
     def _compute_crosscorr(self):
         if not self._crosscorr_available:
@@ -803,8 +1179,9 @@ class GraphViewerScene(QWidget):
             return
 
         viewport_size = self.crosscorr_scroll.viewport().size()
-        target_w = max(50, viewport_size.width() - 16)
-        scaled = self._current_crosscorr_pixmap.scaledToWidth(target_w, Qt.SmoothTransformation)
+        w = max(50, viewport_size.width() - 16)
+        h = max(50, viewport_size.height() - 16)
+        scaled = self._fit_pixmap_to_box(self._current_crosscorr_pixmap, w, h)
         self.crosscorr_label.setPixmap(scaled)
         self.crosscorr_label.setText("")
 
@@ -874,6 +1251,8 @@ class GraphViewerScene(QWidget):
             self._update_scaled_pixmap()
         if getattr(self, "_current_crosscorr_pixmap", None) is not None:
             self._update_crosscorr_pixmap()
+        if self.tab_widget.currentIndex() == self.TAB_COMPARE:
+            self._rescale_compare_images()
 
 
 
@@ -884,6 +1263,7 @@ class GraphViewerScene(QWidget):
         self._results_by_csv = None
         self._csv_order = []
         self._data = None
+        self._last_single_run_df = None
         try:
             self.csv_combo.blockSignals(True)
             self.csv_combo.clear()
@@ -903,6 +1283,20 @@ class GraphViewerScene(QWidget):
         self._show_empty_state("No graphs available.")
         self.set_context(None, None, None)
         self._clear_crosscorr_state()
+        try:
+            self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+            self._compare_pix_a = None
+            self._compare_pix_b = None
+            self.compare_label_a.setText("—")
+            self.compare_label_b.setText("—")
+            self.compare_label_a.setPixmap(QPixmap())
+            self.compare_label_b.setPixmap(QPixmap())
+            for c in (self.compare_csv_a, self.compare_csv_b, self.compare_graph_a, self.compare_graph_b):
+                c.blockSignals(True)
+                c.clear()
+                c.blockSignals(False)
+        except Exception:
+            pass
 
     def load_session(self, session, *, preload_saved_graphs: bool = False):
         """Attach session and output paths; optionally restore PNGs from disk.
@@ -1049,10 +1443,9 @@ class GraphViewerScene(QWidget):
         if not self._original_pixmap:
             return
         viewport_size: QSize = self.scroll.viewport().size()
-        target_w = max(50, viewport_size.width() - 16)
-        scaled = self._original_pixmap.scaledToWidth(
-            target_w, Qt.SmoothTransformation
-        )
+        w = max(50, viewport_size.width() - 16)
+        h = max(50, viewport_size.height() - 16)
+        scaled = self._fit_pixmap_to_box(self._original_pixmap, w, h)
         self.image_label.setPixmap(scaled)
         self.image_label.setText("")
 
@@ -1204,6 +1597,12 @@ def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
 
     if shown_outputs.get("show_head_plot") and "HeadYaw" in results_df.columns:
         names.append("Head Orientation")
+            # Issue #93: custom angle graph
+    tpa = ((config or {}).get("custom_calculations") or {}).get("three_point_angle") or {}
+    out_col = str(tpa.get("output_column") or "ThreePointAngle")
+    if tpa.get("enabled", False) and out_col in results_df.columns:
+        names.append(f"Custom Angle: {out_col}")
+
 
     return names
 
@@ -1266,6 +1665,36 @@ def _iter_dot_plot_graphs(
             warnings.append(f"Failed to render '{spec['title']}': {exc}")
             continue
         yield (spec["title"], result.figure)
+def _iter_custom_angle_graphs(
+    results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
+):
+    custom = (config or {}).get("custom_calculations") or {}
+    tpa = custom.get("three_point_angle") or {}
+    output_col = str(tpa.get("output_column") or "ThreePointAngle")
+    enabled = bool(tpa.get("enabled", False))
+
+    # If you prefer data-driven behavior, replace `if not enabled:` with:
+    # if output_col not in results_df.columns: return
+    if not enabled:
+        return
+
+    if output_col not in results_df.columns:
+        warnings.append(f"Custom angle enabled but column missing: {output_col}")
+        return
+
+    y = pd.to_numeric(results_df[output_col], errors="coerce").to_numpy()
+    x = list(range(len(y)))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=output_col))
+    fig.update_layout(
+        title=f"Custom Angle: {output_col}",
+        xaxis_title="Frame",
+        yaxis_title="Angle (deg)",
+        template="plotly_white",
+    )
+
+    yield (f"Custom Angle: {output_col}", fig)
 
 
 def _iter_fin_tail_graphs(
@@ -1513,3 +1942,4 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
             session.save()
     except Exception as e:
         print(f"Could not save '{title}' as HTML: {e}")
+

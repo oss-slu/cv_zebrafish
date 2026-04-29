@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import json
+import threading
 from os import path
 from pathlib import Path
 
-from PyQt5.QtCore import QEvent, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, QEvent, QThread, Qt, QSize, pyqtSignal, pyqtSlot
+from typing import Any
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QApplication,
@@ -24,11 +28,75 @@ import src.core.calculations.Driver as calculations
 import src.core.parsing.Parser as parser
 
 from ui.components.branding import view_output_tool_icon
+from ui.components.scene_help import create_scene_help_button
 
 from src.app_platform.paths import default_sample_config, default_sample_csv
 from src.app_platform.paths import images_dir
 
 FOLDER_ICON = images_dir() / "folder-black.svg"
+
+
+class _SingleCalcWorker(QObject):
+    """Background parse + `run_calculations` for single-CSV runs (stays off the UI thread)."""
+
+    ok = pyqtSignal(object)  # payload dict
+    err = pyqtSignal(str)
+    cancelled = pyqtSignal()
+
+    def __init__(self, csv_path: str, config: dict[str, Any], cancel_event: threading.Event):
+        super().__init__()
+        self._csv = csv_path
+        self._config = config
+        self._ce = cancel_event
+
+    def _cancelled(self) -> bool:
+        return self._ce.is_set()
+
+    @pyqtSlot()
+    def work(self) -> None:
+        from src.core.calculations.cancelled import CalculationAborted
+
+        th = self.thread()
+        try:
+            if self._cancelled():
+                self.cancelled.emit()
+                return
+            try:
+                parsed_points = parser.parse_dlc_csv(self._csv, self._config)
+            except Exception as e:
+                self.err.emit(str(e))
+                return
+            if self._cancelled():
+                self.cancelled.emit()
+                return
+            try:
+                results = calculations.run_calculations(
+                    parsed_points, self._config, cancel_check=self._cancelled
+                )
+            except CalculationAborted:
+                self.cancelled.emit()
+                return
+            except Exception as e:
+                self.err.emit(str(e))
+                return
+            if results is None:
+                self.err.emit("The calculation pipeline returned no results.")
+                return
+            if self._cancelled():
+                self.cancelled.emit()
+                return
+            self.ok.emit(
+                {
+                    "results_df": results,
+                    "config": self._config,
+                    "csv_path": self._csv,
+                    "parsed_points": parsed_points,
+                }
+            )
+        finally:
+            if th is not None:
+                th.quit()
+
 
 def _is_displayable_graph_png(p) -> bool:
     try:
@@ -56,15 +124,47 @@ class ConfigSelectionScene(QWidget):
         self.config_path = None
         self.previous_settings = {"csv_path": None, "config_path": None}
         self._tree_theme = "dark"
+        # Monotonic run progress: never show a lower % than a prior step in the same run (#91).
+        self._progress_run_floor: int = 0
+        self._progress_run_busy: bool = False
+        self._calculation_run_active: bool = False
+        self._cancel_event = threading.Event()
+        self._calc_thread: QThread | None = None
+        self._calc_worker: _SingleCalcWorker | None = None
 
         # --- Layout setup ---
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 30, 40, 30)
         layout.setSpacing(16)
 
+        head_row = QHBoxLayout()
+        head_row.setContentsMargins(0, 0, 0, 0)
+        head_row.addStretch(1)
         header = QLabel("Select Configuration")
         header.setObjectName("ConfigSelectionHeader")
-        header.setAlignment(Qt.AlignCenter)
-        layout.addWidget(header)
+        head_row.addWidget(header, 0, Qt.AlignVCenter)
+        head_row.addStretch(1)
+        head_row.addWidget(
+            create_scene_help_button(
+                self,
+                title="Select Configuration",
+                paragraph=(
+                    "In the session file tree, select a CSV and a configuration JSON under it, then click Run Calculation. "
+                    "Click a CSV in the first column, or a .json in the second column, to make that selection. "
+                    "Click the line-graph icon in the right column to open graph outputs. "
+                    "(Or double click a .json in the name column to select and start a run from there.) "
+                    "Right click a .json to delete it, use Generate copy…, or open View output when that row has saved graphs. "
+                    "Right click a CSV row in the first column to delete the CSV. "
+                    "The progress bar roughly shows the amount of analysis completed."
+                ),
+                tips=(
+                    "While a run is in progress, the main button reads Stop — click it to cancel, then you can start a different run.",
+                ),
+            ),
+            0,
+            Qt.AlignRight | Qt.AlignTop,
+        )
+        layout.addLayout(head_row)
 
         self.status_label = QLabel("Select a CSV and Config to run calculations.")
         self.status_label.setObjectName("ConfigSelectionStatus")
@@ -79,6 +179,7 @@ class ConfigSelectionScene(QWidget):
         self.file_tree.setAttribute(Qt.WA_StyledBackground, True)
         self.file_tree.setHeaderLabels(["CSV Files", "Configurations", ""])
         self.file_tree.setColumnCount(3)
+        self.file_tree.setIconSize(QSize(16, 16))
         self.file_tree.setColumnWidth(0, 200)
         _th = self.file_tree.header()
         _th.setSectionResizeMode(0, QHeaderView.Interactive)
@@ -86,6 +187,7 @@ class ConfigSelectionScene(QWidget):
         _th.setSectionResizeMode(2, QHeaderView.Fixed)
         self.file_tree.setColumnWidth(2, 34)
         self.file_tree.itemClicked.connect(self.handle_tree_click)
+        self.file_tree.itemDoubleClicked.connect(self._on_tree_item_double_clicked)
         self.file_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.file_tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         self.file_tree.viewport().installEventFilter(self)
@@ -97,7 +199,7 @@ class ConfigSelectionScene(QWidget):
         self.calc_button = QPushButton("Run Calculation")
         self.calc_button.setObjectName("ConfigSelectionCalcButton")
         self.calc_button.setEnabled(False)
-        self.calc_button.clicked.connect(self.calculate)
+        self.calc_button.clicked.connect(self._on_calc_button_clicked)
         self.toggle_button = QPushButton()
         self.toggle_button.setObjectName("ConfigSelectionTestToggle")
         self.toggle_button.setCheckable(True)
@@ -136,7 +238,8 @@ class ConfigSelectionScene(QWidget):
         self.setLayout(layout)
 
     def eventFilter(self, obj, event):
-        """Single-click graph icon column (right of JSON name) opens View Output."""
+        """Open View Output on release in the graph column. The cell is only ~34px; the icon is
+        left-aligned, so a right-edge hit test could miss the icon entirely."""
         if (
             obj is self.file_tree.viewport()
             and event.type() == QEvent.MouseButtonRelease
@@ -149,16 +252,23 @@ class ConfigSelectionScene(QWidget):
                 if item is None:
                     return super().eventFilter(obj, event)
                 cfg_data = item.data(1, Qt.UserRole)
-                if cfg_data:
-                    parent = item.parent()
-                    csv_for = parent.data(0, Qt.UserRole) if parent else None
-                    if csv_for and self._config_row_has_graphs(csv_for, cfg_data):
-                        self.view_output_requested.emit(csv_for, cfg_data)
+                if not cfg_data:
+                    return super().eventFilter(obj, event)
+                r = self.file_tree.visualRect(self.file_tree.indexFromItem(item, 2))
+                if not r.contains(pos):
+                    return super().eventFilter(obj, event)
+                parent = item.parent()
+                csv_for = parent.data(0, Qt.UserRole) if parent else None
+                if csv_for and self._config_row_has_graphs(csv_for, cfg_data):
+                    self.view_output_requested.emit(csv_for, cfg_data)
+                return True
         return super().eventFilter(obj, event)
 
     def _update_calc_button_state(self):
-        enabled = bool(self.csv_path and self.config_path)
-        self.calc_button.setEnabled(enabled)
+        if self._calculation_run_active:
+            self.calc_button.setEnabled(True)
+            return
+        self.calc_button.setEnabled(bool(self.csv_path and self.config_path))
 
     def set_selected_paths(self, csv_path: str | None, config_path: str | None) -> None:
         """Set CSV + config selection (e.g. session resume) and refresh Run button / status."""
@@ -176,6 +286,9 @@ class ConfigSelectionScene(QWidget):
 
     def reset_selection_ui(self) -> None:
         """Clear tree selection state when switching sessions."""
+        if self._calculation_run_active:
+            self.request_cancel_calculation()
+        self.finish_calculation_run()
         self.csv_path = None
         self.config_path = None
         self.previous_settings = {"csv_path": None, "config_path": None}
@@ -452,12 +565,32 @@ class ConfigSelectionScene(QWidget):
         self.populate_tree()
         self.toast_requested.emit("Removed", f"Removed {path.basename(config_path)} from the session.")
 
+    def _on_tree_item_double_clicked(self, item, column):
+        """Double-click a config JSON row to select it and start calculation (if not already running)."""
+        cfg_data = item.data(1, Qt.UserRole)
+        if not cfg_data:
+            return
+        if column != 1:
+            return
+        p = str(cfg_data)
+        if not p.lower().endswith(".json"):
+            return
+        self.handle_tree_click(item, 1)
+        if self._calculation_run_active:
+            return
+        if self.csv_path and self.config_path:
+            self.calculate()
+
     def handle_tree_click(self, item, column):
         """Handle user clicking a CSV or config in the tree."""
         csv_data = item.data(0, Qt.UserRole)
         cfg_data = item.data(1, Qt.UserRole)
 
         if cfg_data:
+            if column == 2:
+                return
+            if column != 1:
+                return
             parent = item.parent()
             csv_for = parent.data(0, Qt.UserRole) if parent else None
             if not csv_for:
@@ -482,6 +615,8 @@ class ConfigSelectionScene(QWidget):
             return
 
         if csv_data and not cfg_data:
+            if column != 0:
+                return
             self.csv_path = csv_data
             self.config_path = None
             self.status_label.setText(f"Selected CSV: {path.basename(csv_data)}")
@@ -513,23 +648,143 @@ class ConfigSelectionScene(QWidget):
                 self.status_label.setText("Select a CSV and Config to run calculations.")
                 self._update_calc_button_state()
 
+    def start_progress_run(self) -> None:
+        """Start a new determinate run (e.g. graph build in shell) after parse/calc; resets monotonic floor."""
+        self._progress_run_floor = 0
+        if self._progress_run_busy:
+            self.set_progress_busy(False)
+        if self.progress_bar.isHidden():
+            self.progress_bar.setRange(0, 100)
+
+    def set_progress_busy(self, active: bool, message: str = "") -> None:
+        """
+        Indeterminate bar while the pipeline has no sub-milestones to report
+        (e.g. long run_calculations on the UI thread). Does not set a percentage.
+        """
+        self._progress_run_busy = bool(active)
+        if not active:
+            self.progress_bar.setRange(0, 100)
+            return
+        self._progress_run_floor = 0
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setValue(0)
+        self.progress_bar.show()
+        self.progress_label.show()
+        if message:
+            self.progress_label.setText(message)
+        else:
+            self.progress_label.setText("Working…")
+        QApplication.processEvents()
+
     def set_progress(self, n, total, graph_name):
-        """Update progress bar and label: [N]/[Total] - [Graph Name]. Call with total=0 to hide."""
+        """
+        Update progress. [n]/[total] is the current step; graph_name is status text.
+        total<=0: hide the bar. Percent never goes down within a run unless reset (hide) or
+        start_progress_run() / set_progress(0,0,).
+        """
         if total <= 0:
             self.progress_bar.hide()
             self.progress_label.hide()
+            self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
             self.progress_label.setText("")
+            self._progress_run_busy = False
+            self._progress_run_floor = 0
             return
+        if self._progress_run_busy:
+            self._progress_run_busy = False
+            self.progress_bar.setRange(0, 100)
         self.progress_bar.show()
         self.progress_label.show()
         self.progress_bar.setMaximum(100)
-        self.progress_bar.setValue(int(100 * n / total) if total else 0)
-        if graph_name == "Loading graphs...":
-            self.progress_label.setText("Loading Graphs...")
+        raw = (100 * int(n)) // int(total) if total else 0
+        if raw < self._progress_run_floor:
+            raw = self._progress_run_floor
         else:
-            self.progress_label.setText(f"{n}/{total} - {graph_name}")
+            self._progress_run_floor = raw
+        self.progress_bar.setValue(min(100, raw))
+        if graph_name == "Loading graphs...":
+            self.progress_label.setText("Loading Graphs…")
+        else:
+            self.progress_label.setText(f"{n}/{total} — {graph_name}")
         QApplication.processEvents()
+
+    # ==============================================================
+    # Calculation run control (Run / Stop)
+    # ==============================================================
+
+    def begin_calculation_run(self) -> None:
+        self._cancel_event.clear()
+        self._calculation_run_active = True
+        self.calc_button.setText("Stop Calculation")
+        self.calc_button.setEnabled(True)
+
+    def finish_calculation_run(self) -> None:
+        self._cancel_event.clear()
+        self._calculation_run_active = False
+        self.calc_button.setText("Run Calculation")
+        self._update_calc_button_state()
+
+    def request_cancel_calculation(self) -> None:
+        self._cancel_event.set()
+
+    def is_calculation_cancelled(self) -> bool:
+        return self._cancel_event.is_set()
+
+    def _on_calc_button_clicked(self) -> None:
+        if self._calculation_run_active:
+            self.request_cancel_calculation()
+        else:
+            self.calculate()
+
+    def _on_single_worker_ok(self, payload: object) -> None:
+        if not self._calculation_run_active:
+            return
+        self.set_progress_busy(False)
+        self.set_progress(0, 0, "")
+        self.status_label.setText("Calculation successful.")
+        self.data_generated.emit(payload)
+
+    def _on_single_worker_err(self, message: str) -> None:
+        self.set_progress_busy(False)
+        self.set_progress(0, 0, "")
+        self.status_label.setText("Error.")
+        self.toast_requested.emit("Calculation failed", message)
+        self.finish_calculation_run()
+
+    def _on_single_worker_cancelled(self) -> None:
+        self.set_progress_busy(False)
+        self.set_progress(0, 0, "")
+        if self.csv_path and self.config_path:
+            self.status_label.setText(
+                f"Ready: {path.basename(self.csv_path)} + {path.basename(self.config_path)}"
+            )
+        else:
+            self.status_label.setText("Select a CSV and Config to run calculations.")
+        self.finish_calculation_run()
+
+    def _setup_single_worker_thread(
+        self, config: dict[str, Any]
+    ) -> None:
+        if self._calc_thread is not None:
+            return
+        self._calc_thread = QThread()
+        self._calc_worker = _SingleCalcWorker(
+            str(self.csv_path), dict(config), self._cancel_event
+        )
+        self._calc_worker.moveToThread(self._calc_thread)
+        self._calc_thread.started.connect(self._calc_worker.work)
+        self._calc_worker.ok.connect(self._on_single_worker_ok, Qt.QueuedConnection)
+        self._calc_worker.err.connect(self._on_single_worker_err, Qt.QueuedConnection)
+        self._calc_worker.cancelled.connect(self._on_single_worker_cancelled, Qt.QueuedConnection)
+        self._calc_thread.finished.connect(self._on_single_thread_finished)
+        self._calc_thread.start()
+
+    def _on_single_thread_finished(self) -> None:
+        if self._calc_worker is not None:
+            self._calc_worker.deleteLater()
+            self._calc_worker = None
+        self._calc_thread = None
 
     # ==============================================================
     # Calculation Logic
@@ -537,6 +792,8 @@ class ConfigSelectionScene(QWidget):
 
     def calculate(self):
         """Run the calculation pipeline and emit data_generated with the payload."""
+        if self._calculation_run_active:
+            return
         if not self.csv_path or not self.config_path:
             self.toast_requested.emit(
                 "Missing files", "Select both a CSV and a config JSON before running."
@@ -578,46 +835,22 @@ class ConfigSelectionScene(QWidget):
                         "This folder has no CSV files recorded in the session.",
                     )
                     return
+                self.begin_calculation_run()
                 payload = {
                     "csv_folder": self.csv_path,
                     "csv_files": files,
                     "config": config,
                     "config_path": self.config_path,
                 }
-                self.toast_requested.emit(
-                    "Running",
-                    f"Starting calculations for {len(files)} file(s) in this folder…",
-                )
+                # No toast: progress bar in the shell shows bulk status; avoids covering status text.
                 self.data_generated.emit(payload)
                 return
         except Exception:
             pass
 
-        self.status_label.setText("CSV parsed successfully, running calculations…")
-
-        try:
-            parsed_points = parser.parse_dlc_csv(self.csv_path, config)
-        except Exception as e:
-            self.toast_requested.emit("Parse error", str(e))
-            self.status_label.setText("Parse failed.")
-            return
-
-        results = calculations.run_calculations(parsed_points, config)
-
-        if results is None:
-            self.toast_requested.emit(
-                "Calculation failed",
-                "The calculation pipeline returned no results.",
-            )
-            self.status_label.setText("Calculation failed.")
-            self.data_generated.emit(None)
-        else:
-            self.toast_requested.emit("Done", "Calculation finished successfully.")
-            self.status_label.setText("Calculation successful.")
-            payload = {
-                "results_df": results,
-                "config": config,
-                "csv_path": self.csv_path,
-                "parsed_points": parsed_points,
-            }
-            self.data_generated.emit(payload)
+        self.set_progress(0, 0, "")
+        self.set_progress_busy(True, "Reading CSV and computing metrics (this can take a while)…")
+        self.status_label.setText("Working…")
+        QApplication.processEvents()
+        self.begin_calculation_run()
+        self._setup_single_worker_thread(config)

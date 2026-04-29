@@ -1,5 +1,6 @@
 from os import path
 import json
+import shutil
 from pathlib import Path
 
 from PyQt5.QtCore import pyqtSignal, QObject
@@ -10,6 +11,7 @@ from app_platform.paths import (
     resolve_folder_graphs_asset_paths,
     resolve_graph_asset_path,
     session_bundle_dir,
+    sessions_dir,
 )
 
 class Session(QObject):
@@ -32,17 +34,82 @@ class Session(QObject):
         # Persisted “last used” calculation inputs (so we can rebuild graphs on reopen).
         self.last_csv_path = None
         self.last_config_path = None
-    
-    def addCSV(self, csv_path):
+        # user-picked path -> canonical key under sessions/.../uploads (backlog #3)
+        self._import_alias_by_user: dict[str, str] = {}
+
+    def _resolve_csv_key(self, csv_path: str) -> str:
+        if not csv_path:
+            return csv_path
+        if csv_path in self.csvs:
+            return csv_path
+        return self._import_alias_by_user.get(csv_path, csv_path)
+
+    def _canonical_single_csv_path(self, csv_path: str) -> str:
+        """
+        Backlog #3: keep a copy under sessions/<name>/uploads/ so the session
+        can reopen even if the user moves or renames the original file.
+        """
+        if not path.exists(csv_path) or not path.isfile(csv_path):
+            return path.normpath(path.abspath(str(csv_path)))
+        src = Path(csv_path).resolve()
+        up = (Path(sessions_dir()) / self.getName() / "uploads").resolve()
+        try:
+            up.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return str(src)
+        try:
+            src.relative_to(up)
+            return str(src)
+        except ValueError:
+            pass
+        # Idempotent: second call with same file path reuses the existing session key
+        quick = (up / src.name).resolve()
+        if quick.exists() and str(quick) in self.csvs:
+            return str(quick)
+        dest = (up / src.name).resolve()
+        if dest == src:
+            return str(src)
+        if dest.exists():
+            stem, suf = src.stem, src.suffix
+            n = 1
+            while True:
+                alt = (up / f"{stem}_import{n}{suf}").resolve()
+                if not alt.exists():
+                    dest = alt
+                    break
+                n += 1
+        try:
+            shutil.copy2(str(src), str(dest))
+        except OSError as e:
+            print(f"[Session] Could not copy CSV into session: {e}")
+            return str(src)
+        return str(dest)
+
+    def addCSV(self, csv_path, *, session_import: bool = True):
+        """
+        Register a single-CSV input. When ``session_import`` is True (default), copy
+        the file into ``sessions/<name>/uploads/`` (backlog #3) so paths stay valid
+        if the user moves the original. When False (e.g. ``load_session_from_json``),
+        use the path string as stored in the JSON without copying.
+        """
         if not path.exists(csv_path):
             print(f"[Session] CSV path does not exist: {csv_path}")
             return
 
+        if session_import:
+            orig = path.normpath(path.abspath(str(csv_path)))
+            key = self._canonical_single_csv_path(csv_path)
+        else:
+            key = path.normpath(path.abspath(str(csv_path)))
+            orig = key
+
         # Idempotent: never overwrite an existing CSV entry, because that would
         # wipe any configs/graphs already attached to it (losing progress).
-        if csv_path not in self.csvs:
-            self.csvs[csv_path] = {}
-            self.session_updated.emit()
+        if key not in self.csvs:
+            self.csvs[key] = {}
+        if session_import and orig != key and orig not in self._import_alias_by_user:
+            self._import_alias_by_user[orig] = key
+        self.session_updated.emit()
 
     def addCSVFolder(self, folder_path: str, csv_files: list[str]):
         """Register a folder of CSVs as a single CSV input ID."""
@@ -86,6 +153,7 @@ class Session(QObject):
             print(f"[Session] Config path does not exist: {config_path}")
             return
 
+        csv_path = self._resolve_csv_key(csv_path)
         # Be permissive: ensure the CSV node exists, then attach config.
         if csv_path not in self.csvs:
             self.csvs[csv_path] = {}
@@ -108,7 +176,7 @@ class Session(QObject):
                     self.session_updated.emit()
 
     def getConfigsForCSV(self, csv_path):
-        return self.csvs.get(csv_path, {})
+        return self.csvs.get(self._resolve_csv_key(csv_path), {})
 
     def getAllCSVs(self):
         return list(self.csvs.keys())
@@ -196,6 +264,7 @@ class Session(QObject):
             "calculation_has_run": bool(getattr(self, "calculation_has_run", False)),
             "last_csv_path": getattr(self, "last_csv_path", None),
             "last_config_path": getattr(self, "last_config_path", None),
+            "csv_import_alias": dict(self._import_alias_by_user or {}),
         }
     
     def length(self):
@@ -216,10 +285,13 @@ class Session(QObject):
             json.dump(self.toDict(), f, indent=4)
 
     def checkExists(self, csv_path=None, config_path=None):
+        ck = self._resolve_csv_key(csv_path) if csv_path else None
         if csv_path in self.csvs and config_path is None:
             return True
+        if ck and ck in self.csvs and config_path is None:
+            return True
         if csv_path and config_path:
-            return config_path in self.csvs.get(csv_path, {})
+            return config_path in self.csvs.get(ck, {})
 
         return config_path in self.getAllConfigs()
 
@@ -227,6 +299,7 @@ class Session(QObject):
         """Detach one JSON config (and its graph paths) from a CSV row; prune folder_graphs."""
         if not csv_path or not config_path:
             return
+        csv_path = self._resolve_csv_key(csv_path)
         row = self.csvs.get(csv_path)
         if not row or config_path not in row:
             return
@@ -292,6 +365,7 @@ def load_session_from_json(json_path):
     session.last_csv_path = _session_resolved_path(lcsv, session_name) if lcsv else None
     lcfg = data.get("last_config_path")
     session.last_config_path = _session_resolved_path(lcfg, session_name) if lcfg else None
+    session._import_alias_by_user = data.get("csv_import_alias") or {}
     session.csv_folders = data.get("csv_folders") or {}
     session.folder_graphs = resolve_folder_graphs_asset_paths(
         data.get("folder_graphs") or {}, session_name
@@ -300,7 +374,7 @@ def load_session_from_json(json_path):
     csvs = data.get("csvs", {})
     for csv_path, configs in csvs.items():
         csv_id = _session_resolved_path(csv_path, session_name)
-        session.addCSV(csv_id)
+        session.addCSV(csv_id, session_import=False)
         for config_path, graphs in configs.items():
             cfg_id = _session_resolved_path(config_path, session_name)
             session.addConfigToCSV(csv_id, cfg_id)
