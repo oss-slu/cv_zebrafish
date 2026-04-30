@@ -632,48 +632,36 @@ class ConfigGeneratorScene(QWidget):
         self.config_generated.emit()
 
     def load_session(self, session):
-        if self._session_connected is not None:
-            try:
-                self._session_connected.session_updated.disconnect(self._refresh_csv_list)
-            except (TypeError, RuntimeError):
-                pass
-            self._session_connected = None
+    if self._session_connected is not None:
+        try:
+            self._session_connected.session_updated.disconnect(self._refresh_csv_list)
+        except (TypeError, RuntimeError):
+            pass
+        self._session_connected = None
 
-        self.current_session = session
-        self._session_connected = session
+    self.current_session = session
+    self._session_connected = session
 
-        self._reset_body_state()
-        self.config_name_input.setPlaceholderText("config")
-        self.config_name_input.clear()
+    self._reset_body_state()
+    self.config_name_input.setPlaceholderText("config")
+    self.config_name_input.clear()
 
-        if session is not None:
-            try:
-                session.session_updated.connect(self._refresh_csv_list)
-            except Exception:
-                pass
+    if session is not None:
+        try:
+            session.session_updated.connect(self._refresh_csv_list)
+        except Exception:
+            pass
 
-        self._refresh_csv_list()
-        self._set_tab_index(0)
-         def load_session(self, session):
-    # ... existing code ...
-    
     self._refresh_csv_list()
     self._set_tab_index(0)
 
-    # === AUTO-SELECTION ADDITION START ===
-    if session is not None:
-        csvs = session.getAllCSVs()
-        if csvs:
-            first_csv = csvs[0]
-            self.csv_id = first_csv
-            self.csv_path = first_csv
-            for i in range(self.csv_list.count()):
-                item = self.csv_list.item(i)
-                if item and item.text() == first_csv:
-                    self.csv_list.setCurrentItem(item)
-                    break
-            self.load_csv()
-    # === AUTO-SELECTION ADDITION END ===
+    # Issue #95: pre-fill from BaseConfig.json on scene open
+    base_json = self._get_base_config_json_path()
+    if base_json:
+        ok, msg = self.apply_existing_config_json(base_json)
+        if not ok:
+            self._user_message(f"Could not load config template:\n{msg}", tab=0)
+
 
         
 
