@@ -255,6 +255,24 @@ class ConfigGeneratorScene(QWidget):
             return
         self._stack.setCurrentIndex(idx)
 
+
+    def _get_base_config_json_path(self) -> str | None:
+    """
+    Best-effort locate BaseConfig.json.
+    Adjust the candidate paths if your repo layout differs.
+    """
+    candidates = [
+        Path("jsons") / "BaseConfig.json",
+        Path("config") / "BaseConfig.json",
+        Path("BaseConfig.json"),
+        Path("data") / "samples" / "jsons" / "BaseConfig.json",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return str(p.resolve())
+    return None
+
+
     def _set_tab_index(self, index: int) -> None:
         if not self._tab_buttons:
             return
