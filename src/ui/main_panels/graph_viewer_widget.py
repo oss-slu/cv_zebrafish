@@ -36,8 +36,8 @@ from src.core.analysis.cross_correlation import (
 )
 from src.core.graphs.plots.crosscorr_plot import render_crosscorr_plot
 
+from src.ui.components.InteractiveGraph import InteractiveGraph
 from ui.components.scene_help import create_scene_help_button
-
 from src.core.calculations.cancelled import CalculationAborted
 from src.session import session
 from src.app_platform.paths import images_dir, sessions_dir
@@ -191,7 +191,12 @@ class GraphViewerScene(QWidget):
         self.list.setTextElideMode(Qt.ElideRight)
         self.list.itemSelectionChanged.connect(self._on_selection_changed)
 
-        # Image area for graphs
+        ##CHANGED THIS FOR INTERACTIVE GRAPHS
+        # Interactive graph area (zoom/pan/hover via QWebEngineView)
+        self.interactive_graph = InteractiveGraph()
+        self.interactive_graph.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        # Keep these for fallback PNG path (cross-corr and kaleido-only mode)
         self.image_label = QLabel("Select a graph on the left")
         self.image_label.setObjectName("GraphViewerImageLabel")
         self.image_label.setAlignment(Qt.AlignCenter)
@@ -205,6 +210,8 @@ class GraphViewerScene(QWidget):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setAttribute(Qt.WA_StyledBackground, True)
         self.scroll.setWidget(self.image_label)
+
+        self._original_pixmap = None
 
         # ---------------------------------------------------------------
         # Layout with tabs
@@ -246,8 +253,9 @@ class GraphViewerScene(QWidget):
         left_graph.addWidget(self.csv_nav_row)
         left_graph.addWidget(self.list, stretch=1)
 
+        ##CHANGED HERE FOR INTERACTIVE GRAPH
         right_graph = QVBoxLayout()
-        right_graph.addWidget(self.scroll, stretch=1)
+        right_graph.addWidget(self.interactive_graph, stretch=1)
 
         graph_layout.addLayout(left_graph)
         graph_layout.addLayout(right_graph, stretch=1)
@@ -678,26 +686,7 @@ class GraphViewerScene(QWidget):
         self._context_selected_csv = self._context_csv_id
         self._refresh_context_banner()
 
-        needs_kaleido = any(isinstance(src, go.Figure) for src in self._graphs.values())
-        if needs_kaleido and not self._kaleido_available:
-            self._show_empty_state(
-                "Graphs are available, but cannot be displayed because Kaleido is not installed.\n"
-                "Install it and restart the app:\n"
-                "  pip install --upgrade kaleido\n"
-                "or (conda):\n"
-                "  conda install -c conda-forge python-kaleido"
-            )
-            if isinstance(results_df, pd.DataFrame) and not results_df.empty:
-                self._last_single_run_df = results_df
-                self._enable_crosscorr(results_df)
-            else:
-                self._last_single_run_df = None
-                self._clear_crosscorr_state()
-            if on_preparing_viewer is not None:
-                on_preparing_viewer()
-                QApplication.processEvents()
-            self._sync_compare_pane()
-            return
+        # Interactive Plotly figures render in QWebEngine without Kaleido; PNG export still needs it.
 
         if self.list.count() > 0:
             self.list.setEnabled(True)
@@ -922,7 +911,7 @@ class GraphViewerScene(QWidget):
 
                     pio.write_html(
                         src, file=str(html_path),
-                        include_plotlyjs="cdn", auto_open=False
+                        include_plotlyjs=True, auto_open=False
                     )
                     wrote_png = False
                     if _is_kaleido_available():
@@ -1211,25 +1200,27 @@ class GraphViewerScene(QWidget):
         self._current_name = items[0].text()
         self._show_graph(self._current_name)
 
+    ##CHANGED FOR INTERACTIVE GRAPHS
     def _show_graph(self, name: str):
         source = self._graphs.get(name)
         if source is None:
             self._show_empty_state(f"Missing graph: {name}")
             return
 
-        pix: Optional[QPixmap] = None
         if isinstance(source, go.Figure):
-            pix = self._figure_to_pixmap(source)
-        else:
-            try:
-                pix = QPixmap(str(source))
-            except Exception:
-                pix = None
+            # Use interactive web view (zoom, pan, hover tooltips)
+            self.interactive_graph.set_figure(source)
+            self.list.setEnabled(True)
+            return
+
+        # Fallback: PNG file path saved to disk
+        try:
+            pix = QPixmap(str(source))
+        except Exception:
+            pix = None
 
         if pix is None or pix.isNull():
-            self._show_empty_state(
-                "Unable to render this graph as a static image."
-            )
+            self._show_empty_state("Unable to render this graph as a static image.")
             return
 
         self._original_pixmap = pix
@@ -1237,23 +1228,34 @@ class GraphViewerScene(QWidget):
         self.image_label.setText("")
         self.list.setEnabled(True)
 
+
     def _set_message(self, text: str):
         self._original_pixmap = None
         self.image_label.setText(text)
         self.image_label.setPixmap(QPixmap())
 
+
+
+
+    #CHANGED FOR INTERACTIVE GRAPHS
     def _show_empty_state(self, text: str = "No graphs available."):
         self._set_message(text)
         self.list.setEnabled(False)
+        self.interactive_graph.clear()
 
+    #CHANGED FOR INTERACTIVE GRAPHS
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        # PNG fallback still needs manual scaling
         if self._original_pixmap:
             self._update_scaled_pixmap()
         if getattr(self, "_current_crosscorr_pixmap", None) is not None:
             self._update_crosscorr_pixmap()
         if self.tab_widget.currentIndex() == self.TAB_COMPARE:
             self._rescale_compare_images()
+
+
+
 
     def prepare_for_session_load(self) -> None:
         """Clear viewer UI before attaching a new session (avoids stale list/graphs)."""
@@ -1921,7 +1923,7 @@ def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, An
         html_path = out_dir / f"{fname}.html"
         png_path = out_dir / f"{fname}.png"
 
-        pio.write_html(fig, file=str(html_path), include_plotlyjs="cdn", auto_open=False)
+        pio.write_html(fig, file=str(html_path), include_plotlyjs=True, auto_open=False)
 
         try:
             png_bytes = pio.to_image(fig, format="png", scale=2)
