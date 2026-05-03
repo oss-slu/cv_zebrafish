@@ -36,7 +36,8 @@ from PyQt5.QtWidgets import (
 from core.validation import generate_json
 from ui.components.bodypart_pool_list import BodypartPaletteList, BodypartSequenceList, ChipDelegate
 from app_platform.paths import sessions_dir
-
+from ui.components.wide_popup_combo import WidePopupComboBox
+from ui.elide_tooltip import update_label_elide_tooltip, update_pushbutton_elide_tooltip
 
 def _section_rule() -> QFrame:
     line = QFrame()
@@ -94,6 +95,7 @@ class ConfigGeneratorScene(QWidget):
         strip_layout.addStretch(1)
 
         self._tab_strip.setFixedWidth(188)
+        self._update_tab_button_tooltips()
 
         self._stack = QStackedWidget()
         self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -129,12 +131,12 @@ class ConfigGeneratorScene(QWidget):
         form.setSpacing(10)
         form.setContentsMargins(0, 0, 0, 0)
 
-        self.fin_r_1 = QComboBox()
-        self.fin_r_2 = QComboBox()
-        self.fin_l_1 = QComboBox()
-        self.fin_l_2 = QComboBox()
-        self.head_1 = QComboBox()
-        self.head_2 = QComboBox()
+        self.fin_r_1 = WidePopupComboBox()
+        self.fin_r_2 = WidePopupComboBox()
+        self.fin_l_1 = WidePopupComboBox()
+        self.fin_l_2 = WidePopupComboBox()
+        self.head_1 = WidePopupComboBox()
+        self.head_2 = WidePopupComboBox()
         self._body_part_combos = (
             self.fin_r_1,
             self.fin_r_2,
@@ -236,9 +238,9 @@ class ConfigGeneratorScene(QWidget):
         lay_c.setContentsMargins(0, 0, 0, 0)
         lay_c.setSpacing(8)
 
-        self.angle_a = QComboBox()
-        self.angle_b = QComboBox()
-        self.angle_c = QComboBox()
+        self.angle_a = WidePopupComboBox()
+        self.angle_b = WidePopupComboBox()
+        self.angle_c = WidePopupComboBox()
         self.angle_ccw = QCheckBox("Counterclockwise")
 
         angle_group = QGroupBox("Three-point angle")
@@ -319,6 +321,11 @@ class ConfigGeneratorScene(QWidget):
         super().resizeEvent(event)
         self._update_csv_display()
         self._apply_bodypart_field_widths()
+        self._update_tab_button_tooltips()
+
+    def _update_tab_button_tooltips(self) -> None:
+        for btn in self._tab_buttons:
+            update_pushbutton_elide_tooltip(btn)
 
     def _update_csv_display(self):
         path = (self.csv_id or self.csv_path or "").strip()
@@ -326,12 +333,14 @@ class ConfigGeneratorScene(QWidget):
             self._csv_display_label.setText("(none)")
             self._csv_display_label.setToolTip("")
             return
-        self._csv_display_label.setToolTip(path)
         w = self._csv_display_label.width()
         if w < 80:
             w = max(80, self.width() - 360)
         fm = self._csv_display_label.fontMetrics()
         self._csv_display_label.setText(fm.elidedText(path, Qt.ElideLeft, w))
+        update_label_elide_tooltip(
+            self._csv_display_label, path, Qt.ElideLeft, elide_width=w
+        )
 
     @staticmethod
     def _message_to_toast(full_text: str) -> tuple[str, str]:
@@ -528,7 +537,9 @@ class ConfigGeneratorScene(QWidget):
             return
 
         for p in csvs:
-            self.csv_list.addItem(QListWidgetItem(p))
+            it = QListWidgetItem(p)
+            it.setToolTip(p)
+            self.csv_list.addItem(it)
 
     def _on_csv_chosen(self, item: QListWidgetItem):
         p = (item.text() or "").strip()

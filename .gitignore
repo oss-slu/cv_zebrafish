@@ -40,6 +40,10 @@ AGENTS.md
 package-lock.json
 package.json
 
+# Agent/handoff/process docs — intentionally omit from commits and PR diffs.
+# Keeps setuptools `build/` free for packaging; avoids colliding with other tools named "build".
+.cursor/agent-workspace/
+
 # videos
 *.mp4
 *.avi

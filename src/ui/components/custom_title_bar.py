@@ -5,6 +5,7 @@ from __future__ import annotations
 from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtWidgets import QHBoxLayout, QMainWindow, QMenu, QToolButton, QWidget
 
+from styles.ui_scale import scaled_px
 from ui.components.branding import title_bar_logo_label
 
 
@@ -24,13 +25,16 @@ class CustomTitleBar(QWidget):
         self._drag_anchor: QPoint | None = None
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 8, 6)
-        layout.setSpacing(4)
+        m = scaled_px(10)
+        mv = scaled_px(8)
+        layout.setContentsMargins(m, mv, scaled_px(8), mv)
+        layout.setSpacing(scaled_px(4))
 
-        self._logo = title_bar_logo_label(34)
+        logo_side = scaled_px(34)
+        self._logo = title_bar_logo_label(logo_side)
         layout.addWidget(self._logo, 0, Qt.AlignVCenter)
 
-        layout.addSpacing(8)
+        layout.addSpacing(scaled_px(8))
 
         self._file_btn = self._strip_menu_button("File", file_menu)
         layout.addWidget(self._file_btn, 0, Qt.AlignVCenter)
@@ -62,7 +66,8 @@ class CustomTitleBar(QWidget):
         self._btn_max.style().unpolish(self._btn_max)
         self._btn_max.style().polish(self._btn_max)
 
-        self.setFixedHeight(54)
+        # Match scaled QSS on TitleMenuButton (font + padding); fixed 54px clipped when UI scale > 1.
+        self.setFixedHeight(max(scaled_px(58), logo_side + scaled_px(24)))
 
     def _strip_menu_button(self, label: str, menu: QMenu) -> QToolButton:
         b = QToolButton()
@@ -80,7 +85,9 @@ class CustomTitleBar(QWidget):
         b.setText(text)
         b.setAutoRaise(True)
         b.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        b.setFixedSize(54, 42)
+        side = scaled_px(54)
+        tall = scaled_px(42)
+        b.setFixedSize(side, tall)
         b.setCursor(Qt.PointingHandCursor)
         return b
 

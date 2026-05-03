@@ -13,6 +13,7 @@ from styles.themes import THEMES, apply_theme
 from ui.components.chrome_separators import horizontal_separator
 from ui.components.dialog_title_bar import DialogTitleBar
 from ui.components.scene_help import format_help_body
+from ui.platform.frameless_resize import FramelessResizeMixin
 
 
 def _transient_for_help(start: Optional[QWidget]) -> Optional[QWidget]:
@@ -41,7 +42,7 @@ def _frame_title(window_name: str) -> str:
     return f"Help - {wn}"
 
 
-class SceneHelpDialog(QDialog):
+class SceneHelpDialog(FramelessResizeMixin, QDialog):
     """
     No OS chrome, no information pixmap — title uses DialogTitleBar (same as other app dialogs).
     Title: ``Help - {window_name}`` (e.g. ``Help - No Session Window``).

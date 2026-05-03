@@ -7,6 +7,7 @@ from typing import Optional, Sequence
 from PyQt5.QtCore import QPoint, Qt
 from PyQt5.QtWidgets import QDialog, QHBoxLayout, QLabel, QToolButton, QWidget
 
+from styles.ui_scale import scaled_px
 from ui.components.scene_help import create_scene_help_button
 
 
@@ -29,8 +30,9 @@ class DialogTitleBar(QWidget):
         self._drag_anchor: QPoint | None = None
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 8, 6)
-        layout.setSpacing(8)
+        mv = scaled_px(8)
+        layout.setContentsMargins(scaled_px(10), mv, scaled_px(8), mv)
+        layout.setSpacing(scaled_px(8))
 
         self._title = QLabel(title)
         self._title.setObjectName("DialogTitleLabel")
@@ -52,12 +54,14 @@ class DialogTitleBar(QWidget):
         self._btn_close.setText("\u00d7")
         self._btn_close.setAutoRaise(True)
         self._btn_close.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self._btn_close.setFixedSize(52, 40)
+        cw = scaled_px(52)
+        ch = scaled_px(40)
+        self._btn_close.setFixedSize(cw, ch)
         self._btn_close.setCursor(Qt.PointingHandCursor)
         self._btn_close.clicked.connect(self._dlg.reject)
         layout.addWidget(self._btn_close, 0, Qt.AlignVCenter)
 
-        self.setFixedHeight(52)
+        self.setFixedHeight(max(scaled_px(52), ch + mv * 2))
 
     def _allow_window_drag(self, pos) -> bool:
         w = self.childAt(pos)

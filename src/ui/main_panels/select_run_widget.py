@@ -37,11 +37,12 @@ FOLDER_ICON = images_dir() / "folder-black.svg"
 
 
 class _SingleCalcWorker(QObject):
-    """Background parse + `run_calculations` for single-CSV runs (stays off the UI thread)."""
+    """Background parse, metrics, and graph build for single-CSV runs (stays off the UI thread)."""
 
     ok = pyqtSignal(object)  # payload dict
     err = pyqtSignal(str)
     cancelled = pyqtSignal()
+    graph_progress = pyqtSignal(int, int, str)  # n, total, graph name
 
     def __init__(self, csv_path: str, config: dict[str, Any], cancel_event: threading.Event):
         super().__init__()
@@ -85,14 +86,29 @@ class _SingleCalcWorker(QObject):
             if self._cancelled():
                 self.cancelled.emit()
                 return
-            self.ok.emit(
-                {
-                    "results_df": results,
-                    "config": self._config,
-                    "csv_path": self._csv,
-                    "parsed_points": parsed_points,
-                }
-            )
+            from ui.main_panels.graph_viewer_widget import build_graphs_from_data, get_graph_names_to_build
+
+            payload = {
+                "results_df": results,
+                "config": self._config,
+                "csv_path": self._csv,
+                "parsed_points": parsed_points,
+            }
+            if len(get_graph_names_to_build(payload)) == 0:
+                self.ok.emit(payload)
+                return
+
+            def _prog(n: int, tot: int, gname: str) -> None:
+                self.graph_progress.emit(n, tot, gname)
+
+            try:
+                graphs, cfg = build_graphs_from_data(payload, _prog, self._cancelled)
+            except CalculationAborted:
+                self.cancelled.emit()
+                return
+            payload["_prebuilt_graphs"] = graphs
+            payload["_prebuilt_config"] = cfg
+            self.ok.emit(payload)
         finally:
             if th is not None:
                 th.quit()
@@ -236,6 +252,10 @@ class ConfigSelectionScene(QWidget):
         self.progress_label.hide()
 
         self.setLayout(layout)
+
+    def calculation_cancel_event(self) -> threading.Event:
+        """Same flag checked by Stop Calculation (workers read this from background threads)."""
+        return self._cancel_event
 
     def eventFilter(self, obj, event):
         """Open View Output on release in the graph column. The cell is only ~34px; the icon is
@@ -403,6 +423,7 @@ class ConfigSelectionScene(QWidget):
                 csv_name = path.basename(csv_path) or csv_path
             csv_item = QTreeWidgetItem([csv_name, "", ""])
             csv_item.setData(0, Qt.UserRole, csv_path)
+            csv_item.setToolTip(0, csv_path)
             if is_folder:
                 csv_item.setIcon(0, QIcon(str(FOLDER_ICON)))
 
@@ -416,6 +437,7 @@ class ConfigSelectionScene(QWidget):
                     cfg_name = path.basename(cfg) or cfg
                     cfg_item = QTreeWidgetItem(["", cfg_name, ""])
                     cfg_item.setData(1, Qt.UserRole, cfg)
+                    cfg_item.setToolTip(1, cfg)
                     if self._config_row_has_graphs(csv_path, cfg):
                         cfg_item.setIcon(2, graph_icon)
                         cfg_item.setToolTip(
@@ -674,7 +696,6 @@ class ConfigSelectionScene(QWidget):
             self.progress_label.setText(message)
         else:
             self.progress_label.setText("Working…")
-        QApplication.processEvents()
 
     def set_progress(self, n, total, graph_name):
         """
@@ -707,7 +728,6 @@ class ConfigSelectionScene(QWidget):
             self.progress_label.setText("Loading Graphs…")
         else:
             self.progress_label.setText(f"{n}/{total} — {graph_name}")
-        QApplication.processEvents()
 
     # ==============================================================
     # Calculation run control (Run / Stop)
@@ -736,6 +756,14 @@ class ConfigSelectionScene(QWidget):
             self.request_cancel_calculation()
         else:
             self.calculate()
+
+    def _on_graph_build_progress(self, n: int, total: int, graph_name: str) -> None:
+        if not self._calculation_run_active:
+            return
+        self.set_progress_busy(False)
+        self.start_progress_run()
+        _st = 2 + 2 * total + 2
+        self.set_progress(2 + n, _st, f"{n}/{total} — {graph_name}")
 
     def _on_single_worker_ok(self, payload: object) -> None:
         if not self._calculation_run_active:
@@ -775,6 +803,9 @@ class ConfigSelectionScene(QWidget):
         self._calc_worker.moveToThread(self._calc_thread)
         self._calc_thread.started.connect(self._calc_worker.work)
         self._calc_worker.ok.connect(self._on_single_worker_ok, Qt.QueuedConnection)
+        self._calc_worker.graph_progress.connect(
+            self._on_graph_build_progress, Qt.QueuedConnection
+        )
         self._calc_worker.err.connect(self._on_single_worker_err, Qt.QueuedConnection)
         self._calc_worker.cancelled.connect(self._on_single_worker_cancelled, Qt.QueuedConnection)
         self._calc_thread.finished.connect(self._on_single_thread_finished)

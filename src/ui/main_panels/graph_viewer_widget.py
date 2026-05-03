@@ -36,11 +36,14 @@ from src.core.analysis.cross_correlation import (
 )
 from src.core.graphs.plots.crosscorr_plot import render_crosscorr_plot
 
-from ui.components.scene_help import create_scene_help_button
-
 from src.core.calculations.cancelled import CalculationAborted
 from src.session import session
 from src.app_platform.paths import images_dir, sessions_dir
+
+from styles.ui_scale import scaled_px
+from ui.components.scene_help import create_scene_help_button
+from ui.components.wide_popup_combo import WidePopupComboBox
+from ui.workers.folder_graph_save_worker import run_folder_graph_save_core
 
 FOLDER_ICON = images_dir() / "folder-black.svg"
 
@@ -158,20 +161,22 @@ class GraphViewerScene(QWidget):
         self.context_text.setWordWrap(True)
 
         # CSV selector + Prev/Next (batch mode); combo also lives on Cross-Correlation tab when needed
-        self.csv_combo = QComboBox()
+        self.csv_combo = WidePopupComboBox()
         self.csv_combo.setObjectName("GraphViewerCsvCombo")
         self.csv_combo.setVisible(False)
         self.csv_combo.currentIndexChanged.connect(self._on_csv_changed)
 
         self.prev_csv_btn = QPushButton("◀ Prev")
         self.prev_csv_btn.setToolTip("Switch to previous dataset")
-        self.prev_csv_btn.setFixedHeight(28)
+        self.prev_csv_btn.setMinimumHeight(scaled_px(36))
+        self.prev_csv_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         self.prev_csv_btn.setVisible(False)
         self.prev_csv_btn.clicked.connect(self._go_prev_csv)
 
         self.next_csv_btn = QPushButton("Next ▶")
         self.next_csv_btn.setToolTip("Switch to next dataset")
-        self.next_csv_btn.setFixedHeight(28)
+        self.next_csv_btn.setMinimumHeight(scaled_px(36))
+        self.next_csv_btn.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         self.next_csv_btn.setVisible(False)
         self.next_csv_btn.clicked.connect(self._go_next_csv)
 
@@ -179,9 +184,9 @@ class GraphViewerScene(QWidget):
         csv_nav_layout = QHBoxLayout(self.csv_nav_row)
         csv_nav_layout.setContentsMargins(0, 0, 0, 0)
         csv_nav_layout.setSpacing(4)
-        csv_nav_layout.addWidget(self.prev_csv_btn)
-        csv_nav_layout.addWidget(self.csv_combo, stretch=1)
-        csv_nav_layout.addWidget(self.next_csv_btn)
+        csv_nav_layout.addWidget(self.prev_csv_btn, 0, Qt.AlignVCenter)
+        csv_nav_layout.addWidget(self.csv_combo, stretch=1, alignment=Qt.AlignVCenter)
+        csv_nav_layout.addWidget(self.next_csv_btn, 0, Qt.AlignVCenter)
         self.csv_nav_row.setVisible(False)
 
         self.list = QListWidget()
@@ -262,7 +267,7 @@ class GraphViewerScene(QWidget):
         cc_csv_row = QHBoxLayout()
         cc_csv_row.setContentsMargins(0, 0, 0, 0)
         cc_csv_row.addWidget(QLabel("CSV file:"))
-        self.crosscorr_csv_combo = QComboBox()
+        self.crosscorr_csv_combo = WidePopupComboBox()
         self.crosscorr_csv_combo.setObjectName("GraphViewerCsvCombo")
         self.crosscorr_csv_combo.setVisible(False)
         self.crosscorr_csv_combo.currentIndexChanged.connect(self._on_crosscorr_csv_changed)
@@ -272,12 +277,12 @@ class GraphViewerScene(QWidget):
         # Signal pair selection
         pair_row = QHBoxLayout()
         pair_row.addWidget(QLabel("Signal A:"))
-        self.signal_a_combo = QComboBox()
+        self.signal_a_combo = WidePopupComboBox()
         self.signal_a_combo.setMinimumWidth(150)
         pair_row.addWidget(self.signal_a_combo)
 
         pair_row.addWidget(QLabel("Signal B:"))
-        self.signal_b_combo = QComboBox()
+        self.signal_b_combo = WidePopupComboBox()
         self.signal_b_combo.setMinimumWidth(150)
         pair_row.addWidget(self.signal_b_combo)
 
@@ -340,21 +345,21 @@ class GraphViewerScene(QWidget):
         cl = QVBoxLayout(self._compare_left_inner)
         cl.setSpacing(12)
         cl.addWidget(QLabel("<b>Graph A</b>"))
-        self.compare_csv_a = QComboBox()
+        self.compare_csv_a = WidePopupComboBox()
         self.compare_csv_a.setObjectName("GraphViewerCompareCsvA")
         self.compare_csv_a.currentIndexChanged.connect(self._on_compare_inputs_changed)
         cl.addWidget(self.compare_csv_a)
-        self.compare_graph_a = QComboBox()
+        self.compare_graph_a = WidePopupComboBox()
         self.compare_graph_a.setObjectName("GraphViewerCompareGraphA")
         self.compare_graph_a.currentIndexChanged.connect(self._on_compare_inputs_changed)
         cl.addWidget(self.compare_graph_a)
         cl.addSpacing(8)
         cl.addWidget(QLabel("<b>Graph B</b>"))
-        self.compare_csv_b = QComboBox()
+        self.compare_csv_b = WidePopupComboBox()
         self.compare_csv_b.setObjectName("GraphViewerCompareCsvB")
         self.compare_csv_b.currentIndexChanged.connect(self._on_compare_inputs_changed)
         cl.addWidget(self.compare_csv_b)
-        self.compare_graph_b = QComboBox()
+        self.compare_graph_b = WidePopupComboBox()
         self.compare_graph_b.setObjectName("GraphViewerCompareGraphB")
         self.compare_graph_b.currentIndexChanged.connect(self._on_compare_inputs_changed)
         cl.addWidget(self.compare_graph_b)
@@ -882,69 +887,25 @@ class GraphViewerScene(QWidget):
             return
 
         session_root = sessions_dir() / self.current_session.getName()
-        base = session_root / "folders" / _safe_dirname(Path(csv_folder_id).name)
-        base.mkdir(parents=True, exist_ok=True)
 
-        used_csv_dirnames = set()
-        csv_dir_for_path: Dict[str, Path] = {}
-        for csv_path in (csv_files or []):
-            stem = Path(csv_path).stem
-            dname = _safe_dirname(stem)
-            if dname in used_csv_dirnames:
-                i = 2
-                while f"{dname}_{i}" in used_csv_dirnames:
-                    i += 1
-                dname = f"{dname}_{i}"
-            used_csv_dirnames.add(dname)
-            out_dir = base / dname
-            out_dir.mkdir(parents=True, exist_ok=True)
-            csv_dir_for_path[csv_path] = out_dir
+        def _cancel_check() -> bool:
+            return bool(is_cancelled and is_cancelled())
 
-        n_total = count_figures_in_folder_runs(graphs_by_csv)
-        done = 0
-        for csv_path, graphs in (graphs_by_csv or {}).items():
-            out_dir = csv_dir_for_path.get(csv_path)
-            if out_dir is None:
-                continue
-            csv_label = Path(csv_path).name
-            for title, src in (graphs or {}).items():
-                if not isinstance(src, go.Figure):
-                    continue
-                if is_cancelled is not None and is_cancelled():
-                    raise CalculationAborted()
-                done += 1
-                if save_progress is not None and n_total > 0:
-                    save_progress(done, n_total, f"{csv_label}  —  {title}")
-                try:
-                    fname = _safe_filename(title) or "graph"
-                    html_path = out_dir / f"{fname}.html"
-                    png_path = out_dir / f"{fname}.png"
+        def _on_prog(done: int, total: int, msg: str) -> None:
+            if save_progress is not None:
+                save_progress(done, total, msg)
 
-                    pio.write_html(
-                        src, file=str(html_path),
-                        include_plotlyjs="cdn", auto_open=False
-                    )
-                    wrote_png = False
-                    if _is_kaleido_available():
-                        try:
-                            png_bytes = pio.to_image(src, format="png", scale=2)
-                            png_path.write_bytes(png_bytes)
-                            wrote_png = True
-                        except Exception:
-                            wrote_png = False
-
-                    if wrote_png and png_path.exists():
-                        self.current_session.addFolderGraph(
-                            csv_folder_id, config_path, csv_path, str(png_path)
-                        )
-                    if html_path.exists():
-                        self.current_session.addFolderGraph(
-                            csv_folder_id, config_path, csv_path, str(html_path)
-                        )
-                except Exception:
-                    pass
-                # Keep the UI responsive during long Plotly I/O (folder runs).
-                QApplication.processEvents()
+        records = run_folder_graph_save_core(
+            session_root=session_root,
+            csv_folder_id=csv_folder_id,
+            csv_files=list(csv_files or []),
+            config_path=config_path,
+            graphs_by_csv=graphs_by_csv,
+            cancel_check=_cancel_check,
+            on_progress=_on_prog if save_progress is not None else None,
+        )
+        for row in records:
+            self.current_session.addFolderGraph(*row)
 
         try:
             self.current_session.save()
@@ -962,9 +923,6 @@ class GraphViewerScene(QWidget):
 
     def set_data(self, data):
         self._data = data
-        for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
-            graphs[name] = fig
-
         self._graphs.clear()
         self.list.clear()
 
@@ -1030,56 +988,7 @@ class GraphViewerScene(QWidget):
         Build graphs one-by-one, calling progress_callback(n, total, graph_name)
         for each. Returns (graphs_dict, config) or (None, None) if invalid.
         """
-        if not data or not isinstance(data, dict):
-            return None, None
-        results_df = data.get("results_df")
-        config = data.get("config")
-        if not isinstance(results_df, pd.DataFrame) or not isinstance(config, dict):
-            return None, None
-        parsed_points = data.get("parsed_points")
-        names = get_graph_names_to_build(data)
-        total = len(names)
-        if total == 0:
-            return None, None
-        warnings: List[str] = []
-        graphs: Dict[str, GraphSource] = {}
-        index = 0
-        for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
-            if is_cancelled is not None and is_cancelled():
-                raise CalculationAborted()
-            index += 1
-            progress_callback(index, total, name)
-            graphs[name] = fig
-        for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
-            if is_cancelled is not None and is_cancelled():
-                raise CalculationAborted()
-            index += 1
-            progress_callback(index, total, name)
-            graphs[name] = fig
-        for name, fig in _iter_spine_graphs(
-            results_df, config, parsed_points, warnings
-        ):
-            if is_cancelled is not None and is_cancelled():
-                raise CalculationAborted()
-            index += 1
-            progress_callback(index, total, name)
-            graphs[name] = fig
-        head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
-        warnings.extend(head_warnings)
-        for name, fig in head_graphs.items():
-            if is_cancelled is not None and is_cancelled():
-                raise CalculationAborted()
-            index += 1
-            progress_callback(index, total, name)
-            graphs[name] = fig
-        for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
-            if is_cancelled is not None and is_cancelled():
-                raise CalculationAborted()
-            index += 1
-            progress_callback(index, total, name)
-            graphs[name] = fig
-
-        return graphs, config
+        return build_graphs_from_data(data, progress_callback, is_cancelled)
 
     # ------------------------------------------------------------------
     # Cross-correlation support
@@ -1913,6 +1822,67 @@ def build_head_plot_graphs(
         warnings.append("Head plot produced no figures.")
 
     return graphs, warnings
+
+
+def build_graphs_from_data(
+    data: Optional[Dict[str, Any]],
+    progress_callback: Callable[[int, int, str], None],
+    is_cancelled: Optional[Callable[[], bool]] = None,
+) -> Tuple[Optional[Dict[str, GraphSource]], Optional[Dict[str, Any]]]:
+    """
+    Build Plotly/graph outputs from a calculation payload (CPU-heavy; safe off the UI thread).
+    Calls ``progress_callback(n, total, graph_name)`` for each graph. Returns (None, None) if invalid / empty.
+    """
+    if not data or not isinstance(data, dict):
+        return None, None
+    results_df = data.get("results_df")
+    config = data.get("config")
+    if not isinstance(results_df, pd.DataFrame) or not isinstance(config, dict):
+        return None, None
+    parsed_points = data.get("parsed_points")
+    names = get_graph_names_to_build(data)
+    total = len(names)
+    if total == 0:
+        return None, None
+    warnings: List[str] = []
+    graphs: Dict[str, GraphSource] = {}
+    index = 0
+    for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
+        if is_cancelled is not None and is_cancelled():
+            raise CalculationAborted()
+        index += 1
+        progress_callback(index, total, name)
+        graphs[name] = fig
+    for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
+        if is_cancelled is not None and is_cancelled():
+            raise CalculationAborted()
+        index += 1
+        progress_callback(index, total, name)
+        graphs[name] = fig
+    for name, fig in _iter_spine_graphs(
+        results_df, config, parsed_points, warnings
+    ):
+        if is_cancelled is not None and is_cancelled():
+            raise CalculationAborted()
+        index += 1
+        progress_callback(index, total, name)
+        graphs[name] = fig
+    head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
+    warnings.extend(head_warnings)
+    for name, fig in head_graphs.items():
+        if is_cancelled is not None and is_cancelled():
+            raise CalculationAborted()
+        index += 1
+        progress_callback(index, total, name)
+        graphs[name] = fig
+    for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
+        if is_cancelled is not None and is_cancelled():
+            raise CalculationAborted()
+        index += 1
+        progress_callback(index, total, name)
+        graphs[name] = fig
+
+    return graphs, config
 
 
 def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session=None) -> None:

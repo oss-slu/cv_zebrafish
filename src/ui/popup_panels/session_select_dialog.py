@@ -18,12 +18,14 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtGui import QColor, QHelpEvent, QPalette
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -32,11 +34,13 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QStyle,
     QStyleOptionViewItem,
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -51,9 +55,11 @@ from app_platform.paths import (
 from app_platform.session_registry import remove_entry, sync_registry_with_disk, touch_last_opened
 from session.session import Session, load_session_from_json
 from styles.themes import THEMES, apply_theme
+from styles.ui_scale import scaled_px
 
 from ui.components.chrome_separators import horizontal_separator
 from ui.components.dialog_title_bar import DialogTitleBar
+from ui.platform.frameless_resize import FramelessResizeMixin
 
 _ROLE_PATH = Qt.UserRole + 1
 _ROLE_VALID = Qt.UserRole + 2
@@ -146,6 +152,17 @@ class _SessionTableDelegate(QStyledItemDelegate):
 
         painter.restore()
 
+    def helpEvent(self, event, view, option, index):
+        """Custom-painted cells do not always surface model tooltips — show explicitly."""
+        if isinstance(event, QHelpEvent) and event.type() == QEvent.ToolTip:
+            tip = index.data(Qt.ToolTipRole)
+            if tip is None or str(tip) == "":
+                tip = index.data(Qt.DisplayRole)
+            if tip:
+                QToolTip.showText(event.globalPos(), str(tip), view)
+                return True
+        return super().helpEvent(event, view, option, index)
+
 
 def _safe_session_stem(raw: str) -> str:
     s = (raw or "").strip()
@@ -210,7 +227,7 @@ def _rows_from_registry() -> list[_Row]:
     return rows
 
 
-class SessionSelectDialog(QDialog):
+class SessionSelectDialog(FramelessResizeMixin, QDialog):
     """Window-modal to parent; on accept, ``selected_path`` is the chosen session JSON path."""
 
     def __init__(self, parent: QWidget | None = None):
@@ -220,8 +237,16 @@ class SessionSelectDialog(QDialog):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setModal(True)
         self.setWindowModality(Qt.WindowModal)
-        self.setMinimumSize(560, 420)
-        self.resize(720, 480)
+        scr = QApplication.primaryScreen()
+        geo = scr.availableGeometry() if scr is not None else None
+        max_h = int(geo.height() * 0.92) if geo is not None else 1200
+        max_w = int(geo.width() * 0.98) if geo is not None else 1600
+        self.setMinimumSize(max(scaled_px(560), 420), max(scaled_px(420), 320))
+        self.setMaximumHeight(max_h)
+        self.setMaximumWidth(max_w)
+        rw = min(max(scaled_px(720), 560), max_w)
+        rh = min(max(scaled_px(480), 380), max_h)
+        self.resize(rw, rh)
 
         self.selected_path: str | None = None
 
@@ -262,8 +287,8 @@ class SessionSelectDialog(QDialog):
         body.setObjectName("SessionSelectBody")
         body.setAttribute(Qt.WA_StyledBackground, True)
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(14, 12, 14, 12)
-        body_layout.setSpacing(10)
+        body_layout.setContentsMargins(scaled_px(14), scaled_px(12), scaled_px(14), scaled_px(12))
+        body_layout.setSpacing(scaled_px(10))
 
         actions = QHBoxLayout()
         self._btn_create = QPushButton("+ Create New")
@@ -320,7 +345,15 @@ class SessionSelectDialog(QDialog):
         bottom.addWidget(cancel)
         body_layout.addLayout(bottom)
 
-        outer.addWidget(body, stretch=1)
+        scroll = QScrollArea()
+        scroll.setObjectName("SessionSelectDialogScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setWidget(body)
+
+        outer.addWidget(scroll, stretch=1)
 
         self._populate_table()
 
@@ -375,6 +408,7 @@ class SessionSelectDialog(QDialog):
             name_item.setData(_ROLE_VALID, row.valid)
             if not row.valid:
                 name_item.setForeground(self._muted_fg)
+            name_item.setToolTip(row.display_name)
             loc_item = QTableWidgetItem(path_str)
             loc_item.setToolTip(path_str)
             loc_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
@@ -382,6 +416,9 @@ class SessionSelectDialog(QDialog):
                 loc_item.setForeground(self._muted_fg)
             when = datetime.fromtimestamp(row.last_opened).strftime("%Y-%m-%d %H:%M")
             when_item = QTableWidgetItem(when)
+            when_item.setToolTip(
+                datetime.fromtimestamp(row.last_opened).strftime("%Y-%m-%d %H:%M:%S")
+            )
             when_item.setFlags(when_item.flags() & ~Qt.ItemIsEditable)
             if not row.valid:
                 when_item.setForeground(self._muted_fg)
