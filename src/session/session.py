@@ -6,7 +6,13 @@ from pathlib import Path
 from PyQt5.QtCore import pyqtSignal, QObject
 from PyQt5.QtWidgets import QMessageBox
 
-from app_platform.paths import SESSION_JSON_FILENAME, session_bundle_dir, sessions_dir
+from app_platform.paths import (
+    SESSION_JSON_FILENAME,
+    resolve_folder_graphs_asset_paths,
+    resolve_graph_asset_path,
+    session_bundle_dir,
+    sessions_dir,
+)
 
 class Session(QObject):
     session_updated = pyqtSignal()
@@ -326,6 +332,17 @@ class Session(QObject):
             self.last_config_path = None
         self.session_updated.emit()
 
+def _session_resolved_path(stored: str, session_name: str) -> str:
+    """Prefer a path that exists under the current repo clone, else *stored*."""
+    if not stored:
+        return stored
+    r = resolve_graph_asset_path(stored, session_name)
+    if r:
+        return r
+    r = resolve_graph_asset_path(stored, None)
+    return r or stored
+
+
 def load_session_from_json(json_path):
     """Load a session from a JSON file."""
     try:
@@ -344,19 +361,27 @@ def load_session_from_json(json_path):
     last_scene = data.get("last_scene") or "Verify"
     session.last_scene = last_scene
     session.calculation_has_run = bool(data.get("calculation_has_run", False))
-    session.last_csv_path = data.get("last_csv_path")
-    session.last_config_path = data.get("last_config_path")
+    lcsv = data.get("last_csv_path")
+    session.last_csv_path = _session_resolved_path(lcsv, session_name) if lcsv else None
+    lcfg = data.get("last_config_path")
+    session.last_config_path = _session_resolved_path(lcfg, session_name) if lcfg else None
     session._import_alias_by_user = data.get("csv_import_alias") or {}
     session.csv_folders = data.get("csv_folders") or {}
-    session.folder_graphs = data.get("folder_graphs") or {}
+    session.folder_graphs = resolve_folder_graphs_asset_paths(
+        data.get("folder_graphs") or {}, session_name
+    )
 
     csvs = data.get("csvs", {})
     for csv_path, configs in csvs.items():
-        session.addCSV(csv_path, session_import=False)
+        csv_id = _session_resolved_path(csv_path, session_name)
+        session.addCSV(csv_id, session_import=False)
         for config_path, graphs in configs.items():
-            session.addConfigToCSV(csv_path, config_path)
+            cfg_id = _session_resolved_path(config_path, session_name)
+            session.addConfigToCSV(csv_id, cfg_id)
             for graph_path in graphs:
-                session.addGraphToConfig(config_path, graph_path)
+                resolved = resolve_graph_asset_path(graph_path, session_name)
+                if resolved:
+                    session.addGraphToConfig(cfg_id, resolved)
 
     return session
 
