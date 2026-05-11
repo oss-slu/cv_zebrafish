@@ -4,6 +4,10 @@
 #                (light): panel_main (lightest) < panel_chrome (slightly darker) < edges/buttons
 # Text/icons on a surface should read one step brighter (dark mode) / darker (light mode) than
 # that surface. StandardPixmap-based icons ignore QSS color — use SVG/theme assets where contrast matters.
+#
+# UI scale: px/pt in generated QSS are scaled via ``styles.ui_scale`` (global factor from preferences).
+
+from styles.ui_scale import get_ui_scale_factor, scale_stylesheet
 
 LIGHT_THEME = {
     # Main workspace (lightest)
@@ -39,6 +43,9 @@ LIGHT_THEME = {
     # Generate Config: neutral grey selection (readable on light panels)
     "generate_selection_bg": "#d4d4dc",
     "generate_selection_fg": "#1a1a1e",
+    # Native QToolTip (app-level QSS fragment; must match theme)
+    "tooltip_bg": "#ececf0",
+    "tooltip_fg": "#1a1a1e",
 }
 
 DARK_THEME = {
@@ -73,12 +80,35 @@ DARK_THEME = {
     "graph_viewer_tab_sel_fg": "#f2f2f8",
     "graph_viewer_tab_hover_bg": "#32323c",
     "graph_viewer_tab_hover_fg": "#ececf0",
+    # Native QToolTip — dark panel so hovers match dark chrome
+    "tooltip_bg": "#1c1c22",
+    "tooltip_fg": "#ececf0",
 }
 
 THEMES = {
     "light": LIGHT_THEME,
     "dark": DARK_THEME,
 }
+
+
+def application_tooltip_stylesheet(theme: dict) -> str:
+    """
+    QToolTip widgets use the QApplication stylesheet (not only MainShellWindow).
+    Append this to the scaled ``app.qss`` so tooltip colors follow light/dark theme.
+    """
+    bg = theme.get("tooltip_bg", theme["panel_chrome"])
+    fg = theme.get("tooltip_fg", theme["text"])
+    line = theme["chrome_line"]
+    raw = f"""
+        QToolTip {{
+            font-size: 10pt;
+            padding: 3px 6px;
+            background-color: {bg};
+            color: {fg};
+            border: 1px solid {line};
+        }}
+    """
+    return scale_stylesheet(raw, get_ui_scale_factor())
 
 
 def apply_theme(app, theme):
@@ -117,25 +147,25 @@ def apply_theme(app, theme):
         }}
 
         QLabel#VerifyFieldLabel {{
-            font-size: 16px;
+            font-size: 13px;
             font-weight: bold;
             color: {tmenu};
         }}
         QLabel#VerifyConsoleLabel {{
-            font-size: 16px;
+            font-size: 13px;
             font-weight: bold;
             color: {tmenu};
         }}
         QTextEdit#VerifyFeedbackBox {{
             font-family: Consolas, monospace;
-            font-size: 13px;
+            font-size: 12px;
             background-color: {vcbg};
             color: {vcfg};
             border: 1px solid {line};
         }}
 
         QLabel#ConfigSelectionHeader {{
-            font-size: 18pt;
+            font-size: 15pt;
             font-weight: bold;
             color: {tx};
             background-color: transparent;
@@ -146,7 +176,7 @@ def apply_theme(app, theme):
         }}
         QLabel#ConfigSelectionHint {{
             color: {tmenu};
-            font-size: 14px;
+            font-size: 12px;
             background-color: transparent;
         }}
         QTreeWidget#ConfigSelectionTree {{
@@ -319,6 +349,54 @@ def apply_theme(app, theme):
             color: {tx};
             border: none;
             selection-background-color: {cb};
+        }}
+        QScrollArea#SessionSelectDialogScroll {{
+            background-color: transparent;
+            border: none;
+        }}
+        QScrollArea#GenerateConfigDialogScroll {{
+            background-color: transparent;
+            border: none;
+        }}
+        QScrollArea#VerifyWorkspaceScroll {{
+            background-color: transparent;
+            border: none;
+        }}
+        QScrollArea#SettingsDialogScroll {{
+            background-color: transparent;
+            border: none;
+        }}
+        QDialog#SettingsDialog QPushButton#SettingsToggleButton {{
+            background-color: {cb};
+            color: {btxt};
+            border: 1px solid {line};
+            border-radius: 6px;
+            padding: 10px 20px;
+            min-height: 30px;
+            min-width: 72px;
+            font-size: 13px;
+        }}
+        QDialog#SettingsDialog QPushButton#SettingsToggleButton:checked {{
+            background-color: {accent};
+            color: {pm};
+            border: 1px solid {accent};
+            font-weight: bold;
+        }}
+        QDialog#SettingsDialog QPushButton#SettingsToggleButton:hover:!checked {{
+            border: 1px solid {accent};
+        }}
+        QDialog#SettingsDialog QGroupBox {{
+            font-weight: bold;
+            border: 1px solid {line};
+            border-radius: 6px;
+            margin-top: 18px;
+            padding-top: 20px;
+        }}
+        QDialog#SettingsDialog QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 12px;
+            padding: 4px 8px 8px 8px;
         }}
         QWidget#GenerateConfigBody {{
             background-color: {pm};
@@ -733,6 +811,7 @@ def apply_theme(app, theme):
             font-weight: bold;
         }}
     """
+    qss = scale_stylesheet(qss, get_ui_scale_factor())
     app.setStyleSheet(qss)
 
 
@@ -745,8 +824,7 @@ def apply_error_toast_theme(toast, theme: dict) -> None:
     btxt = theme["button_text"]
     tmenu = theme["title_menu_text"]
     accent = theme["accent"]
-    toast.setStyleSheet(
-        f"""
+    raw = f"""
         QWidget#ErrorToast {{
             background-color: {pc};
             color: {tx};
@@ -783,4 +861,4 @@ def apply_error_toast_theme(toast, theme: dict) -> None:
             border: 1px solid {accent};
         }}
     """
-    )
+    toast.setStyleSheet(scale_stylesheet(raw, get_ui_scale_factor()))

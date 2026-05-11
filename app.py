@@ -65,14 +65,31 @@ _install_crash_hooks()
 
 from PyQt5.QtWidgets import QApplication
 
+from app_platform.paths import app_stylesheet_path
+from app_platform.ui_preferences import load_ui_preferences, sync_prefs_after_launch
+from styles.themes import THEMES, application_tooltip_stylesheet
+from styles.ui_scale import scale_stylesheet, set_ui_scale_factor
+
 from ui.main_window_shell import MainShellWindow
 
 app = QApplication(sys.argv)
-# ISSUE #90:INCREASING FONT SIZE
-_qss_path = Path(__file__).resolve().parent / "src" / "ui" / "styles" / "app.qss"
-if _qss_path.exists():
-    app.setStyleSheet(_qss_path.read_text(encoding="utf-8"))
 
-window = MainShellWindow()
+prefs = load_ui_preferences()
+_scr = app.primaryScreen()
+dpi = float(_scr.logicalDotsPerInchX()) if _scr else 96.0
+_geo = _scr.availableGeometry() if _scr else None
+_sw, _sh = (_geo.width(), _geo.height()) if _geo is not None else (1920, 1080)
+_dpr = float(_scr.devicePixelRatio()) if _scr else 1.0
+sync_prefs_after_launch(prefs, dpi, _sw, _sh, _dpr)
+scale = prefs.effective_ui_scale(dpi, _sw, _sh, _dpr)
+set_ui_scale_factor(scale)
+
+_qss_path = app_stylesheet_path()
+if _qss_path.exists():
+    _base_qss = scale_stylesheet(_qss_path.read_text(encoding="utf-8"), scale)
+    _th = THEMES.get(prefs.theme, THEMES["dark"])
+    app.setStyleSheet(_base_qss + application_tooltip_stylesheet(_th))
+
+window = MainShellWindow(ui_prefs=prefs)
 window.show()
 app.exec()

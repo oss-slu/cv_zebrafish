@@ -1,121 +1,118 @@
 /*
  * app.qss — Global stylesheet for CV Zebrafish
- * Issue #90: Increase font sizes consistently across all scenes
+ * Baseline tuned for consistent body/control typography (scaled via ui_preferences).
  */
 
 QWidget {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QLabel {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QPushButton {
-    font-size: 13pt;
-    padding: 4px 10px;
+    font-size: 11pt;
+    padding: 3px 8px;
 }
 
 QLineEdit {
-    font-size: 13pt;
-    padding: 3px 6px;
+    font-size: 11pt;
+    padding: 2px 6px;
 }
 
 QComboBox {
-    font-size: 13pt;
-    padding: 3px 6px;
+    font-size: 11pt;
+    padding: 2px 6px;
 }
 
 QComboBox QAbstractItemView {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QTextEdit {
-    font-size: 12pt;
+    font-size: 10pt;
 }
 
 QListWidget {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QListWidget::item {
-    padding: 3px 4px;
+    padding: 2px 4px;
 }
 
 QTabBar::tab {
-    font-size: 13pt;
-    padding: 6px 14px;
+    font-size: 11pt;
+    padding: 5px 12px;
 }
 
 QTreeWidget {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QTableWidget {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QHeaderView::section {
-    font-size: 13pt;
-    padding: 4px;
+    font-size: 11pt;
+    padding: 3px;
 }
 
 QCheckBox {
-    font-size: 13pt;
-    spacing: 6px;
+    font-size: 11pt;
+    spacing: 5px;
 }
 
 QRadioButton {
-    font-size: 13pt;
-    spacing: 6px;
+    font-size: 11pt;
+    spacing: 5px;
 }
 
 QGroupBox {
-    font-size: 13pt;
+    font-size: 11pt;
     font-weight: bold;
 }
 
-QToolTip {
-    font-size: 12pt;
-    padding: 4px 6px;
-}
+/* QToolTip colors come from styles.themes.application_tooltip_stylesheet (theme-aware). */
 
 QMenu {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QMenuBar {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QMenuBar::item {
-    padding: 4px 10px;
+    padding: 3px 8px;
 }
 
 QSpinBox,
 QDoubleSpinBox {
-    font-size: 13pt;
-    padding: 3px 6px;
+    font-size: 11pt;
+    padding: 2px 6px;
 }
 
 QLabel#VerifyFieldLabel {
-    font-size: 13pt;
+    font-size: 11pt;
     font-weight: bold;
 }
 
 QLabel#VerifyConsoleLabel {
-    font-size: 14pt;
+    font-size: 12pt;
     font-weight: bold;
 }
 
 QLabel#GraphViewerContextText {
-    font-size: 12pt;
+    font-size: 10pt;
 }
 
 QListWidget#GraphViewerGraphList {
-    font-size: 13pt;
+    font-size: 11pt;
 }
 
 QComboBox#GraphViewerCsvCombo {
-    font-size: 13pt;
+    font-size: 11pt;
 }

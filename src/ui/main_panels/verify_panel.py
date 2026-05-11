@@ -7,10 +7,12 @@ from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -19,7 +21,9 @@ from PyQt5.QtWidgets import (
 import pandas as pd
 
 from app_platform.paths import images_dir
+from styles.ui_scale import scaled_px
 from ui.components.scene_help import create_scene_help_button
+from ui.elide_tooltip import LineEditResizeTooltipFilter, update_line_edit_elide_tooltip
 from core.validation import csv_verifier as input_verifier
 from core.validation import json_verifier
 
@@ -41,15 +45,19 @@ class VerifyWorkspace(QWidget):
     def __init__(self):
         super().__init__()
 
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(40, 30, 40, 30)
-        main_layout.setSpacing(20)
+        inner = QWidget()
+        inner.setObjectName("VerifyWorkspaceInner")
+        main_layout = QVBoxLayout(inner)
+        mg = scaled_px(40)
+        vs = scaled_px(30)
+        main_layout.setContentsMargins(mg, vs, mg, vs)
+        main_layout.setSpacing(scaled_px(20))
 
         head_row = QHBoxLayout()
         head_row.setContentsMargins(0, 0, 0, 0)
         head_row.addStretch(1)
         header = QLabel("Verify Input Files")
-        header.setStyleSheet("font-size: 24px; font-weight: bold;")
+        header.setStyleSheet("font-size: 17px; font-weight: bold;")
         head_row.addWidget(header, 0, Qt.AlignVCenter)
         head_row.addStretch(1)
         head_row.addWidget(
@@ -82,14 +90,14 @@ class VerifyWorkspace(QWidget):
 
         self.csv_button = QPushButton("Upload CSV")
         self.csv_button.setIcon(QIcon(str(UPLOAD_ICON)))
-        self.csv_button.setIconSize(QSize(24, 24))
+        self.csv_button.setIconSize(QSize(scaled_px(24), scaled_px(24)))
         self.csv_button.setCursor(Qt.PointingHandCursor)
         self.csv_button.clicked.connect(self.select_csv_file)
         csv_layout.addWidget(self.csv_button)
 
         self.csv_folder_button = QPushButton("Upload Multiple CSV")
         self.csv_folder_button.setIcon(QIcon(str(FOLDER_ICON)))
-        self.csv_folder_button.setIconSize(QSize(24, 24))
+        self.csv_folder_button.setIconSize(QSize(scaled_px(24), scaled_px(24)))
         self.csv_folder_button.setCursor(Qt.PointingHandCursor)
         self.csv_folder_button.clicked.connect(self.select_csv_folder)
         csv_layout.addWidget(self.csv_folder_button)
@@ -107,7 +115,7 @@ class VerifyWorkspace(QWidget):
 
         self.json_button = QPushButton("Upload JSON")
         self.json_button.setIcon(QIcon(str(UPLOAD_ICON)))
-        self.json_button.setIconSize(QSize(24, 24))
+        self.json_button.setIconSize(QSize(scaled_px(24), scaled_px(24)))
         self.json_button.setCursor(Qt.PointingHandCursor)
         self.json_button.clicked.connect(self.select_json_file)
         json_layout.addWidget(self.json_button)
@@ -125,11 +133,38 @@ class VerifyWorkspace(QWidget):
         self.feedback_box = QTextEdit()
         self.feedback_box.setObjectName("VerifyFeedbackBox")
         self.feedback_box.setReadOnly(True)
-        self.feedback_box.setMinimumHeight(200)
+        self.feedback_box.setMinimumHeight(max(scaled_px(180), 120))
         self.feedback_box.setAttribute(Qt.WA_StyledBackground, True)
         main_layout.addWidget(self.feedback_box)
 
-        self.setLayout(main_layout)
+        scroll = QScrollArea()
+        scroll.setObjectName("VerifyWorkspaceScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setWidget(inner)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(scroll)
+
+        self.setLayout(outer)
+
+        self._path_tooltip_filter = LineEditResizeTooltipFilter(self._sync_path_field_tooltips)
+        self.csv_path_field.installEventFilter(self._path_tooltip_filter)
+        self.json_path_field.installEventFilter(self._path_tooltip_filter)
+        self._path_tooltip_filter.setParent(self)
+        self._sync_path_field_tooltips()
+
+    def _sync_path_field_tooltips(self) -> None:
+        update_line_edit_elide_tooltip(self.csv_path_field)
+        update_line_edit_elide_tooltip(self.json_path_field)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_path_field_tooltips()
 
     def select_csv_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -141,6 +176,7 @@ class VerifyWorkspace(QWidget):
             return
 
         self.csv_path_field.setText(file_path)
+        self._sync_path_field_tooltips()
         self.feedback_box.append(f"\n--- Validating CSV File ---\n{file_path}\n")
 
         if self.validate_csv(Path(file_path)):
@@ -180,6 +216,7 @@ class VerifyWorkspace(QWidget):
 
         folder_path = Path(folder)
         self.csv_path_field.setText(str(folder_path))
+        self._sync_path_field_tooltips()
         self.feedback_box.append(f"\n--- Validating CSV Folder ---\n{folder_path}\n")
 
         subdirs = [p for p in folder_path.iterdir() if p.is_dir()]
@@ -267,6 +304,7 @@ class VerifyWorkspace(QWidget):
             return
 
         self.json_path_field.setText(file_path)
+        self._sync_path_field_tooltips()
         self.feedback_box.append(f"\n--- Validating JSON File ---\n{file_path}\n")
 
         if self.validate_json(Path(file_path)):

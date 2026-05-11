@@ -10,7 +10,7 @@ class PlaceholderPanel(QWidget):
         layout = QVBoxLayout(self)
         title_lbl = QLabel(title)
         title_lbl.setAlignment(Qt.AlignCenter)
-        title_lbl.setStyleSheet("font-size: 18pt; font-weight: bold;")
+        title_lbl.setStyleSheet("font-size: 15pt; font-weight: bold;")
         layout.addWidget(title_lbl)
         if detail:
             body = QLabel(detail)

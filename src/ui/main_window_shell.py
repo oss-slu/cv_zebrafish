@@ -8,14 +8,11 @@ import ctypes
 import sys
 from collections import deque
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 
-import src.core.calculations.Driver as calculations
 from src.core.calculations.cancelled import CalculationAborted
-import src.core.parsing.Parser as parser
-from PyQt5.QtCore import QEvent, QPoint, QTimer, QSize, Qt
+from PyQt5.QtCore import QEvent, QPoint, QTimer, QSize, Qt, QThread
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QApplication,
@@ -27,8 +24,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from styles.themes import THEMES, apply_error_toast_theme, apply_theme
+from app_platform.paths import app_stylesheet_path, sessions_dir
 from app_platform.session_registry import sync_registry_with_disk, touch_last_opened
+from app_platform.ui_preferences import UiPreferences, load_ui_preferences
+from styles.themes import THEMES, application_tooltip_stylesheet, apply_error_toast_theme, apply_theme
+from styles.ui_scale import scale_stylesheet, set_ui_scale_factor
 from session.session import load_session_from_json
 
 from ui.components.chrome_separators import horizontal_separator
@@ -45,6 +45,8 @@ from ui.main_panels.graph_viewer_widget import (
 from ui.main_panels.workspace_widget import WorkspaceWidget
 from ui.popup_panels.generate_config_dialog import GenerateConfigDialog
 from ui.popup_panels.session_select_dialog import SessionSelectDialog
+from ui.workers.folder_graph_save_worker import FolderGraphSaveWorker
+from ui.workers.folder_pipeline_worker import FolderPipelineWorker
 
 # winuser.h — frameless resize hit testing
 _HTLEFT = 10
@@ -109,7 +111,7 @@ class _StderrTee:
 
 
 class MainShellWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, ui_prefs: UiPreferences | None = None):
         super().__init__()
         self.setObjectName("MainShellWindow")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
@@ -117,7 +119,9 @@ class MainShellWindow(QMainWindow):
         self.setMinimumSize(QSize(900, 510))
         self.resize(QSize(1000, 700))
 
-        self.current_theme = "dark"
+        self._ui_prefs = ui_prefs if ui_prefs is not None else load_ui_preferences()
+        th = self._ui_prefs.theme
+        self.current_theme = th if th in THEMES else "dark"
         apply_theme(self, THEMES[self.current_theme])
 
         self._has_session = False
@@ -125,6 +129,12 @@ class MainShellWindow(QMainWindow):
         self._verify_last_csv_path = None
         self._calculation_has_run = False
         self._view_output_sidebar_unlocked = False
+
+        self._folder_thread: QThread | None = None
+        self._folder_worker: FolderPipelineWorker | None = None
+        self._folder_save_thread: QThread | None = None
+        self._folder_save_worker: FolderGraphSaveWorker | None = None
+        self._folder_save_ctx: dict | None = None
 
         self._stderr_chunks: deque[str] = deque(maxlen=400)
         self._toast_messages: deque[str] = deque(maxlen=120)
@@ -182,7 +192,7 @@ class MainShellWindow(QMainWindow):
         self._error_toast.hide()
 
         self.sidebar.tool_triggered.connect(self._on_sidebar_tool)
-        self.sidebar.theme_toggle_requested.connect(self._toggle_theme)
+        self.sidebar.settings_requested.connect(self._open_settings)
         self.workspace.empty_panel.open_session_requested.connect(self._on_open_session)
 
         v = self.workspace.verify_panel.verify
@@ -426,12 +436,11 @@ class MainShellWindow(QMainWindow):
         graphs_scene = self.workspace.view_output_panel.viewer
         is_cancel = self._calculation_cancelled
 
+        if data and isinstance(data, dict) and data.get("csv_files"):
+            self._start_folder_pipeline_async(data)
+            return
+
         try:
-            if data and isinstance(data, dict) and data.get("csv_files"):
-                self._run_folder_calculation(
-                    data, config_scene, graphs_scene, is_cancel
-                )
-                return
             self._run_single_csv_calculation(
                 data, config_scene, graphs_scene, is_cancel
             )
@@ -440,162 +449,134 @@ class MainShellWindow(QMainWindow):
         finally:
             config_scene.finish_calculation_run()
 
-    def _run_folder_calculation(
-        self, data, config_scene, graphs_scene, is_cancel
-    ) -> None:
-        if is_cancel():
-            raise CalculationAborted()
-        csv_files = list(data.get("csv_files") or [])
-        config = data.get("config") or {}
-        config_path = data.get("config_path") or (
-            config.get("config_path") if isinstance(config, dict) else None
-        )
-        csv_folder_id = data.get("csv_folder")
-        if not csv_files or not isinstance(config, dict):
-            self._show_error_toast("Bad Input", "Folder payload is missing CSV files or config.")
-            return
-        if not csv_folder_id or not config_path:
-            self._show_error_toast("Bad Input", "Folder payload is missing folder id or config path.")
-            return
-
+    def _start_folder_pipeline_async(self, data: dict) -> None:
+        config_scene = self.workspace.select_run_panel.selection
+        self._cleanup_folder_worker_handles()
         config_scene.set_progress(0, 0, "")
         config_scene.start_progress_run()
-        total_files = len(csv_files)
-        tot_phase1 = 5 * max(1, total_files) + 3
-        step = 0
-        results_by_csv: dict = {}
-        parsed_by_csv: dict = {}
-        g_counts: list = []
 
-        for idx, csv_path in enumerate(csv_files, start=1):
-            if is_cancel():
-                raise CalculationAborted()
-            base = f"({idx}/{total_files})  {Path(csv_path).name}"
-            step += 1
-            config_scene.set_progress(step, tot_phase1, f"{base}  —  reading")
-            try:
-                parsed_points = parser.parse_dlc_csv(csv_path, config)
-            except Exception as exc:
-                config_scene.set_progress(0, 0, "")
-                self._show_error_toast("Calculation Failed", f"Failed on {csv_path}:\n{exc}")
-                return
-            QApplication.processEvents()
-            step += 1
-            config_scene.set_progress(step, tot_phase1, f"{base}  —  computing…")
-            try:
-                results_df = calculations.run_calculations(
-                    parsed_points, config, cancel_check=is_cancel
-                )
-            except CalculationAborted:
-                raise
-            except Exception as exc:
-                config_scene.set_progress(0, 0, "")
-                self._show_error_toast("Calculation Failed", f"Failed on {csv_path}:\n{exc}")
-                return
-            results_by_csv[csv_path] = results_df
-            parsed_by_csv[csv_path] = parsed_points
-            payload = {
-                "results_df": results_df,
-                "config": config,
-                "csv_path": csv_path,
-                "parsed_points": parsed_points,
-            }
-            g_counts.append(len(get_graph_names_to_build(payload)))
-            QApplication.processEvents()
+        ce = config_scene.calculation_cancel_event()
+        th = QThread()
+        worker = FolderPipelineWorker(dict(data), ce)
+        worker.moveToThread(th)
+        self._folder_thread = th
+        self._folder_worker = worker
 
-        total_graphs = int(sum(g_counts))
-        if total_graphs <= 0:
-            config_scene.set_progress(0, 0, "")
-            self._show_error_toast("No Graphs", "No graphs were requested or available for this config.")
+        th.started.connect(worker.run)
+        worker.progress.connect(config_scene.set_progress, Qt.QueuedConnection)
+        worker.finished.connect(self._on_folder_pipeline_finished, Qt.QueuedConnection)
+        worker.failed.connect(self._on_folder_pipeline_failed, Qt.QueuedConnection)
+        worker.cancelled.connect(self._on_folder_pipeline_cancelled, Qt.QueuedConnection)
+        th.finished.connect(self._on_folder_thread_finished)
+        th.start()
+
+    def _on_folder_thread_finished(self) -> None:
+        self._folder_thread = None
+        if self._folder_worker is not None:
+            self._folder_worker.deleteLater()
+            self._folder_worker = None
+
+    def _cleanup_folder_save_handles(self) -> None:
+        self._folder_save_ctx = None
+        if self._folder_save_thread is not None:
+            try:
+                self._folder_save_thread.quit()
+                self._folder_save_thread.wait(3000)
+            except Exception:
+                pass
+        self._folder_save_thread = None
+        self._folder_save_worker = None
+
+    def _cleanup_folder_worker_handles(self) -> None:
+        if self._folder_thread is not None:
+            try:
+                self._folder_thread.quit()
+                self._folder_thread.wait(3000)
+            except Exception:
+                pass
+        self._folder_thread = None
+        self._folder_worker = None
+        self._cleanup_folder_save_handles()
+
+    def _on_folder_save_thread_finished(self) -> None:
+        self._folder_save_thread = None
+        if self._folder_save_worker is not None:
+            self._folder_save_worker.deleteLater()
+            self._folder_save_worker = None
+
+    def _on_folder_save_progress_tick(
+        self, done: int, n: int, detail: str
+    ) -> None:
+        ctx = self._folder_save_ctx
+        if ctx is None:
             return
-
-        total_steps = 2 * total_files + 2 * total_graphs + 2
+        if self._calculation_cancelled():
+            return
+        config_scene = self.workspace.select_run_panel.selection
+        step = int(ctx["phase_base"]) + int(done)
         config_scene.set_progress(
-            2 * total_files,
-            total_steps,
-            "All metrics ready — building graphs…",
+            step,
+            int(ctx["total_steps"]),
+            f"Saving {done}/{n}  —  {detail}",
         )
-        QApplication.processEvents()
 
-        step = 2 * total_files
-        file_payloads = [
-            (
-                p,
-                {
-                    "results_df": results_by_csv[p],
-                    "config": config,
-                    "csv_path": p,
-                    "parsed_points": parsed_by_csv[p],
-                },
-            )
-            for p in csv_files
-        ]
-        graphs_by_csv: dict = {}
-        for csv_path, payload in file_payloads:
-            if is_cancel():
-                raise CalculationAborted()
-
-            def progress_callback2(
-                n: int, gtotal: int, graph_name: str, _csv: str = csv_path
-            ) -> None:
-                nonlocal step
-                if is_cancel():
-                    raise CalculationAborted()
-                step += 1
-                config_scene.set_progress(
-                    step,
-                    total_steps,
-                    f"{Path(_csv).name}  —  {n}/{gtotal}  —  {graph_name}",
-                )
-                QApplication.processEvents()
-
-            graphs, _cfg = graphs_scene.build_graphs_with_progress(
-                payload, progress_callback2, is_cancelled=is_cancel
-            )
-            if graphs is None:
-                continue
-            graphs_by_csv[csv_path] = graphs
-
-        if not graphs_by_csv:
+    def _on_folder_save_finished(self, result: dict, records: object) -> None:
+        self._folder_save_ctx = None
+        config_scene = self.workspace.select_run_panel.selection
+        graphs_scene = self.workspace.view_output_panel.viewer
+        if self._calculation_cancelled():
             config_scene.set_progress(0, 0, "")
-            self._show_error_toast("No Graphs", "Graphs could not be generated for this folder.")
+            config_scene.finish_calculation_run()
+            self._cleanup_folder_worker_handles()
             return
+        rows = records if isinstance(records, list) else []
+        sess = getattr(graphs_scene, "current_session", None)
+        if sess is not None:
+            for row in rows:
+                if isinstance(row, tuple) and len(row) == 4:
+                    sess.addFolderGraph(*row)
+            try:
+                sess.save()
+            except Exception:
+                pass
+        try:
+            self._apply_folder_run_after_save(result)
+        except Exception:
+            config_scene.set_progress(0, 0, "")
+            config_scene.finish_calculation_run()
+            self._cleanup_folder_worker_handles()
 
+    def _on_folder_save_failed(self, message: str) -> None:
+        self._folder_save_ctx = None
+        config_scene = self.workspace.select_run_panel.selection
+        config_scene.set_progress(0, 0, "")
+        self._show_error_toast("Saving graphs failed", message)
+        config_scene.finish_calculation_run()
+        self._cleanup_folder_worker_handles()
+
+    def _on_folder_save_cancelled(self) -> None:
+        self._folder_save_ctx = None
+        config_scene = self.workspace.select_run_panel.selection
+        config_scene.set_progress(0, 0, "")
+        config_scene.finish_calculation_run()
+        self._cleanup_folder_worker_handles()
+
+    def _apply_folder_run_after_save(self, result: dict) -> None:
+        config_scene = self.workspace.select_run_panel.selection
+        graphs_scene = self.workspace.view_output_panel.viewer
+        graphs_by_csv = result["graphs_by_csv"]
+        results_by_csv = result["results_by_csv"]
+        csv_files = result["csv_files"]
+        config = result["config"]
+        config_path = result["config_path"]
+        csv_folder_id = result["csv_folder_id"]
+        total_files = result["total_files"]
+        total_graphs = result["total_graphs"]
         n_save = count_figures_in_folder_runs(graphs_by_csv)
         total_steps = 2 * total_files + total_graphs + n_save + 2
-        step = 2 * total_files + total_graphs
-
-        def _folder_save_progress(done: int, n: int, detail: str) -> None:
-            nonlocal step
-            if is_cancel():
-                raise CalculationAborted()
-            step = 2 * total_files + total_graphs + done
-            config_scene.set_progress(
-                step, total_steps, f"Saving {done}/{n}  —  {detail}"
-            )
-            QApplication.processEvents()
-
-        try:
-            graphs_scene.save_folder_graphs(
-                csv_folder_id=csv_folder_id,
-                csv_files=csv_files,
-                config_path=config_path,
-                graphs_by_csv=graphs_by_csv,
-                config=config,
-                save_progress=_folder_save_progress,
-                is_cancelled=is_cancel,
-            )
-        except CalculationAborted:
-            raise
-        except Exception:
-            pass
-        if is_cancel():
-            raise CalculationAborted()
-        QApplication.processEvents()
         step = 2 * total_files + total_graphs + n_save
         step += 1
         config_scene.set_progress(step, total_steps, "Preparing graph viewer…")
-        QApplication.processEvents()
         graphs_scene.set_context(
             csv_id=csv_folder_id, config_path=config_path, csv_files=csv_files
         )
@@ -604,11 +585,88 @@ class MainShellWindow(QMainWindow):
             config=config,
             results_by_csv=results_by_csv,
         )
-        QApplication.processEvents()
         step += 1
         config_scene.set_progress(step, total_steps, "Ready")
-        QApplication.processEvents()
+        config_scene.finish_calculation_run()
         self._deferred_view_output_after_ready(config_scene)
+
+    def _on_folder_pipeline_failed(self, message: str) -> None:
+        config_scene = self.workspace.select_run_panel.selection
+        config_scene.set_progress(0, 0, "")
+        self._show_error_toast("Folder run failed", message)
+        config_scene.finish_calculation_run()
+        self._cleanup_folder_worker_handles()
+
+    def _on_folder_pipeline_cancelled(self) -> None:
+        config_scene = self.workspace.select_run_panel.selection
+        config_scene.set_progress(0, 0, "")
+        config_scene.finish_calculation_run()
+        self._cleanup_folder_worker_handles()
+
+    def _on_folder_pipeline_finished(self, result: dict) -> None:
+        config_scene = self.workspace.select_run_panel.selection
+        graphs_scene = self.workspace.view_output_panel.viewer
+        is_cancel = self._calculation_cancelled
+
+        graphs_by_csv = result["graphs_by_csv"]
+        csv_files = result["csv_files"]
+        config_path = result["config_path"]
+        csv_folder_id = result["csv_folder_id"]
+        total_files = result["total_files"]
+        total_graphs = result["total_graphs"]
+
+        if is_cancel():
+            config_scene.set_progress(0, 0, "")
+            config_scene.finish_calculation_run()
+            self._cleanup_folder_worker_handles()
+            return
+
+        if getattr(graphs_scene, "current_session", None) is None:
+            config_scene.set_progress(0, 0, "")
+            config_scene.finish_calculation_run()
+            self._cleanup_folder_worker_handles()
+            return
+
+        n_save = count_figures_in_folder_runs(graphs_by_csv)
+        total_steps = 2 * total_files + total_graphs + n_save + 2
+        phase_base = 2 * total_files + total_graphs
+
+        self._cleanup_folder_save_handles()
+
+        self._folder_save_ctx = {
+            "total_steps": total_steps,
+            "phase_base": phase_base,
+        }
+
+        session_root = sessions_dir() / graphs_scene.current_session.getName()
+        ce = config_scene.calculation_cancel_event()
+
+        th = QThread()
+        worker = FolderGraphSaveWorker(
+            session_root=session_root,
+            csv_folder_id=csv_folder_id,
+            csv_files=csv_files,
+            config_path=config_path,
+            graphs_by_csv=graphs_by_csv,
+            cancel_event=ce,
+        )
+        worker.moveToThread(th)
+        self._folder_save_thread = th
+        self._folder_save_worker = worker
+
+        th.started.connect(worker.run)
+        worker.progress.connect(
+            self._on_folder_save_progress_tick,
+            Qt.QueuedConnection,
+        )
+        worker.finished.connect(
+            lambda rec: self._on_folder_save_finished(result, rec),
+            Qt.QueuedConnection,
+        )
+        worker.failed.connect(self._on_folder_save_failed, Qt.QueuedConnection)
+        worker.cancelled.connect(self._on_folder_save_cancelled, Qt.QueuedConnection)
+        th.finished.connect(self._on_folder_save_thread_finished)
+        th.start()
 
     def _run_single_csv_calculation(
         self, data, config_scene, graphs_scene, is_cancel
@@ -616,7 +674,14 @@ class MainShellWindow(QMainWindow):
         gcount: int = 0
         if is_cancel():
             raise CalculationAborted()
-        if data and isinstance(data, dict) and data.get("results_df") is not None:
+
+        if isinstance(data, dict) and data.get("_prebuilt_graphs") is not None:
+            graphs = data["_prebuilt_graphs"]
+            cfg = data.get("_prebuilt_config")
+            if not isinstance(cfg, dict):
+                cfg = data.get("config")
+            gcount = len(get_graph_names_to_build(data))
+        elif data and isinstance(data, dict) and data.get("results_df") is not None:
             names = get_graph_names_to_build(data)
             gcount = len(names)
             if gcount == 0:
@@ -698,13 +763,44 @@ class MainShellWindow(QMainWindow):
         if not (graphs is not None and cfg is not None and gcount > 0):
             config_scene.set_progress(0, 0, "")
 
-    def _toggle_theme(self) -> None:
-        self.current_theme = "dark" if self.current_theme == "light" else "light"
+    def _open_settings(self) -> None:
+        from ui.popup_panels.settings_dialog import SettingsDialog
+
+        SettingsDialog(self, self._ui_prefs).exec_()
+
+    def _primary_screen_metrics(self) -> tuple[float, int, int, float]:
+        dpi = 96.0
+        w, h = 1920, 1080
+        dpr = 1.0
+        app_inst = QApplication.instance()
+        if app_inst is not None:
+            scr = app_inst.primaryScreen()
+            if scr is not None:
+                dpi = float(scr.logicalDotsPerInchX())
+                g = scr.availableGeometry()
+                w, h = g.width(), g.height()
+                dpr = float(scr.devicePixelRatio())
+        return dpi, w, h, dpr
+
+    def _apply_prefs_preview(self, prefs: UiPreferences) -> None:
+        dpi, w, h, dpr = self._primary_screen_metrics()
+        scale = prefs.effective_ui_scale(dpi, w, h, dpr)
+        set_ui_scale_factor(scale)
+        app_inst = QApplication.instance()
+        path = app_stylesheet_path()
+        if app_inst is not None and path.is_file():
+            base = scale_stylesheet(path.read_text(encoding="utf-8"), scale)
+            th_name = prefs.theme if prefs.theme in THEMES else "dark"
+            app_inst.setStyleSheet(base + application_tooltip_stylesheet(THEMES[th_name]))
+        self.current_theme = prefs.theme if prefs.theme in THEMES else "dark"
         apply_theme(self, THEMES[self.current_theme])
         apply_error_toast_theme(self._error_toast, THEMES[self.current_theme])
         self.sidebar.reflect_theme(self.current_theme)
         self.workspace.select_run_panel.selection.polish_tree_for_theme(self.current_theme)
         self._error_toast.reposition_if_visible()
+
+    def _reapply_ui_preferences(self) -> None:
+        self._apply_prefs_preview(self._ui_prefs)
 
     def _persist_last_scene(self, scene_name: str) -> None:
         if self.current_session is None:

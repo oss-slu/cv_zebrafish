@@ -19,9 +19,10 @@ from styles.themes import THEMES, apply_theme
 
 from ui.components.chrome_separators import horizontal_separator
 from ui.components.dialog_title_bar import DialogTitleBar
+from ui.platform.frameless_resize import FramelessResizeMixin
 
 
-class ConsoleViewerDialog(QDialog):
+class ConsoleViewerDialog(FramelessResizeMixin, QDialog):
     def __init__(
         self,
         parent: QWidget | None,

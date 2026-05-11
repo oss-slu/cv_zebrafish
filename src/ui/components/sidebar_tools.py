@@ -14,7 +14,7 @@ class SidebarTools(QWidget):
     """
 
     tool_triggered = pyqtSignal(str)
-    theme_toggle_requested = pyqtSignal()
+    settings_requested = pyqtSignal()
 
     _FALLBACK_STD = {
         "verify": QStyle.SP_DialogOpenButton,
@@ -63,15 +63,15 @@ class SidebarTools(QWidget):
 
         layout.addStretch(1)
 
-        self._theme_btn = QToolButton()
-        self._theme_btn.setObjectName("SidebarTool")
-        self._theme_btn.setText("☀")
-        self._theme_btn.setToolTip("Dark / Light")
-        self._theme_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        self._theme_btn.setCursor(Qt.PointingHandCursor)
-        self._theme_btn.setAutoRaise(True)
-        self._theme_btn.clicked.connect(self.theme_toggle_requested.emit)
-        layout.addWidget(self._theme_btn, 0, Qt.AlignHCenter)
+        self._settings_btn = QToolButton()
+        self._settings_btn.setObjectName("SidebarTool")
+        self._settings_btn.setText("\u2699")
+        self._settings_btn.setToolTip("Settings")
+        self._settings_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self._settings_btn.setCursor(Qt.PointingHandCursor)
+        self._settings_btn.setAutoRaise(True)
+        self._settings_btn.clicked.connect(self.settings_requested.emit)
+        layout.addWidget(self._settings_btn, 0, Qt.AlignHCenter)
 
     def _sidebar_svg_icon(self, key: str, enabled: bool) -> QIcon | None:
         theme = self._theme_name
@@ -140,10 +140,10 @@ class SidebarTools(QWidget):
     def reflect_theme(self, theme_name: str) -> None:
         self._theme_name = theme_name
         self._apply_tool_icons()
-        self._theme_btn.setText("☀" if theme_name == "dark" else "☾")
         for btn in self._main_buttons:
             btn.style().unpolish(btn)
             btn.style().polish(btn)
         self.set_active_tool(self._active_key)
-        self._theme_btn.style().unpolish(self._theme_btn)
-        self._theme_btn.style().polish(self._theme_btn)
+        if hasattr(self, "_settings_btn"):
+            self._settings_btn.style().unpolish(self._settings_btn)
+            self._settings_btn.style().polish(self._settings_btn)

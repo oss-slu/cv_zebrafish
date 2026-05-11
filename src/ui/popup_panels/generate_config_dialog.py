@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFrame,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from session.session import Session
 from styles.themes import THEMES, apply_theme
+from styles.ui_scale import scaled_px
 
 from ui.components.chrome_separators import horizontal_separator
 from ui.components.dialog_title_bar import DialogTitleBar
+
+from ui.platform.frameless_resize import FramelessResizeMixin
 from .config_generator_widget import ConfigGeneratorScene
 
 
-class GenerateConfigDialog(QDialog):
+class GenerateConfigDialog(FramelessResizeMixin, QDialog):
     """Window-modal to main shell; on **Accept** (after successful **config_generated**), caller refreshes session + UI."""
 
     def __init__(
@@ -31,8 +41,17 @@ class GenerateConfigDialog(QDialog):
         self.setModal(True)
         # WindowModal: blocks parent (main shell) only so ErrorToast (separate top-level) stays clickable.
         self.setWindowModality(Qt.WindowModal)
-        self.setMinimumSize(880, 520)
-        self.resize(960, 640)
+
+        scr = QApplication.primaryScreen()
+        geo = scr.availableGeometry() if scr is not None else None
+        max_h = int(geo.height() * 0.92) if geo is not None else 1200
+        max_w = int(geo.width() * 0.98) if geo is not None else 2000
+        self.setMinimumSize(max(scaled_px(880), 640), max(scaled_px(520), 400))
+        self.setMaximumHeight(max_h)
+        self.setMaximumWidth(max_w)
+        rw = min(max(scaled_px(960), 720), max_w)
+        rh = min(max(scaled_px(640), 480), max_h)
+        self.resize(rw, rh)
 
         theme_name = "dark"
         p = parent
@@ -68,7 +87,7 @@ class GenerateConfigDialog(QDialog):
         body.setObjectName("GenerateConfigBody")
         body.setAttribute(Qt.WA_StyledBackground, True)
         bl = QVBoxLayout(body)
-        bl.setContentsMargins(10, 10, 10, 10)
+        bl.setContentsMargins(scaled_px(10), scaled_px(10), scaled_px(10), scaled_px(10))
         bl.setSpacing(0)
 
         self.generator = ConfigGeneratorScene()
@@ -83,4 +102,12 @@ class GenerateConfigDialog(QDialog):
             self.generator.toast_requested.connect(shell._show_error_toast)
         bl.addWidget(self.generator, stretch=1)
 
-        outer.addWidget(body, stretch=1)
+        scroll = QScrollArea()
+        scroll.setObjectName("GenerateConfigDialogScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setWidget(body)
+
+        outer.addWidget(scroll, stretch=1)

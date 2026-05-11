@@ -304,6 +304,11 @@ def session_registry_path() -> Path:
     return local_data_dir() / "session_registry.json"
 
 
+def ui_preferences_path() -> Path:
+    """Gitignored UI prefs (theme, interface scale) — separate from ``session_registry.json``."""
+    return local_data_dir() / "ui_preferences.json"
+
+
 def sample_csv_dir() -> Path:
     return project_root() / "data" / "samples" / "csv"
 
@@ -336,6 +341,11 @@ def default_last_config() -> Path:
     return configs_dir() / "LastConfig.json"
 
 
+def app_stylesheet_path() -> Path:
+    """Global Qt stylesheet applied with UI scale (``src/ui/styles/app.qss``)."""
+    return project_root() / "src" / "ui" / "styles" / "app.qss"
+
+
 __all__ = [
     "project_root",
     "src_root",
@@ -361,4 +371,6 @@ __all__ = [
     "resolve_folder_graphs_asset_paths",
     "local_data_dir",
     "session_registry_path",
+    "ui_preferences_path",
+    "app_stylesheet_path",
 ]
