@@ -296,6 +296,24 @@ class ConfigGeneratorScene(QWidget):
             return
         self._stack.setCurrentIndex(idx)
 
+
+    def _get_base_config_json_path(self) -> str | None:
+    """
+    Best-effort locate BaseConfig.json.
+    Adjust the candidate paths if your repo layout differs.
+    """
+    candidates = [
+        Path("jsons") / "BaseConfig.json",
+        Path("config") / "BaseConfig.json",
+        Path("BaseConfig.json"),
+        Path("data") / "samples" / "jsons" / "BaseConfig.json",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return str(p.resolve())
+    return None
+
+
     def _set_tab_index(self, index: int) -> None:
         if not self._tab_buttons:
             return
@@ -843,28 +861,38 @@ class ConfigGeneratorScene(QWidget):
         self.config_generated.emit()
 
     def load_session(self, session):
-        if self._session_connected is not None:
-            try:
-                self._session_connected.session_updated.disconnect(self._refresh_csv_list)
-            except (TypeError, RuntimeError):
-                pass
-            self._session_connected = None
+    if self._session_connected is not None:
+        try:
+            self._session_connected.session_updated.disconnect(self._refresh_csv_list)
+        except (TypeError, RuntimeError):
+            pass
+        self._session_connected = None
 
-        self.current_session = session
-        self._session_connected = session
+    self.current_session = session
+    self._session_connected = session
 
-        self._reset_body_state()
-        self.config_name_input.setPlaceholderText("config")
-        self.config_name_input.clear()
+    self._reset_body_state()
+    self.config_name_input.setPlaceholderText("config")
+    self.config_name_input.clear()
 
-        if session is not None:
-            try:
-                session.session_updated.connect(self._refresh_csv_list)
-            except Exception:
-                pass
+    if session is not None:
+        try:
+            session.session_updated.connect(self._refresh_csv_list)
+        except Exception:
+            pass
 
-        self._refresh_csv_list()
-        self._set_tab_index(0)
+    self._refresh_csv_list()
+    self._set_tab_index(0)
+
+    # Issue #95: pre-fill from BaseConfig.json on scene open
+    base_json = self._get_base_config_json_path()
+    if base_json:
+        ok, msg = self.apply_existing_config_json(base_json)
+        if not ok:
+            self._user_message(f"Could not load config template:\n{msg}", tab=0)
+
+
+        
 
     def prefill_from_copy(self, csv_path: str, json_path: str | None) -> None:
         """After ``load_session``, select a session CSV and optionally apply an existing JSON as a template."""
