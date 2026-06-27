@@ -13,6 +13,7 @@ dependencies:
   - opencv
   - matplotlib
   - pillow
+  - ffmpeg          # H.264 transcode for Pose Studio uploads (conda-forge)
   - openpyxl        # pandas Excel export in graph IO helpers
   # Tooling / tests
   - pytest

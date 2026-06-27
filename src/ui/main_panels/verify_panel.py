@@ -22,7 +22,8 @@ import pandas as pd
 
 from app_platform.paths import images_dir
 from styles.ui_scale import scaled_px
-from ui.components.scene_help import create_scene_help_button
+from ui.components.widgets.scene_help import create_scene_help_button
+from ui.components.pose.verify_pose_datasets_widget import VerifyPoseDatasetsWidget
 from ui.elide_tooltip import LineEditResizeTooltipFilter, update_line_edit_elide_tooltip
 from core.validation import csv_verifier as input_verifier
 from core.validation import json_verifier
@@ -77,6 +78,9 @@ class VerifyWorkspace(QWidget):
             Qt.AlignRight | Qt.AlignTop,
         )
         main_layout.addLayout(head_row)
+
+        self.pose_datasets = VerifyPoseDatasetsWidget()
+        main_layout.addWidget(self.pose_datasets)
 
         csv_layout = QHBoxLayout()
         csv_label = QLabel("CSV File:")
@@ -351,3 +355,9 @@ class VerifyPanel(QWidget):
         layout.setSpacing(0)
         self.verify = VerifyWorkspace()
         layout.addWidget(self.verify)
+
+    def load_session(self, session) -> None:
+        pid = "default"
+        if session is not None:
+            pid = session.ensure_default_pose_project()
+        self.verify.pose_datasets.load_session(session, pid)

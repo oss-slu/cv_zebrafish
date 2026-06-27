@@ -23,8 +23,10 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QDoubleSpinBox,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QStackedWidget,
     QStyle,
     QStyleOptionComboBox,
@@ -34,9 +36,9 @@ from PyQt5.QtWidgets import (
 )
 
 from core.validation import generate_json
-from ui.components.bodypart_pool_list import BodypartPaletteList, BodypartSequenceList, ChipDelegate
+from ui.components.pose.bodypart_pool_list import BodypartPaletteList, BodypartSequenceList, ChipDelegate
 from app_platform.paths import sessions_dir
-from ui.components.wide_popup_combo import WidePopupComboBox
+from ui.components.widgets.wide_popup_combo import WidePopupComboBox
 from ui.elide_tooltip import update_label_elide_tooltip, update_pushbutton_elide_tooltip
 
 def _section_rule() -> QFrame:
@@ -81,7 +83,7 @@ class ConfigGeneratorScene(QWidget):
         self._tab_buttons: list[QPushButton] = []
         self._tab_group = QButtonGroup(self)
         self._tab_group.setExclusive(True)
-        for label in ("Select CSV", "Body Parts", "Custom Calculations"):
+        for label in ("Select CSV", "Body Parts", "Custom Calculations", "Low-Res Analysis"):
             btn = QPushButton(label)
             btn.setObjectName("GenerateConfigTabButton")
             btn.setCheckable(True)
@@ -262,6 +264,65 @@ class ConfigGeneratorScene(QWidget):
         lay_c.addStretch(1)
         self._stack.addWidget(page_custom)
 
+        # ----- Tab: Low-Res Analysis -----
+        scroll_low_res = QScrollArea()
+        scroll_low_res.setWidgetResizable(True)
+        scroll_low_res.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_low_res.setFrameShape(QFrame.NoFrame)
+        low_res_content = QWidget()
+        low_res_form = QVBoxLayout(low_res_content)
+        low_res_form.setSpacing(10)
+        low_res_form.setContentsMargins(0, 0, 0, 0)
+
+        dist_group = QGroupBox("Distance & speed")
+        dist_layout = QGridLayout()
+        self.lr_track_dist_speed = WidePopupComboBox()
+        dist_layout.addWidget(QLabel("Track point"), 0, 0)
+        dist_layout.addWidget(self.lr_track_dist_speed, 0, 1)
+        dist_group.setLayout(dist_layout)
+        low_res_form.addWidget(dist_group)
+
+        ar_group = QGroupBox("Active / rest bouts")
+        ar_layout = QGridLayout()
+        self.lr_track_active_rest = WidePopupComboBox()
+        self.lr_min_total_move = QDoubleSpinBox()
+        self.lr_min_total_move.setDecimals(6)
+        self.lr_min_total_move.setRange(0.0, 1.0)
+        self.lr_min_total_move.setSingleStep(0.0005)
+        self.lr_min_total_move.setValue(0.002)
+        self.lr_min_frame_disp = QDoubleSpinBox()
+        self.lr_min_frame_disp.setDecimals(6)
+        self.lr_min_frame_disp.setRange(0.0, 0.01)
+        self.lr_min_frame_disp.setSingleStep(0.00001)
+        self.lr_min_frame_disp.setValue(0.00008)
+        self.lr_move_fraction = QDoubleSpinBox()
+        self.lr_move_fraction.setDecimals(2)
+        self.lr_move_fraction.setRange(0.0, 5.0)
+        self.lr_move_fraction.setSingleStep(0.05)
+        self.lr_move_fraction.setValue(0.5)
+        self.lr_min_rest_frames = QSpinBox()
+        self.lr_min_rest_frames.setRange(0, 500)
+        self.lr_min_rest_frames.setValue(12)
+        self.chk_lr_active_rest_plot = QCheckBox("Show active/rest plot in graph viewer")
+        self.chk_lr_active_rest_plot.setChecked(True)
+
+        ar_layout.addWidget(QLabel("Track point"), 0, 0)
+        ar_layout.addWidget(self.lr_track_active_rest, 0, 1)
+        ar_layout.addWidget(QLabel("Min total movement (m)"), 1, 0)
+        ar_layout.addWidget(self.lr_min_total_move, 1, 1)
+        ar_layout.addWidget(QLabel("Min frame displacement (m)"), 2, 0)
+        ar_layout.addWidget(self.lr_min_frame_disp, 2, 1)
+        ar_layout.addWidget(QLabel("Movement fraction of mean step"), 3, 0)
+        ar_layout.addWidget(self.lr_move_fraction, 3, 1)
+        ar_layout.addWidget(QLabel("Min rest frames to split bout"), 4, 0)
+        ar_layout.addWidget(self.lr_min_rest_frames, 4, 1)
+        ar_layout.addWidget(self.chk_lr_active_rest_plot, 5, 1)
+        ar_group.setLayout(ar_layout)
+        low_res_form.addWidget(ar_group)
+        low_res_form.addStretch(1)
+        scroll_low_res.setWidget(low_res_content)
+        self._stack.addWidget(scroll_low_res)
+
         mid.addWidget(self._tab_strip, 0)
         mid.addWidget(self._stack, 1)
         root.addLayout(mid, stretch=1)
@@ -311,9 +372,10 @@ class ConfigGeneratorScene(QWidget):
 
     def _update_tab_enabled_state(self) -> None:
         ready = bool(self.bodyparts)
-        if len(self._tab_buttons) >= 3:
+        if len(self._tab_buttons) >= 4:
             self._tab_buttons[1].setEnabled(ready)
             self._tab_buttons[2].setEnabled(ready)
+            self._tab_buttons[3].setEnabled(ready)
         if not ready and self._stack.currentIndex() > 0:
             self._set_tab_index(0)
 
@@ -409,6 +471,10 @@ class ConfigGeneratorScene(QWidget):
         self.tail_list.clear()
         self._sync_angle_dropdowns(changed=None)
         self.angle_ccw.setChecked(False)
+        for combo in (self.lr_track_dist_speed, self.lr_track_active_rest):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.blockSignals(False)
         self.csv_list.clearSelection()
         self._update_csv_display()
         self._update_tab_enabled_state()
@@ -733,6 +799,45 @@ class ConfigGeneratorScene(QWidget):
         for n in t_list:
             self.tail_list.add_name(n)
         self._refill_available_pools()
+        self._sync_low_res_point_combos()
+
+    def _assigned_point_labels(self) -> list[str]:
+        labels: list[str] = []
+        seen: set[str] = set()
+
+        def _add(name: str) -> None:
+            t = (name or "").strip()
+            if t and t not in seen:
+                seen.add(t)
+                labels.append(t)
+
+        for i in range(self.spine_list.count()):
+            _add(self.spine_list.item(i).text())
+        for i in range(self.tail_list.count()):
+            _add(self.tail_list.item(i).text())
+        for combo in (self.fin_r_1, self.fin_r_2, self.fin_l_1, self.fin_l_2, self.head_1, self.head_2):
+            _add(combo.currentText())
+        return labels
+
+    def _sync_low_res_point_combos(self) -> None:
+        labels = self._assigned_point_labels()
+        current_dist = self.lr_track_dist_speed.currentText()
+        current_ar = self.lr_track_active_rest.currentText()
+        for combo, current in (
+            (self.lr_track_dist_speed, current_dist),
+            (self.lr_track_active_rest, current_ar),
+        ):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("")
+            for lbl in labels:
+                combo.addItem(lbl)
+            idx = combo.findText(current or "")
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            elif labels:
+                combo.setCurrentIndex(1 if combo.count() > 1 else 0)
+            combo.blockSignals(False)
 
     def _config_namespace_dir(self) -> Path:
         """
@@ -807,26 +912,42 @@ class ConfigGeneratorScene(QWidget):
             "tail": tail_points,
         }
 
-        config = generate_json.build_config(points, generate_json.BASE_CONFIG)
-
         a = self.angle_a.currentText().strip()
         b = self.angle_b.currentText().strip()
         c = self.angle_c.currentText().strip()
         valid_three = bool(a and b and c and len({a, b, c}) == 3)
-        config.setdefault("custom_calculations", {})["three_point_angle"] = {
-            "enabled": valid_three,
-            "points": [a, b, c] if valid_three else [],
-            "direction": "ccw" if self.angle_ccw.isChecked() else "cw",
-            "output_column": "ThreePointAngle",
-        }
+        dist_pt = self.lr_track_dist_speed.currentText().strip() or (spine_points[0] if spine_points else "")
+        ar_pt = self.lr_track_active_rest.currentText().strip() or dist_pt
 
-        so = config.setdefault("shown_outputs", {})
-        so["show_angle_and_distance_plot"] = self.chk_fin_tail.isChecked()
-        so["show_spines"] = self.chk_spines.isChecked()
-        so["show_tail_left_fin_angle_dot_plot"] = self.chk_dot_lf.isChecked()
-        so["show_tail_right_fin_angle_dot_plot"] = self.chk_dot_rf.isChecked()
-        so["show_tail_left_fin_moving_dot_plot"] = self.chk_dot_lf_mov.isChecked()
-        so["show_tail_right_fin_moving_dot_plot"] = self.chk_dot_rf_mov.isChecked()
+        config = generate_json.build_config_from_generator(
+            points,
+            three_point_angle={
+                "enabled": valid_three,
+                "points": [a, b, c] if valid_three else [],
+                "direction": "ccw" if self.angle_ccw.isChecked() else "cw",
+                "output_column": "ThreePointAngle",
+            },
+            low_res_analysis={
+                "enabled": True,
+                "track_point_distance_speed": dist_pt,
+                "active_rest": {
+                    "track_point": ar_pt,
+                    "min_total_movement_m": float(self.lr_min_total_move.value()),
+                    "min_frame_displacement_m": float(self.lr_min_frame_disp.value()),
+                    "movement_fraction_of_mean": float(self.lr_move_fraction.value()),
+                    "min_rest_frames_to_split_bout": int(self.lr_min_rest_frames.value()),
+                    "show_active_rest_plot": self.chk_lr_active_rest_plot.isChecked(),
+                },
+            },
+            shown_outputs_flags={
+                "show_angle_and_distance_plot": self.chk_fin_tail.isChecked(),
+                "show_spines": self.chk_spines.isChecked(),
+                "show_tail_left_fin_angle_dot_plot": self.chk_dot_lf.isChecked(),
+                "show_tail_right_fin_angle_dot_plot": self.chk_dot_rf.isChecked(),
+                "show_tail_left_fin_moving_dot_plot": self.chk_dot_lf_mov.isChecked(),
+                "show_tail_right_fin_moving_dot_plot": self.chk_dot_rf_mov.isChecked(),
+            },
+        )
 
         config_name = self._resolved_config_name()
         ok, msg = self._validate_config_name(config_name)
@@ -940,5 +1061,17 @@ class ConfigGeneratorScene(QWidget):
             _set_combo(self.angle_c, "")
         self.angle_ccw.setChecked(str(tpa.get("direction") or "").lower() == "ccw")
         self._sync_angle_dropdowns(changed=None)
+
+        lr = cfg.get("low_res_analysis") or {}
+        ar = lr.get("active_rest") or {}
+        self._sync_low_res_point_combos()
+        _set_combo(self.lr_track_dist_speed, str(lr.get("track_point_distance_speed") or ""))
+        _set_combo(self.lr_track_active_rest, str(ar.get("track_point") or ""))
+        self.lr_min_total_move.setValue(float(ar.get("min_total_movement_m", 0.002)))
+        self.lr_min_frame_disp.setValue(float(ar.get("min_frame_displacement_m", 0.00008)))
+        self.lr_move_fraction.setValue(float(ar.get("movement_fraction_of_mean", 0.5)))
+        self.lr_min_rest_frames.setValue(int(ar.get("min_rest_frames_to_split_bout", 12)))
+        self.chk_lr_active_rest_plot.setChecked(bool(ar.get("show_active_rest_plot", True)))
+
         self._user_message(f"Loaded settings from:\n{json_path}", tab=1)
         return True, ""

@@ -20,6 +20,22 @@ def build_config(points_mapping, base_config):
     return config
 
 
+def build_config_from_generator(
+    points_mapping: dict,
+    *,
+    three_point_angle: dict,
+    low_res_analysis: dict,
+    shown_outputs_flags: dict,
+    base_config: dict | None = None,
+) -> dict:
+    """Assemble a full config dict from Config Generator UI field values."""
+    config = build_config(points_mapping, base_config or BASE_CONFIG)
+    config.setdefault("custom_calculations", {})["three_point_angle"] = three_point_angle
+    config["low_res_analysis"] = low_res_analysis
+    config.setdefault("shown_outputs", {}).update(shown_outputs_flags)
+    return config
+
+
 def save_config_json(config, save_path):
     """Writes config dict to JSON file."""
     with open(save_path, "w", encoding="utf-8") as f:
@@ -93,5 +109,17 @@ BASE_CONFIG = {
     "auto_find_time_ranges": True,
     "time_ranges": [[0, 110]],
     "open_plots": True,
-    "bulk_input": False
+    "bulk_input": False,
+    "low_res_analysis": {
+        "enabled": True,
+        "track_point_distance_speed": "",
+        "active_rest": {
+            "track_point": "",
+            "min_total_movement_m": 0.002,
+            "min_frame_displacement_m": 0.00008,
+            "movement_fraction_of_mean": 0.5,
+            "min_rest_frames_to_split_bout": 12,
+            "show_active_rest_plot": True
+        }
+    }
 }

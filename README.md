@@ -10,11 +10,25 @@ Desktop toolkit for validating DeepLabCut zebrafish CSVs, generating JSON config
 - System packages for Qt (Windows: included with PyQt5 wheels; macOS/Linux may need Qt libraries)
 
 ### Setup (Conda)
+
+**Fast path (Windows desktop — main app + Pose Studio + GPU if NVIDIA detected):**
+
+```powershell
+cd cv_zebrafish
+powershell -ExecutionPolicy Bypass -File scripts/setup_desktop.ps1 -Launch
+```
+
+Re-run status only: `scripts/setup_desktop.ps1 -VerifyOnly`  
+Launch later: `scripts/launch_app.ps1`
+
+**Manual path:**
+
 ```bash
 conda env create -f environment.yml
-conda activate cvzebrafish
+conda activate cv-zebrafish
 ```
-> `environment.yml` declares Python 3.10 and all app/test dependencies; prefer this over ad-hoc pip installs.
+
+> `environment.yml` declares Python 3.10 and all app/test dependencies; prefer this over ad-hoc pip installs. Pose Studio DLC uses a separate env — see `docs/POSE_DLC_ENV.md` or `setup_desktop.ps1`.
 
 ### Run the UI
 ```bash
@@ -30,33 +44,29 @@ pytest
 ## Project Layout (current)
 ```text
 app.py                         # PyQt entry point (adds src/ to sys.path)
-assets/
-├── images/                    # UI icons / art
-└── sample_data/               # Example configs/CSVs (paired with data/samples)
+scripts/                       # setup_desktop.ps1, run_dlc_step.py, install_pose_env*.ps1
+assets/images/                 # UI icons
 data/
-└── samples/
-    ├── csv/                   # DLC CSV fixtures used by UI/tests
-    └── jsons/                 # BaseConfig + generated config examples
-docs/
-├── architecture/              # Calculation/graph design notes
-├── howtos/                    # UI + validation how-tos
-└── product/                   # Product summary, presentations, meeting minutes
+├── samples/                   # Tracked CSV/JSON fixtures for tests
+├── local/                     # Gitignored prefs, backups (machine-local)
+└── sessions/                  # Gitignored runtime session + pose data
+docs/architecture/ui_structure.md   # Panel vs dialog vs worker conventions
 legacy/                        # Bruce pipeline for regression comparisons
 src/
-├── app_platform/paths.py      # Writable paths/utilities
+├── app_platform/              # paths, session registry, UI preferences
 ├── core/
 │   ├── calculations/          # Metrics, driver, exports
-│   ├── config/configSetup.py  # Config discovery/merging
-│   ├── graphs/                # Loader, runner, Plotly plotters (fin/tail, spines)
-│   ├── parsing/Parser.py      # DLC CSV parser
+│   ├── graphs/                # graph_builder, loader, runner, plots/
+│   ├── parsing/               # DLC CSV parser, body part detector
+│   ├── pose/                  # Pose Studio (video, labeling, training, DLC)
 │   └── validation/            # CSV/JSON validators + config generator
-├── data/                      # DB ingestion helpers
-├── session/                   # Session persistence for the UI
+├── session/                   # Session persistence model
 └── ui/
-    ├── components/            # Shared widgets (sliders, checks, etc.)
-    └── scenes/                # Landing, CSV/JSON input, Config Generator, Calculation, Graph Viewer, Verify
-tests/
-└── unit/                      # Core + UI unit tests (pytest)
+    ├── main_panels/           # Workspace pages (verify, select-run, graphs, pose)
+    ├── popup_panels/          # Modals (settings, config generator, session picker)
+    ├── components/            # Reusable widgets (pose canvas, chrome, etc.)
+    └── workers/               # Background QThread jobs
+tests/unit/                    # Mirrors src/ (pytest)
 ```
 
 ## Feature Highlights

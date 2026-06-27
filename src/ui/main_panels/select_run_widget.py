@@ -5,7 +5,7 @@ import threading
 from os import path
 from pathlib import Path
 
-from PyQt5.QtCore import QObject, QEvent, QThread, Qt, QSize, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QObject, QEvent, QThread, Qt, QSize, pyqtSignal
 from typing import Any
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
@@ -24,11 +24,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-import src.core.calculations.Driver as calculations
-import src.core.parsing.Parser as parser
 
-from ui.components.branding import view_output_tool_icon
-from ui.components.scene_help import create_scene_help_button
+from ui.components.chrome.branding import view_output_tool_icon
+from ui.components.widgets.scene_help import create_scene_help_button
 
 from src.app_platform.paths import default_sample_config, default_sample_csv
 from src.app_platform.paths import images_dir
@@ -36,84 +34,7 @@ from src.app_platform.paths import images_dir
 FOLDER_ICON = images_dir() / "folder-black.svg"
 
 
-class _SingleCalcWorker(QObject):
-    """Background parse, metrics, and graph build for single-CSV runs (stays off the UI thread)."""
-
-    ok = pyqtSignal(object)  # payload dict
-    err = pyqtSignal(str)
-    cancelled = pyqtSignal()
-    graph_progress = pyqtSignal(int, int, str)  # n, total, graph name
-
-    def __init__(self, csv_path: str, config: dict[str, Any], cancel_event: threading.Event):
-        super().__init__()
-        self._csv = csv_path
-        self._config = config
-        self._ce = cancel_event
-
-    def _cancelled(self) -> bool:
-        return self._ce.is_set()
-
-    @pyqtSlot()
-    def work(self) -> None:
-        from src.core.calculations.cancelled import CalculationAborted
-
-        th = self.thread()
-        try:
-            if self._cancelled():
-                self.cancelled.emit()
-                return
-            try:
-                parsed_points = parser.parse_dlc_csv(self._csv, self._config)
-            except Exception as e:
-                self.err.emit(str(e))
-                return
-            if self._cancelled():
-                self.cancelled.emit()
-                return
-            try:
-                results = calculations.run_calculations(
-                    parsed_points, self._config, cancel_check=self._cancelled
-                )
-            except CalculationAborted:
-                self.cancelled.emit()
-                return
-            except Exception as e:
-                self.err.emit(str(e))
-                return
-            if results is None:
-                self.err.emit("The calculation pipeline returned no results.")
-                return
-            if self._cancelled():
-                self.cancelled.emit()
-                return
-            from ui.main_panels.graph_viewer_widget import build_graphs_from_data, get_graph_names_to_build
-
-            payload = {
-                "results_df": results,
-                "config": self._config,
-                "csv_path": self._csv,
-                "parsed_points": parsed_points,
-            }
-            if len(get_graph_names_to_build(payload)) == 0:
-                self.ok.emit(payload)
-                return
-
-            def _prog(n: int, tot: int, gname: str) -> None:
-                self.graph_progress.emit(n, tot, gname)
-
-            try:
-                graphs, cfg = build_graphs_from_data(payload, _prog, self._cancelled)
-            except CalculationAborted:
-                self.cancelled.emit()
-                return
-            payload["_prebuilt_graphs"] = graphs
-            payload["_prebuilt_config"] = cfg
-            self.ok.emit(payload)
-        finally:
-            if th is not None:
-                th.quit()
-
-
+from ui.workers.single_calculation_worker import SingleCalculationWorker
 def _is_displayable_graph_png(p) -> bool:
     try:
         pp = Path(p)
@@ -146,7 +67,7 @@ class ConfigSelectionScene(QWidget):
         self._calculation_run_active: bool = False
         self._cancel_event = threading.Event()
         self._calc_thread: QThread | None = None
-        self._calc_worker: _SingleCalcWorker | None = None
+        self._calc_worker: SingleCalculationWorker | None = None
 
         # --- Layout setup ---
         layout = QVBoxLayout(self)
@@ -797,7 +718,7 @@ class ConfigSelectionScene(QWidget):
         if self._calc_thread is not None:
             return
         self._calc_thread = QThread()
-        self._calc_worker = _SingleCalcWorker(
+        self._calc_worker = SingleCalculationWorker(
             str(self.csv_path), dict(config), self._cancel_event
         )
         self._calc_worker.moveToThread(self._calc_thread)

@@ -57,8 +57,8 @@ from session.session import Session, load_session_from_json
 from styles.themes import THEMES, apply_theme
 from styles.ui_scale import scaled_px
 
-from ui.components.chrome_separators import horizontal_separator
-from ui.components.dialog_title_bar import DialogTitleBar
+from ui.components.chrome.chrome_separators import horizontal_separator
+from ui.components.chrome.dialog_title_bar import DialogTitleBar
 from ui.platform.frameless_resize import FramelessResizeMixin
 
 _ROLE_PATH = Qt.UserRole + 1

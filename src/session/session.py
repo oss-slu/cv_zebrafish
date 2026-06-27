@@ -36,6 +36,9 @@ class Session(QObject):
         self.last_config_path = None
         # user-picked path -> canonical key under sessions/.../uploads (backlog #3)
         self._import_alias_by_user: dict[str, str] = {}
+        # Pose Studio: multiple projects per session
+        self.pose_projects: dict[str, dict] = {}
+        self.active_pose_project_id: str | None = None
 
     def _resolve_csv_key(self, csv_path: str) -> str:
         if not csv_path:
@@ -110,6 +113,52 @@ class Session(QObject):
         if session_import and orig != key and orig not in self._import_alias_by_user:
             self._import_alias_by_user[orig] = key
         self.session_updated.emit()
+
+    def ensure_default_pose_project(self) -> str:
+        """Return active pose project id, creating ``default`` if needed."""
+        if not self.pose_projects:
+            self.pose_projects["default"] = {
+                "name": "Default",
+                "videos": {},
+                "stage": "upload",
+            }
+            self.active_pose_project_id = "default"
+            return "default"
+        if not self.active_pose_project_id or self.active_pose_project_id not in self.pose_projects:
+            self.active_pose_project_id = next(iter(self.pose_projects))
+        return self.active_pose_project_id
+
+    def register_pose_video(self, video_id: str, display_name: str, meta: dict) -> None:
+        pid = self.ensure_default_pose_project()
+        proj = self.pose_projects.setdefault(pid, {"name": "Default", "videos": {}, "stage": "upload"})
+        videos = proj.setdefault("videos", {})
+        from datetime import datetime, timezone
+
+        videos[video_id] = {
+            "display_name": display_name,
+            "registered_at": datetime.now(timezone.utc).isoformat(),
+            "meta": meta,
+        }
+        proj["active_video_id"] = video_id
+        self.session_updated.emit()
+
+    def get_pose_video_ids(self) -> list[str]:
+        pid = self.active_pose_project_id
+        if not pid or pid not in self.pose_projects:
+            return []
+        return list((self.pose_projects[pid].get("videos") or {}).keys())
+
+    def get_active_pose_video_id(self) -> str | None:
+        pid = self.active_pose_project_id
+        if not pid or pid not in self.pose_projects:
+            return None
+        return self.pose_projects[pid].get("active_video_id")
+
+    def set_active_pose_video(self, video_id: str) -> None:
+        pid = self.ensure_default_pose_project()
+        if video_id in (self.pose_projects[pid].get("videos") or {}):
+            self.pose_projects[pid]["active_video_id"] = video_id
+            self.session_updated.emit()
 
     def addCSVFolder(self, folder_path: str, csv_files: list[str]):
         """Register a folder of CSVs as a single CSV input ID."""
@@ -265,6 +314,8 @@ class Session(QObject):
             "last_csv_path": getattr(self, "last_csv_path", None),
             "last_config_path": getattr(self, "last_config_path", None),
             "csv_import_alias": dict(self._import_alias_by_user or {}),
+            "pose_projects": dict(self.pose_projects or {}),
+            "active_pose_project_id": self.active_pose_project_id,
         }
     
     def length(self):
@@ -366,6 +417,8 @@ def load_session_from_json(json_path):
     lcfg = data.get("last_config_path")
     session.last_config_path = _session_resolved_path(lcfg, session_name) if lcfg else None
     session._import_alias_by_user = data.get("csv_import_alias") or {}
+    session.pose_projects = data.get("pose_projects") or {}
+    session.active_pose_project_id = data.get("active_pose_project_id")
     session.csv_folders = data.get("csv_folders") or {}
     session.folder_graphs = resolve_folder_graphs_asset_paths(
         data.get("folder_graphs") or {}, session_name

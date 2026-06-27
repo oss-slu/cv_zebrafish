@@ -15,7 +15,7 @@
 
 ### Key capabilities
 - **Data validation (src/core/validation):** CSV and JSON verifiers check column structure, required body parts, types, and likelihood thresholds with actionable error messaging.
-- **Config generation (src/core/config + ui/scenes/ConfigGeneratorScene.py):** Detects available body parts from CSV, builds reusable JSON configs, and supports user-tunable thresholds, plot visibility, and video params.
+- **Config generation (src/core/validation/generate_json.py + ui/popup_panels/config_generator_widget.py):** Detects available body parts from CSV, builds reusable JSON configs, and supports user-tunable thresholds, plot visibility, and video params.
 - **Calculation engine (src/core/calculations):**
   - Parser maps DLC CSV columns into structured point arrays.
   - Metrics include fin angles, head yaw, tail side/distance/peaks, spine angles, swim bout detection, and time alignment.
@@ -25,16 +25,17 @@
   - Implemented plotters: fin/tail angle-and-distance timelines with bout slices and peak markers, spine snapshot selector with confidence handling, and reusable dot-plot helper; default set is driven by config flags (e.g., `shown_outputs.show_angle_and_distance_plot`, `shown_outputs.show_spines`).
   - Plotly + Kaleido pipeline supports on-screen display and static exports.
 - **UI/UX (src/ui):**
-  - Scenes for Landing, CSV input, JSON input, Config Generator, Calculation, Graph Viewer, and Verify.
-  - Calculation scene enforces readiness checks and progress states; Graph Viewer lists available plots, handles resizing, and renders PNGs.
-- **Data management:** Optional SQLite persistence and file hashing helpers keep ingestion runs reproducible; sample data and assets are organized under assets/ and data/.
+  - Main panels: Verify, Select & Run, View Output (graph viewer), Pose Studio (label / train / dataset).
+  - Popup dialogs: Config Generator, Settings, Session picker.
+  - Calculation and graph build run in background workers; Graph Viewer lists plots, cross-correlation, and exports PNGs.
+- **Data management:** JSON session bundles under `data/sessions/` (gitignored); sample fixtures under `data/samples/`.
 
 ### User workflow
 CSV upload -> validation -> config selection/generation -> calculations -> graph rendering -> export.
 
 ## Architecture
 - **Entry point:** `app.py` launches the PyQt application.
-- **UI layer:** `src/ui/scenes` (Landing, CSV/JSON input, Config Generator, Calculation, Graph Viewer, Verify) and shared widgets under `src/ui/components`.
+- **UI layer:** `src/ui/main_panels`, `src/ui/popup_panels`, and shared widgets under `src/ui/components` (see `docs/architecture/ui_structure.md`).
 - **Core services:**
   - Parsing: `src/core/parsing/Parser.py` and helpers.
   - Config: `src/core/config/configSetup.py` plus sample/default JSONs.
@@ -43,7 +44,7 @@ CSV upload -> validation -> config selection/generation -> calculations -> graph
   - Graphs: data loader, metrics, plot modules, runner, and IO helpers under `src/core/graphs`.
 - **Platform utilities:** `src/app_platform/paths.py` centralizes writable paths.
 - **Legacy reference:** `legacy/` retains the Bruce workflow for regression comparison.
-- **Testing:** `tests/` hosts unit suites for parser, metrics, driver, and validation utilities; graph tests live under `src/core/graphs/tests`.
+- **Testing:** `tests/unit/` mirrors `src/` (parser, metrics, driver, validation, graphs, pose).
 - **Documentation:** README, docs/architecture (calculation notes and legacy comparisons), docs/howtos (UI and validation), docs/product (presentations and summary).
 
 ## Technology Stack
@@ -54,7 +55,7 @@ CSV upload -> validation -> config selection/generation -> calculations -> graph
 - Multi-scene PyQt UI wired end-to-end from file selection through calculations and graph viewing.
 - CSV/JSON validation flows integrated with sample inputs and unit coverage.
 - Calculation pipeline (Parser -> Metrics -> Driver) produces fin, tail, spine, yaw, bout, and peak metrics with scaling and enriched export helpers.
-- Modular graph pipeline online with default plotters for fin/tail angle-distance timelines and spine snapshots (plus dot-plot helper for reuse); config-driven shown_outputs toggles plot selection; runner and output context manage saving.
+- Modular graph pipeline online (`core/graphs/graph_builder.py`, fin/tail, spine, dot plots); Pose Studio for labeling and DLC training; automated desktop setup via `scripts/setup_desktop.ps1`.
 - Documentation refreshed (README, architecture notes, how-tos); product overview prepared for presentations.
 - Latest client asks captured in `docs/product/meeting_minutes/client_request_notes.md` (graph editing/local extrema, ranged exports, clickable points, multi-CSV overlays, tabular-format normalization, zebrafish silhouette, installable UX).
 

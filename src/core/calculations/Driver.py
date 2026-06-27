@@ -11,6 +11,7 @@ from .Metrics import (
     calc_tail_side_and_distance, calc_furthest_tail_point, detect_fin_peaks, get_time_ranges,
 )
 from .custom_angle import build_three_point_angle_column
+from .low_res_analysis import enrich_results_dataframe
 
 def run_calculations(
     parsed_points: Dict[str, Any],
@@ -120,6 +121,10 @@ def run_calculations(
     })
     extra_df = pd.DataFrame(extra_cols)
     result_df = pd.concat([result_df, extra_df], axis=1)
+
+    if cancel_check is not None and cancel_check():
+        raise CalculationAborted()
+    result_df = enrich_results_dataframe(parsed_points, result_df, config)
 
     return result_df
 

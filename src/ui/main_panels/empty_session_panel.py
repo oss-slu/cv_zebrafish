@@ -2,8 +2,8 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from ui.components.branding import fish_pixmap
-from ui.components.scene_help import create_scene_help_button
+from ui.components.chrome.branding import fish_pixmap
+from ui.components.widgets.scene_help import create_scene_help_button
 
 
 class EmptySessionPanel(QWidget):

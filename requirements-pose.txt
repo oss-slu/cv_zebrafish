@@ -1,0 +1,8 @@
+# Pip deps for cv-zebrafish-pose (installed after minimal conda env).
+# CPU PyTorch by default; for GPU see docs/POSE_DLC_ENV.md
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+tables
+deeplabcut

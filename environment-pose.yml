@@ -1,0 +1,20 @@
+# Pose Studio DLC subprocess (isolated from main PyQt app).
+#
+# FAST INSTALL (recommended — avoids slow "Solving environment"):
+#   powershell -ExecutionPolicy Bypass -File scripts/install_pose_env.ps1
+#
+# Or manually:
+#   conda create -n cv-zebrafish-pose python=3.10 pip -y
+#   conda run -n cv-zebrafish-pose pip install -r requirements-pose.txt
+#
+# App: Settings → Pose Studio (DLC) → python path:
+#   %USERPROFILE%\miniconda3\envs\cv-zebrafish-pose\python.exe
+#
+# GPU torch: see docs/POSE_DLC_ENV.md
+
+name: cv-zebrafish-pose
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip

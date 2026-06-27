@@ -17,16 +17,28 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
+    QDoubleSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
+    QGridLayout,
+    QGroupBox,
 )
 
 import plotly.graph_objs as go
 import plotly.io as pio
 
-from src.core.graphs.loader_bundle import GraphDataBundle
-from src.core.graphs.plots import render_dot_plot, render_fin_tail, render_headplot, render_spines
+from core.graphs.graph_builder import (
+    build_dot_plot_graphs,
+    build_fin_tail_graphs,
+    build_graphs_from_data,
+    build_head_plot_graphs,
+    build_spine_graphs,
+    get_graph_names_to_build,
+    is_kaleido_available,
+    save_to_html,
+)
 
 
 # Cross-correlation imports
@@ -35,15 +47,21 @@ from src.core.analysis.cross_correlation import (
     get_available_signals,
 )
 from src.core.graphs.plots.crosscorr_plot import render_crosscorr_plot
+from src.core.graphs.plots.active_rest import render_active_rest_plot
+from src.core.calculations.low_res_analysis import (
+    ActiveRestParams,
+    compute_low_res_summary,
+    framerate_from_config,
+)
 
-from src.ui.components.InteractiveGraph import InteractiveGraph
+from ui.components.widgets.InteractiveGraph import InteractiveGraph
 from src.core.calculations.cancelled import CalculationAborted
 from src.session import session
 from src.app_platform.paths import images_dir, sessions_dir
 
 from styles.ui_scale import scaled_px
-from ui.components.scene_help import create_scene_help_button
-from ui.components.wide_popup_combo import WidePopupComboBox
+from ui.components.widgets.scene_help import create_scene_help_button
+from ui.components.widgets.wide_popup_combo import WidePopupComboBox
 from ui.workers.folder_graph_save_worker import run_folder_graph_save_core
 
 FOLDER_ICON = images_dir() / "folder-black.svg"
@@ -66,65 +84,22 @@ def count_figures_in_folder_runs(
         return 0
     return sum(count_figures_in_graph_dict(d) for d in graphs_by_csv.values())
 
-DOT_PLOT_SPECS: Tuple[Dict[str, Any], ...] = (
-    {
-        "flag": "show_tail_left_fin_angle_dot_plot",
-        "title": "Tail Distance vs Left Fin Angle",
-        "x_col": "Tail_Distance",
-        "y_col": "LF_Angle",
-        "name_x": "tailDist",
-        "name_y": "leftFinAng",
-        "units_x": "m",
-        "units_y": "deg",
-        "moving": False,
-    },
-    {
-        "flag": "show_tail_right_fin_angle_dot_plot",
-        "title": "Tail Distance vs Right Fin Angle",
-        "x_col": "Tail_Distance",
-        "y_col": "RF_Angle",
-        "name_x": "tailDist",
-        "name_y": "rightFinAng",
-        "units_x": "m",
-        "units_y": "deg",
-        "moving": False,
-    },
-    {
-        "flag": "show_tail_left_fin_moving_dot_plot",
-        "title": "Tail Distance vs Left Fin Angle (Moving)",
-        "x_col": "Tail_Distance",
-        "y_col": "LF_Angle",
-        "name_x": "tailDistMov",
-        "name_y": "leftFinAngMov",
-        "units_x": "m/s",
-        "units_y": "deg/s",
-        "moving": True,
-    },
-    {
-        "flag": "show_tail_right_fin_moving_dot_plot",
-        "title": "Tail Distance vs Right Fin Angle (Moving)",
-        "x_col": "Tail_Distance",
-        "y_col": "RF_Angle",
-        "name_x": "tailDistMov",
-        "name_y": "rightFinAngMov",
-        "units_x": "m/s",
-        "units_y": "deg/s",
-        "moving": True,
-    },
-)
-
 
 class GraphViewerScene(QWidget):
     """
-    Graph viewer with three tabs:
+    Graph viewer with tabs:
       1. Graphs — standard plots (dot, fin/tail, spine, head)
       2. Cross-Correlation — signal pair analysis
       3. Compare — two standard graphs side by side (any CSVs / any graph names)
+      4. Numerical Outputs — distance covered and speed summaries
+      5. Active / Rest — movement bout timeline with live parameter tuning
     """
 
     TAB_GRAPHS = 0
     TAB_CROSS = 1
     TAB_COMPARE = 2
+    TAB_NUMERICAL = 3
+    TAB_ACTIVE_REST = 4
 
     def __init__(self):
         super().__init__()
@@ -143,7 +118,7 @@ class GraphViewerScene(QWidget):
         self._original_pixmap: Optional[QPixmap] = None
         self._data = None
         self.current_session = None
-        self._kaleido_available = _is_kaleido_available()
+        self._kaleido_available = is_kaleido_available()
 
         # Cross-correlation state
         self._crosscorr_available = False
@@ -152,6 +127,10 @@ class GraphViewerScene(QWidget):
         self._current_df = None
         # Last single-CSV run metrics (for re-open Cross-Correlation tab; backlog #1)
         self._last_single_run_df: Optional[pd.DataFrame] = None
+        self._viewer_config: Optional[Dict[str, Any]] = None
+        self._viewer_parsed_points: Optional[Dict[str, Any]] = None
+        self._parsed_by_csv: Optional[Dict[str, Dict[str, Any]]] = None
+        self._low_res_summary = None
 
         # Context banner
         self.context_icon = QLabel()
@@ -234,7 +213,9 @@ class GraphViewerScene(QWidget):
                 "On the Graphs tab, click a name in the list on the left to show that plot on the right. "
                 "If the session has a folder of CSVs, use the drop-down and Prev/Next to choose which file you are viewing. "
                 "Open the Compare tab to place two standard graphs side by side — pick dataset(s) and a graph for each side (same or different files). "
-                "Open Cross-Correlation when you need that analysis — it is a different tool than Compare."
+                "Open Cross-Correlation when you need that analysis — it is a different tool than Compare. "
+                "Numerical Outputs shows total distance and speed for the track point chosen in config. "
+                "Active / Rest plots movement bouts; adjust thresholds there and click Update plot to recompute."
             ),
             tips=(
                 "In Select & Run, when a CSV has more than one config, the small tree icon can open View Output for a specific pair.",
@@ -320,6 +301,15 @@ class GraphViewerScene(QWidget):
         self._init_compare_tab()
         self.tab_widget.addTab(self._compare_tab_root, "Compare")
         self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+
+        self._init_numerical_tab()
+        self.tab_widget.addTab(self._numerical_tab_root, "Numerical Outputs")
+        self.tab_widget.setTabEnabled(self.TAB_NUMERICAL, False)
+
+        self._init_active_rest_tab()
+        self.tab_widget.addTab(self._active_rest_tab_root, "Active / Rest")
+        self.tab_widget.setTabEnabled(self.TAB_ACTIVE_REST, False)
+
         self.tab_widget.currentChanged.connect(self._on_main_tab_changed)
 
         # Main layout — panel margins match other workspace scenes so ⓘ stays in the same top-right relationship.
@@ -408,6 +398,94 @@ class GraphViewerScene(QWidget):
         self._compare_pix_b: Optional[QPixmap] = None
         self._compare_syncing = False
 
+    def _init_numerical_tab(self) -> None:
+        self._numerical_tab_root = QWidget()
+        self._numerical_tab_root.setObjectName("GraphViewerNumericalTab")
+        layout = QVBoxLayout(self._numerical_tab_root)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(12)
+
+        self._num_track_point_label = QLabel("Track point: —")
+        self._num_distance_label = QLabel("Distance covered: —")
+        self._num_mean_speed_label = QLabel("Mean speed: —")
+        self._num_peak_speed_label = QLabel("Peak speed: —")
+        self._num_duration_label = QLabel("Recording duration: —")
+        for lbl in (
+            self._num_track_point_label,
+            self._num_distance_label,
+            self._num_mean_speed_label,
+            self._num_peak_speed_label,
+            self._num_duration_label,
+        ):
+            lbl.setObjectName("GraphViewerNumericalValue")
+            font = lbl.font()
+            font.setPointSize(font.pointSize() + 1)
+            lbl.setFont(font)
+
+        metrics_group = QGroupBox("Low-resolution kinematics")
+        metrics_layout = QVBoxLayout()
+        metrics_layout.addWidget(self._num_track_point_label)
+        metrics_layout.addWidget(self._num_distance_label)
+        metrics_layout.addWidget(self._num_mean_speed_label)
+        metrics_layout.addWidget(self._num_peak_speed_label)
+        metrics_layout.addWidget(self._num_duration_label)
+        metrics_group.setLayout(metrics_layout)
+        layout.addWidget(metrics_group)
+        layout.addStretch(1)
+
+    def _init_active_rest_tab(self) -> None:
+        self._active_rest_tab_root = QWidget()
+        self._active_rest_tab_root.setObjectName("GraphViewerActiveRestTab")
+        outer = QVBoxLayout(self._active_rest_tab_root)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(8)
+
+        params_group = QGroupBox("Movement detection parameters")
+        params_layout = QGridLayout()
+        self.ar_min_total_move = QDoubleSpinBox()
+        self.ar_min_total_move.setDecimals(6)
+        self.ar_min_total_move.setRange(0.0, 1.0)
+        self.ar_min_total_move.setSingleStep(0.0005)
+        self.ar_min_frame_disp = QDoubleSpinBox()
+        self.ar_min_frame_disp.setDecimals(6)
+        self.ar_min_frame_disp.setRange(0.0, 0.01)
+        self.ar_min_frame_disp.setSingleStep(0.00001)
+        self.ar_move_fraction = QDoubleSpinBox()
+        self.ar_move_fraction.setDecimals(2)
+        self.ar_move_fraction.setRange(0.0, 5.0)
+        self.ar_move_fraction.setSingleStep(0.05)
+        self.ar_min_rest_frames = QSpinBox()
+        self.ar_min_rest_frames.setRange(0, 500)
+
+        self.ar_apply_btn = QPushButton("Update plot")
+        self.ar_apply_btn.clicked.connect(self._recompute_active_rest_plot)
+
+        params_layout.addWidget(QLabel("Min total movement (m)"), 0, 0)
+        params_layout.addWidget(self.ar_min_total_move, 0, 1)
+        params_layout.addWidget(QLabel("Min frame displacement (m)"), 1, 0)
+        params_layout.addWidget(self.ar_min_frame_disp, 1, 1)
+        params_layout.addWidget(QLabel("Movement fraction of mean step"), 2, 0)
+        params_layout.addWidget(self.ar_move_fraction, 2, 1)
+        params_layout.addWidget(QLabel("Min rest frames to split bout"), 3, 0)
+        params_layout.addWidget(self.ar_min_rest_frames, 3, 1)
+        params_layout.addWidget(self.ar_apply_btn, 4, 1)
+        params_group.setLayout(params_layout)
+        outer.addWidget(params_group)
+
+        summary_row = QHBoxLayout()
+        self._ar_bout_count_label = QLabel("Active bouts: —")
+        self._ar_active_time_label = QLabel("Active time: —")
+        self._ar_rest_time_label = QLabel("Rest time: —")
+        summary_row.addWidget(self._ar_bout_count_label)
+        summary_row.addWidget(self._ar_active_time_label)
+        summary_row.addWidget(self._ar_rest_time_label)
+        summary_row.addStretch(1)
+        outer.addLayout(summary_row)
+
+        self.active_rest_graph = InteractiveGraph()
+        self.active_rest_graph.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        outer.addWidget(self.active_rest_graph, stretch=1)
+
     def _on_main_tab_changed(self, index: int) -> None:
         if index == self.TAB_COMPARE:
             # Compare is populated/updated in set_graphs / _apply_selected_csv. Re-syncing here
@@ -419,6 +497,110 @@ class GraphViewerScene(QWidget):
                 self._apply_crosscorr_for_current_folder_csv()
             elif self._last_single_run_df is not None:
                 self._enable_crosscorr(self._last_single_run_df)
+        elif index == self.TAB_NUMERICAL:
+            self._refresh_numerical_tab()
+        elif index == self.TAB_ACTIVE_REST:
+            self._recompute_active_rest_plot()
+
+    def _current_viewer_parsed_points(self) -> Optional[Dict[str, Any]]:
+        if self._parsed_by_csv and self.csv_combo.count() > 0:
+            csv_path = self.csv_combo.currentData()
+            if csv_path is not None:
+                return self._parsed_by_csv.get(str(csv_path))
+        return self._viewer_parsed_points
+
+    def _sync_active_rest_param_controls(self) -> None:
+        cfg = self._viewer_config or {}
+        ar = ((cfg.get("low_res_analysis") or {}).get("active_rest") or {})
+        self.ar_min_total_move.blockSignals(True)
+        self.ar_min_frame_disp.blockSignals(True)
+        self.ar_move_fraction.blockSignals(True)
+        self.ar_min_rest_frames.blockSignals(True)
+        self.ar_min_total_move.setValue(float(ar.get("min_total_movement_m", 0.002)))
+        self.ar_min_frame_disp.setValue(float(ar.get("min_frame_displacement_m", 0.00008)))
+        self.ar_move_fraction.setValue(float(ar.get("movement_fraction_of_mean", 0.5)))
+        self.ar_min_rest_frames.setValue(int(ar.get("min_rest_frames_to_split_bout", 12)))
+        self.ar_min_total_move.blockSignals(False)
+        self.ar_min_frame_disp.blockSignals(False)
+        self.ar_move_fraction.blockSignals(False)
+        self.ar_min_rest_frames.blockSignals(False)
+
+    def _refresh_low_res_tabs(self) -> None:
+        parsed = self._current_viewer_parsed_points()
+        cfg = self._viewer_config
+        enabled = bool(parsed and cfg)
+        self.tab_widget.setTabEnabled(self.TAB_NUMERICAL, enabled)
+        show_ar = enabled and bool(
+            ((cfg or {}).get("low_res_analysis") or {}).get("active_rest", {}).get(
+                "show_active_rest_plot", True
+            )
+        )
+        self.tab_widget.setTabEnabled(self.TAB_ACTIVE_REST, show_ar)
+        if not enabled:
+            self._clear_numerical_tab()
+            self.active_rest_graph.clear()
+            return
+        self._sync_active_rest_param_controls()
+        self._refresh_numerical_tab()
+        if self.tab_widget.currentIndex() == self.TAB_ACTIVE_REST:
+            self._recompute_active_rest_plot()
+
+    def _clear_numerical_tab(self) -> None:
+        self._num_track_point_label.setText("Track point: —")
+        self._num_distance_label.setText("Distance covered: —")
+        self._num_mean_speed_label.setText("Mean speed: —")
+        self._num_peak_speed_label.setText("Peak speed: —")
+        self._num_duration_label.setText("Recording duration: —")
+        self._ar_bout_count_label.setText("Active bouts: —")
+        self._ar_active_time_label.setText("Active time: —")
+        self._ar_rest_time_label.setText("Rest time: —")
+
+    def _refresh_numerical_tab(self) -> None:
+        parsed = self._current_viewer_parsed_points()
+        cfg = self._viewer_config
+        if not parsed or not cfg:
+            self._clear_numerical_tab()
+            return
+        summary = compute_low_res_summary(parsed, cfg)
+        self._low_res_summary = summary
+        pt = summary.track_point_distance_speed or "—"
+        self._num_track_point_label.setText(f"Track point: {pt}")
+        self._num_distance_label.setText(f"Distance covered: {summary.distance_covered_m:.6f} m")
+        self._num_mean_speed_label.setText(f"Mean speed: {summary.mean_speed_m_s:.6f} m/s")
+        self._num_peak_speed_label.setText(f"Peak speed: {summary.peak_speed_m_s:.6f} m/s")
+        self._num_duration_label.setText(f"Recording duration: {summary.duration_s:.3f} s")
+        self._ar_bout_count_label.setText(f"Active bouts: {summary.active_bout_count}")
+        self._ar_active_time_label.setText(f"Active time: {summary.active_time_s:.3f} s")
+        self._ar_rest_time_label.setText(f"Rest time: {summary.rest_time_s:.3f} s")
+
+    def _recompute_active_rest_plot(self) -> None:
+        parsed = self._current_viewer_parsed_points()
+        cfg = self._viewer_config
+        if not parsed or not cfg:
+            self.active_rest_graph.clear()
+            return
+        params = ActiveRestParams(
+            min_total_movement_m=float(self.ar_min_total_move.value()),
+            min_frame_displacement_m=float(self.ar_min_frame_disp.value()),
+            movement_fraction_of_mean=float(self.ar_move_fraction.value()),
+            min_rest_frames_to_split_bout=int(self.ar_min_rest_frames.value()),
+        )
+        summary = compute_low_res_summary(parsed, cfg, active_rest_params=params)
+        self._low_res_summary = summary
+        self._ar_bout_count_label.setText(f"Active bouts: {summary.active_bout_count}")
+        self._ar_active_time_label.setText(f"Active time: {summary.active_time_s:.3f} s")
+        self._ar_rest_time_label.setText(f"Rest time: {summary.rest_time_s:.3f} s")
+        if summary.active_rest_states is None or summary.time_axis is None:
+            self.active_rest_graph.clear()
+            return
+        fig = render_active_rest_plot(
+            summary.time_axis,
+            summary.active_rest_states,
+            active_bouts=summary.active_bouts,
+            framerate=framerate_from_config(cfg),
+            track_point=summary.track_point_active_rest,
+        )
+        self.active_rest_graph.set_figure(fig)
 
     def _graph_datasets(self) -> List[Tuple[str, Dict[str, GraphSource]]]:
         if self._graphs_by_csv and len(self._csv_order) > 1:
@@ -661,6 +843,7 @@ class GraphViewerScene(QWidget):
         config: Dict[str, Any] = None,
         *,
         results_df: Optional[pd.DataFrame] = None,
+        parsed_points: Optional[Dict[str, Any]] = None,
         save_progress: Optional[Callable[[int, int, str], None]] = None,
         on_preparing_viewer: Optional[Callable[[], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
@@ -668,8 +851,11 @@ class GraphViewerScene(QWidget):
         """Replace all graphs; clears multi-CSV state when switching to single-CSV view."""
         self._graphs_by_csv = None
         self._results_by_csv = None
+        self._parsed_by_csv = None
         self._csv_order = []
         self._last_single_run_df = None
+        self._viewer_config = dict(config) if isinstance(config, dict) else None
+        self._viewer_parsed_points = parsed_points
         try:
             self.csv_combo.blockSignals(True)
             self.csv_combo.clear()
@@ -724,6 +910,7 @@ class GraphViewerScene(QWidget):
             self._last_single_run_df = None
             self._clear_crosscorr_state()
         self._sync_compare_pane()
+        self._refresh_low_res_tabs()
 
     def set_graphs_by_csv(
         self,
@@ -731,9 +918,17 @@ class GraphViewerScene(QWidget):
         config: Dict[str, Any] = None,
         *,
         results_by_csv: Optional[Dict[str, pd.DataFrame]] = None,
+        parsed_by_csv: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
         """Graphs grouped by CSV path; Graphs-tab Prev/Next + combo; optional per-file metrics for cross-corr."""
         self._last_single_run_df = None
+        self._viewer_config = dict(config) if isinstance(config, dict) else None
+        self._viewer_parsed_points = None
+        self._parsed_by_csv = (
+            {str(k): v for k, v in (parsed_by_csv or {}).items()}
+            if parsed_by_csv
+            else None
+        )
         self._graphs_by_csv = dict(graphs_by_csv or {})
         self._csv_order = list(self._graphs_by_csv.keys())
         self._results_by_csv = (
@@ -757,10 +952,14 @@ class GraphViewerScene(QWidget):
                 df_one = self._results_by_csv.get(only)
             elif self._results_by_csv and len(self._results_by_csv) == 1:
                 df_one = next(iter(self._results_by_csv.values()))
+            parsed_one = None
+            if self._parsed_by_csv and only:
+                parsed_one = self._parsed_by_csv.get(only)
             self.set_graphs(
                 self._graphs_by_csv.get(only, {}) if only else {},
                 config=config,
                 results_df=df_one,
+                parsed_points=parsed_one,
             )
             return
 
@@ -855,6 +1054,7 @@ class GraphViewerScene(QWidget):
         if self._results_by_csv:
             self._apply_crosscorr_for_current_folder_csv()
         self._sync_compare_pane()
+        self._refresh_low_res_tabs()
 
     def save_folder_graphs(
         self,
@@ -1437,480 +1637,4 @@ class GraphViewerScene(QWidget):
             seen_paths.add(key)
 
         return graphs
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _as_numeric_array(series: pd.Series) -> np.ndarray:
-    numeric = pd.to_numeric(series, errors="coerce")
-    return numeric.to_numpy()
-
-
-def _safe_filename(title: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]", "_", title).strip("_")
-
-
-def _safe_dirname(name: str) -> str:
-    return _safe_filename(name) or "item"
-
-
-def _is_kaleido_available() -> bool:
-    try:
-        import kaleido  # noqa: F401
-    except Exception:
-        return False
-    return True
-
-
-def get_graph_names_to_build(data: Optional[Dict[str, Any]]) -> List[str]:
-    if not data or not isinstance(data, dict):
-        return []
-    results_df = data.get("results_df")
-    config = data.get("config")
-    if not isinstance(results_df, pd.DataFrame) or not isinstance(config, dict):
-        return []
-    parsed_points = data.get("parsed_points")
-    names: List[str] = []
-    shown_outputs = (config or {}).get("shown_outputs") or {}
-    video_params = (config or {}).get("video_parameters") or {}
-
-    if results_df.shape[0] > 0:
-        for spec in DOT_PLOT_SPECS:
-            if not shown_outputs.get(spec["flag"], False):
-                continue
-            missing_cols = [
-                c for c in (spec["x_col"], spec["y_col"])
-                if c not in results_df.columns
-            ]
-            if missing_cols:
-                continue
-            if spec["moving"] and video_params.get("recorded_framerate") is None:
-                continue
-            names.append(spec["title"])
-
-    if shown_outputs.get("show_angle_and_distance_plot"):
-        required = ["LF_Angle", "RF_Angle", "Tail_Distance"]
-        if all(c in results_df.columns for c in required):
-            names.append("Fin Angles + Tail Distance")
-
-    if shown_outputs.get("show_spines") and parsed_points and "spine" in parsed_points:
-        if "LF_Angle" in results_df.columns and "RF_Angle" in results_df.columns:
-            time_ranges = _extract_time_ranges(config, results_df)
-            spine_settings = (config or {}).get("spine_plot_settings") or {}
-            split_by_bout = bool(spine_settings.get("split_plots_by_bout", True))
-            if split_by_bout and time_ranges:
-                names.extend(f"Spines Bout {i}" for i in range(len(time_ranges)))
-            elif not split_by_bout or not time_ranges:
-                names.append("Spines Combined")
-
-    if shown_outputs.get("show_head_plot") and "HeadYaw" in results_df.columns:
-        names.append("Head Orientation")
-            # Issue #93: custom angle graph
-    tpa = ((config or {}).get("custom_calculations") or {}).get("three_point_angle") or {}
-    out_col = str(tpa.get("output_column") or "ThreePointAngle")
-    if tpa.get("enabled", False) and out_col in results_df.columns:
-        names.append(f"Custom Angle: {out_col}")
-
-
-    return names
-
-
-def _iter_dot_plot_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
-):
-    shown_outputs = (config or {}).get("shown_outputs") or {}
-    video_params = (config or {}).get("video_parameters") or {}
-    framerate = video_params.get("recorded_framerate")
-
-    if results_df.shape[0] == 0:
-        warnings.append("The calculation DataFrame is empty; nothing to plot.")
-        return
-
-    any_flag_enabled = any(
-        shown_outputs.get(spec["flag"], False) for spec in DOT_PLOT_SPECS
-    )
-    if not any_flag_enabled:
-        warnings.append("No dot plot flags are enabled in the config.")
-        return
-
-    for spec in DOT_PLOT_SPECS:
-        if not shown_outputs.get(spec["flag"], False):
-            continue
-        missing_cols = [
-            col for col in (spec["x_col"], spec["y_col"])
-            if col not in results_df.columns
-        ]
-        if missing_cols:
-            warnings.append(
-                f"Skipping '{spec['title']}' because columns "
-                f"{', '.join(missing_cols)} are missing."
-            )
-            continue
-        values_x = _as_numeric_array(results_df[spec["x_col"]])
-        values_y = _as_numeric_array(results_df[spec["y_col"]])
-        if spec["moving"]:
-            if framerate is None:
-                warnings.append(
-                    f"Skipping '{spec['title']}' because "
-                    "'video_parameters.recorded_framerate' is missing."
-                )
-                continue
-            if len(values_x) < 2 or len(values_y) < 2:
-                warnings.append(
-                    f"Skipping '{spec['title']}' because at least "
-                    "two frames are required."
-                )
-                continue
-            values_x = np.diff(values_x) * framerate
-            values_y = np.diff(values_y) * framerate
-        try:
-            result = render_dot_plot(
-                values_x, values_y,
-                name_x=spec["name_x"], name_y=spec["name_y"],
-                units_x=spec["units_x"], units_y=spec["units_y"],
-            )
-        except Exception as exc:
-            warnings.append(f"Failed to render '{spec['title']}': {exc}")
-            continue
-        yield (spec["title"], result.figure)
-def _iter_custom_angle_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
-):
-    custom = (config or {}).get("custom_calculations") or {}
-    tpa = custom.get("three_point_angle") or {}
-    output_col = str(tpa.get("output_column") or "ThreePointAngle")
-    enabled = bool(tpa.get("enabled", False))
-
-    # If you prefer data-driven behavior, replace `if not enabled:` with:
-    # if output_col not in results_df.columns: return
-    if not enabled:
-        return
-
-    if output_col not in results_df.columns:
-        warnings.append(f"Custom angle enabled but column missing: {output_col}")
-        return
-
-    y = pd.to_numeric(results_df[output_col], errors="coerce").to_numpy()
-    x = list(range(len(y)))
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=output_col))
-    fig.update_layout(
-        title=f"Custom Angle: {output_col}",
-        xaxis_title="Frame",
-        yaxis_title="Angle (deg)",
-        template="plotly_white",
-    )
-
-    yield (f"Custom Angle: {output_col}", fig)
-
-
-def _iter_fin_tail_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any], warnings: List[str]
-):
-    cfg = dict(config or {})
-    shown_outputs = cfg.get("shown_outputs") or {}
-    if not shown_outputs.get("show_angle_and_distance_plot"):
-        return
-    required_cols = {
-        "leftFinAngles": "LF_Angle",
-        "rightFinAngles": "RF_Angle",
-        "tailDistances": "Tail_Distance"
-    }
-    missing_cols = [
-        col for col in required_cols.values()
-        if col not in results_df.columns
-    ]
-    if missing_cols:
-        warnings.append(
-            f"Fin/tail plot skipped; missing columns: {', '.join(missing_cols)}."
-        )
-        return
-    settings = dict(cfg.get("angle_and_distance_plot_settings") or {})
-    settings["open_plot"] = False
-    cfg["angle_and_distance_plot_settings"] = settings
-    cfg["open_plots"] = False
-    time_ranges = cfg.get("time_ranges") or []
-    if not time_ranges and len(results_df) > 0:
-        time_ranges = [(0, len(results_df) - 1)]
-    calculated_values = {
-        "leftFinAngles": results_df[required_cols["leftFinAngles"]].to_numpy(),
-        "rightFinAngles": results_df[required_cols["rightFinAngles"]].to_numpy(),
-        "tailDistances": results_df[required_cols["tailDistances"]].to_numpy(),
-    }
-    if "HeadYaw" in results_df.columns:
-        calculated_values["headYaw"] = results_df["HeadYaw"].to_numpy()
-    bundle = GraphDataBundle(
-        time_ranges=[list(tr) for tr in time_ranges],
-        input_values={},
-        calculated_values=calculated_values,
-        config=cfg,
-        dataframe=results_df,
-    )
-    try:
-        result = render_fin_tail(bundle, ctx=None)
-    except Exception as exc:
-        warnings.append(f"Fin/tail plot failed: {exc}")
-        return
-    warnings.extend(result.warnings)
-    if result.figures:
-        yield ("Fin Angles + Tail Distance", result.figures[0])
-    else:
-        warnings.append("Fin/tail plot produced no figures.")
-
-
-def _iter_spine_graphs(
-    results_df: pd.DataFrame,
-    config: Dict[str, Any],
-    parsed_points: Optional[Dict[str, Any]],
-    warnings: List[str],
-):
-    cfg = dict(config or {})
-    shown_outputs = cfg.get("shown_outputs") or {}
-    if not shown_outputs.get("show_spines"):
-        return
-    if parsed_points is None or "spine" not in parsed_points:
-        warnings.append(
-            "Spine plots skipped: parsed point coordinates are unavailable."
-        )
-        return
-    if (
-        "LF_Angle" not in results_df.columns
-        or "RF_Angle" not in results_df.columns
-    ):
-        warnings.append("Spine plots skipped: missing LF_Angle/RF_Angle columns.")
-        return
-    spine_settings = dict(cfg.get("spine_plot_settings") or {})
-    spine_settings["open_plot"] = False
-    cfg["spine_plot_settings"] = spine_settings
-    cfg["open_plots"] = False
-    time_ranges = _extract_time_ranges(cfg, results_df)
-    bundle = GraphDataBundle(
-        time_ranges=[list(tr) for tr in time_ranges],
-        input_values={"spine": parsed_points["spine"]},
-        calculated_values={
-            "leftFinAngles": results_df["LF_Angle"].to_numpy(),
-            "rightFinAngles": results_df["RF_Angle"].to_numpy(),
-        },
-        config=cfg,
-        dataframe=results_df,
-    )
-    try:
-        result = render_spines(bundle, ctx=None)
-    except Exception as exc:
-        warnings.append(f"Spine plot failed: {exc}")
-        return
-    warnings.extend(result.warnings)
-    if not result.figures:
-        warnings.append("Spine plot produced no figures.")
-        return
-    if result.mode == "by_bout":
-        for idx, fig in enumerate(result.figures):
-            yield (f"Spines Bout {idx}", fig)
-    else:
-        yield ("Spines Combined", result.figures[0])
-
-
-def build_dot_plot_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any]
-) -> Tuple[Dict[str, GraphSource], List[str]]:
-    warnings: List[str] = []
-    graphs: Dict[str, GraphSource] = {}
-    for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
-        graphs[name] = fig
-    return graphs, warnings
-
-
-def build_fin_tail_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any]
-) -> Tuple[Dict[str, GraphSource], List[str]]:
-    warnings: List[str] = []
-    graphs: Dict[str, GraphSource] = {}
-    for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
-        graphs[name] = fig
-    return graphs, warnings
-
-
-def _extract_time_ranges(config: Dict[str, Any], results_df: pd.DataFrame) -> List[List[int]]:
-    cfg_ranges = (config or {}).get("time_ranges") or []
-    if cfg_ranges:
-        return [list(map(int, tr)) for tr in cfg_ranges]
-
-    start_cols = [
-        c for c in results_df.columns if c.startswith("timeRangeStart_")
-    ]
-    ranges: List[List[int]] = []
-    for start_col in sorted(start_cols):
-        suffix = start_col.split("timeRangeStart_", 1)[-1]
-        end_col = f"timeRangeEnd_{suffix}"
-        if end_col not in results_df.columns:
-            continue
-        start_val = pd.to_numeric(results_df[start_col].iloc[0], errors="coerce")
-        end_val = pd.to_numeric(results_df[end_col].iloc[0], errors="coerce")
-        if pd.isna(start_val) or pd.isna(end_val):
-            continue
-        start_idx = int(start_val)
-        end_idx = int(end_val)
-        if end_idx < start_idx:
-            start_idx, end_idx = end_idx, start_idx
-        ranges.append([max(0, start_idx), max(0, end_idx)])
-
-    if ranges:
-        return ranges
-    if len(results_df) > 0:
-        return [[0, len(results_df) - 1]]
-    return []
-
-
-def build_spine_graphs(
-    results_df: pd.DataFrame,
-    config: Dict[str, Any],
-    parsed_points: Optional[Dict[str, Any]]
-) -> Tuple[Dict[str, GraphSource], List[str]]:
-    warnings: List[str] = []
-    graphs: Dict[str, GraphSource] = {}
-    for name, fig in _iter_spine_graphs(
-        results_df, config, parsed_points, warnings
-    ):
-        graphs[name] = fig
-    return graphs, warnings
-
-
-def build_head_plot_graphs(
-    results_df: pd.DataFrame, config: Dict[str, Any]
-) -> Tuple[Dict[str, GraphSource], List[str]]:
-    graphs: Dict[str, GraphSource] = {}
-    warnings: List[str] = []
-
-    cfg = dict(config or {})
-    shown_outputs = cfg.get("shown_outputs") or {}
-    if not shown_outputs.get("show_head_plot"):
-        return graphs, warnings
-
-    if "HeadYaw" not in results_df.columns:
-        warnings.append("Head plot skipped: missing HeadYaw column.")
-        return graphs, warnings
-
-    head_settings = dict(cfg.get("head_plot_settings") or {})
-    head_settings["open_plot"] = False
-    cfg["head_plot_settings"] = head_settings
-    cfg["open_plots"] = False
-
-    time_ranges = _extract_time_ranges(cfg, results_df)
-
-    calculated_values: Dict[str, Any] = {
-        "headYaw": results_df["HeadYaw"].to_numpy(),
-    }
-
-    bundle = GraphDataBundle(
-        time_ranges=[list(tr) for tr in time_ranges],
-        input_values={},
-        calculated_values=calculated_values,
-        config=cfg,
-        dataframe=results_df,
-    )
-
-    try:
-        result = render_headplot(bundle, ctx=None)
-    except Exception as exc:
-        warnings.append(f"Head plot failed: {exc}")
-        return graphs, warnings
-
-    warnings.extend(result.warnings)
-    if result.figures:
-        graphs["Head Orientation"] = result.figures[0]
-    else:
-        warnings.append("Head plot produced no figures.")
-
-    return graphs, warnings
-
-
-def build_graphs_from_data(
-    data: Optional[Dict[str, Any]],
-    progress_callback: Callable[[int, int, str], None],
-    is_cancelled: Optional[Callable[[], bool]] = None,
-) -> Tuple[Optional[Dict[str, GraphSource]], Optional[Dict[str, Any]]]:
-    """
-    Build Plotly/graph outputs from a calculation payload (CPU-heavy; safe off the UI thread).
-    Calls ``progress_callback(n, total, graph_name)`` for each graph. Returns (None, None) if invalid / empty.
-    """
-    if not data or not isinstance(data, dict):
-        return None, None
-    results_df = data.get("results_df")
-    config = data.get("config")
-    if not isinstance(results_df, pd.DataFrame) or not isinstance(config, dict):
-        return None, None
-    parsed_points = data.get("parsed_points")
-    names = get_graph_names_to_build(data)
-    total = len(names)
-    if total == 0:
-        return None, None
-    warnings: List[str] = []
-    graphs: Dict[str, GraphSource] = {}
-    index = 0
-    for name, fig in _iter_dot_plot_graphs(results_df, config, warnings):
-        if is_cancelled is not None and is_cancelled():
-            raise CalculationAborted()
-        index += 1
-        progress_callback(index, total, name)
-        graphs[name] = fig
-    for name, fig in _iter_fin_tail_graphs(results_df, config, warnings):
-        if is_cancelled is not None and is_cancelled():
-            raise CalculationAborted()
-        index += 1
-        progress_callback(index, total, name)
-        graphs[name] = fig
-    for name, fig in _iter_spine_graphs(
-        results_df, config, parsed_points, warnings
-    ):
-        if is_cancelled is not None and is_cancelled():
-            raise CalculationAborted()
-        index += 1
-        progress_callback(index, total, name)
-        graphs[name] = fig
-    head_graphs, head_warnings = build_head_plot_graphs(results_df, config)
-    warnings.extend(head_warnings)
-    for name, fig in head_graphs.items():
-        if is_cancelled is not None and is_cancelled():
-            raise CalculationAborted()
-        index += 1
-        progress_callback(index, total, name)
-        graphs[name] = fig
-    for name, fig in _iter_custom_angle_graphs(results_df, config, warnings):
-        if is_cancelled is not None and is_cancelled():
-            raise CalculationAborted()
-        index += 1
-        progress_callback(index, total, name)
-        graphs[name] = fig
-
-    return graphs, config
-
-
-def save_to_html(fig: go.Figure, title: str, out_dir: Path, config: Dict[str, Any], session=None) -> None:
-    try:
-        fname = _safe_filename(title) or "graph"
-        html_path = out_dir / f"{fname}.html"
-        png_path = out_dir / f"{fname}.png"
-
-        pio.write_html(fig, file=str(html_path), include_plotlyjs=True, auto_open=False)
-
-        try:
-            png_bytes = pio.to_image(fig, format="png", scale=2)
-            png_path.write_bytes(png_bytes)
-        except Exception:
-            png_path = None
-
-        if session is not None:
-            graph_asset = None
-            if png_path is not None and png_path.exists():
-                graph_asset = str(png_path)
-            elif html_path.exists():
-                graph_asset = str(html_path)
-            if graph_asset is not None:
-                session.addGraphToConfig(config["config_path"], graph_asset)
-            session.save()
-    except Exception as e:
-        print(f"Could not save '{title}' as HTML: {e}")
 

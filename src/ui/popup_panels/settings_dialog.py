@@ -7,12 +7,15 @@ from PyQt5.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
     QDialog,
+    QFileDialog,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -26,8 +29,8 @@ from app_platform.ui_preferences import (
 from styles.themes import THEMES, apply_theme
 from styles.ui_scale import scaled_px
 
-from ui.components.chrome_separators import horizontal_separator
-from ui.components.dialog_title_bar import DialogTitleBar
+from ui.components.chrome.chrome_separators import horizontal_separator
+from ui.components.chrome.dialog_title_bar import DialogTitleBar
 from ui.platform.frameless_resize import FramelessResizeMixin
 
 
@@ -112,6 +115,55 @@ class SettingsDialog(FramelessResizeMixin, QDialog):
         self._apply_scale_section_spacing()
 
         self._bl.addWidget(scale_box)
+
+        upload_box = QGroupBox("Video upload")
+        upload_box.setObjectName("SettingsUploadGroup")
+        ul = QVBoxLayout(upload_box)
+        self._upload_group = QButtonGroup(self)
+        self._upload_ask_btn = self._make_toggle("Always ask")
+        self._upload_copy_btn = self._make_toggle("Always copy")
+        self._upload_ref_btn = self._make_toggle("Always reference")
+        for b in (self._upload_ask_btn, self._upload_copy_btn, self._upload_ref_btn):
+            self._upload_group.addButton(b)
+            ul.addWidget(b)
+        vup = getattr(prefs, "video_upload_policy", "ask")
+        if vup == "always_copy":
+            self._upload_copy_btn.setChecked(True)
+        elif vup == "always_reference":
+            self._upload_ref_btn.setChecked(True)
+        else:
+            self._upload_ask_btn.setChecked(True)
+        self._upload_group.buttonToggled.connect(self._on_toggle_preview)
+        self._bl.addWidget(upload_box)
+
+        pose_box = QGroupBox("Pose Studio (DLC)")
+        pose_box.setObjectName("SettingsPoseGroup")
+        pl = QVBoxLayout(pose_box)
+        dlc_row = QHBoxLayout()
+        self._dlc_python_edit = QLineEdit()
+        self._dlc_python_edit.setPlaceholderText(
+            "Auto-detected cv-zebrafish-pose env, or browse to python.exe"
+        )
+        self._dlc_python_edit.setText(getattr(prefs, "dlc_python_path", "") or "")
+        self._dlc_python_edit.editingFinished.connect(self._apply_current_prefs)
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse_dlc_python)
+        dlc_row.addWidget(self._dlc_python_edit, stretch=1)
+        dlc_row.addWidget(browse)
+        pl.addLayout(dlc_row)
+        max_frames_row = QHBoxLayout()
+        max_frames_row.addWidget(QLabel("Max frames to analyze"))
+        self._pose_max_frames = QSpinBox()
+        self._pose_max_frames.setRange(10, 5000)
+        self._pose_max_frames.setValue(int(getattr(prefs, "pose_max_frames_to_analyze", 300)))
+        self._pose_max_frames.setToolTip(
+            "Upper limit for the Frames to analyze control on the Label tab."
+        )
+        self._pose_max_frames.valueChanged.connect(self._apply_current_prefs)
+        max_frames_row.addWidget(self._pose_max_frames)
+        max_frames_row.addStretch(1)
+        pl.addLayout(max_frames_row)
+        self._bl.addWidget(pose_box)
 
         self._hint = QLabel(
             "Each change is saved automatically. Automatic on large displays uses a compact scale "
@@ -202,12 +254,31 @@ class SettingsDialog(FramelessResizeMixin, QDialog):
         last_auto = self._prefs_in.last_auto_scale
         if not locked:
             last_auto = dpi_auto_multiplier(dpi, w, h, dpr)
+        vup = "ask"
+        if self._upload_copy_btn.isChecked():
+            vup = "always_copy"
+        elif self._upload_ref_btn.isChecked():
+            vup = "always_reference"
         return UiPreferences(
             theme=theme,
             ui_scale_locked=locked,
             ui_scale_preset=preset,
             last_auto_scale=last_auto,
+            video_upload_policy=vup,
+            dlc_python_path=self._dlc_python_edit.text().strip(),
+            pose_max_frames_to_analyze=int(self._pose_max_frames.value()),
         )
+
+    def _browse_dlc_python(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select DLC environment Python",
+            "",
+            "Python executable (python.exe);;All files (*)",
+        )
+        if path:
+            self._dlc_python_edit.setText(path)
+            self._apply_current_prefs()
 
     def _on_toggle_preview(self, _button: QAbstractButton, checked: bool) -> None:
         if not checked:
@@ -220,6 +291,8 @@ class SettingsDialog(FramelessResizeMixin, QDialog):
         shell = self.parent()
         if shell is not None:
             shell._ui_prefs = prefs
+            if hasattr(shell, "workspace"):
+                shell.workspace.pose_studio_panel.set_ui_preferences(prefs)
             if hasattr(shell, "_apply_prefs_preview"):
                 shell._apply_prefs_preview(prefs)
         theme_name = prefs.theme if prefs.theme in THEMES else "dark"

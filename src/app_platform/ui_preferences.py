@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from app_platform.paths import ui_preferences_path
 
+_POSE_ENV_NAME = "cv-zebrafish-pose"
+
 _VALID_THEMES = frozenset({"dark", "light"})
 _VALID_PRESETS = frozenset({"tiny", "small", "normal", "large", "extra_large"})
+_VALID_VIDEO_UPLOAD_POLICIES = frozenset({"ask", "always_copy", "always_reference"})
 
 # Multipliers relative to the design baseline (Normal = current shipped sizes).
 PRESET_MULTIPLIERS: dict[str, float] = {
@@ -86,6 +91,9 @@ class UiPreferences:
     ui_scale_locked: bool = False
     ui_scale_preset: str = "normal"
     last_auto_scale: float = 1.0
+    video_upload_policy: str = "ask"
+    dlc_python_path: str = ""
+    pose_max_frames_to_analyze: int = 300
 
     def effective_ui_scale(
         self,
@@ -111,25 +119,62 @@ def _parse_prefs(raw: dict[str, Any]) -> UiPreferences:
         last_auto = float(raw.get("last_auto_scale", 1.0))
     except (TypeError, ValueError):
         last_auto = 1.0
+    vup = raw.get("video_upload_policy", "ask")
+    if vup not in _VALID_VIDEO_UPLOAD_POLICIES:
+        vup = "ask"
+    dlc_py = str(raw.get("dlc_python_path", "") or "").strip()
+    try:
+        pose_max = int(raw.get("pose_max_frames_to_analyze", 300))
+    except (TypeError, ValueError):
+        pose_max = 300
+    pose_max = max(10, min(5000, pose_max))
     return UiPreferences(
         theme=theme,
         ui_scale_locked=locked,
         ui_scale_preset=preset,
         last_auto_scale=last_auto,
+        video_upload_policy=vup,
+        dlc_python_path=dlc_py,
+        pose_max_frames_to_analyze=pose_max,
     )
+
+
+def discover_dlc_python() -> str:
+    """Return ``python.exe`` for ``cv-zebrafish-pose`` if installed in a standard conda layout."""
+    home = Path.home()
+    rel = Path("envs") / _POSE_ENV_NAME / ("python.exe" if os.name == "nt" else "bin/python")
+    for root in (
+        home / "miniconda3",
+        home / "AppData" / "Local" / "miniconda3",
+        home / "anaconda3",
+        home / "AppData" / "Local" / "anaconda3",
+    ):
+        candidate = root / rel
+        if candidate.is_file():
+            return str(candidate)
+    return ""
 
 
 def load_ui_preferences() -> UiPreferences:
     path = ui_preferences_path()
     if not path.is_file():
-        return UiPreferences()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return UiPreferences()
-        return _parse_prefs(data)
-    except (OSError, json.JSONDecodeError):
-        return UiPreferences()
+        prefs = UiPreferences()
+    else:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                prefs = UiPreferences()
+            else:
+                prefs = _parse_prefs(data)
+        except (OSError, json.JSONDecodeError):
+            prefs = UiPreferences()
+
+    if not prefs.dlc_python_path or not Path(prefs.dlc_python_path).is_file():
+        discovered = discover_dlc_python()
+        if discovered:
+            prefs.dlc_python_path = discovered
+            save_ui_preferences(prefs)
+    return prefs
 
 
 def save_ui_preferences(prefs: UiPreferences) -> None:

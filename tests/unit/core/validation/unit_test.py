@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from cvzebrafish.core.validation.csv_verifier import (
+from core.validation.csv_verifier import (
     list_bodyparts,
     verify_deeplabcut_csv,
 )

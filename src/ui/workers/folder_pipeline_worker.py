@@ -12,7 +12,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, pyqtSlot
 
 from src.core.calculations.cancelled import CalculationAborted
 
-from ui.main_panels.graph_viewer_widget import (
+from core.graphs.graph_builder import (
     build_graphs_from_data,
     get_graph_names_to_build,
 )
@@ -147,6 +147,7 @@ def run_folder_pipeline_core(
     return {
         "graphs_by_csv": graphs_by_csv,
         "results_by_csv": results_by_csv,
+        "parsed_by_csv": parsed_by_csv,
         "csv_files": csv_files,
         "config": config,
         "config_path": config_path,

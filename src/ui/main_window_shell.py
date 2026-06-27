@@ -8,6 +8,7 @@ import ctypes
 import sys
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 
@@ -31,16 +32,16 @@ from styles.themes import THEMES, application_tooltip_stylesheet, apply_error_to
 from styles.ui_scale import scale_stylesheet, set_ui_scale_factor
 from session.session import load_session_from_json
 
-from ui.components.chrome_separators import horizontal_separator
-from ui.components.console_dialog import ConsoleViewerDialog
-from ui.components.error_toast import ErrorToast
-from ui.components.custom_title_bar import CustomTitleBar
-from ui.components.shell_menus import build_file_help_menus
-from ui.components.sidebar_tools import SidebarTools
+from ui.components.chrome.chrome_separators import horizontal_separator
+from ui.components.widgets.console_dialog import ConsoleViewerDialog
+from ui.components.widgets.error_toast import ErrorToast
+from ui.components.chrome.custom_title_bar import CustomTitleBar
+from ui.components.chrome.shell_menus import build_file_help_menus
+from ui.components.chrome.sidebar_tools import SidebarTools
+from core.graphs.graph_builder import get_graph_names_to_build
 from ui.main_panels.graph_viewer_widget import (
     count_figures_in_folder_runs,
     count_figures_in_graph_dict,
-    get_graph_names_to_build,
 )
 from ui.main_panels.workspace_widget import WorkspaceWidget
 from ui.popup_panels.generate_config_dialog import GenerateConfigDialog
@@ -200,6 +201,19 @@ class MainShellWindow(QMainWindow):
         v.csv_folder_selected.connect(self._on_verify_folder_selected)
         v.json_selected.connect(self._on_verify_json_selected)
         v.generate_json_requested.connect(self._on_verify_generate_json_requested)
+
+        self.workspace.pose_studio_panel.dataset_send_to_verify.connect(
+            self._on_pose_dataset_send_to_verify
+        )
+        self.workspace.pose_studio_panel.dataset_json_selected.connect(
+            self._on_pose_studio_config_ready
+        )
+        self.workspace.verify_panel.verify.pose_datasets.send_to_verify.connect(
+            self._on_pose_dataset_send_to_verify
+        )
+        self.workspace.verify_panel.verify.pose_datasets.json_selected.connect(
+            self._on_pose_studio_config_ready
+        )
 
         self.workspace.select_run_panel.selection.data_generated.connect(
             self._handle_calculation_data
@@ -366,6 +380,9 @@ class MainShellWindow(QMainWindow):
         """Push ``current_session`` into workspace panels (Verify / Select & Run / View Output)."""
         if self.current_session is None:
             return
+        self.workspace.pose_studio_panel.set_ui_preferences(self._ui_prefs)
+        self.workspace.pose_studio_panel.load_session(self.current_session)
+        self.workspace.verify_panel.load_session(self.current_session)
         self.workspace.select_run_panel.selection.load_session(self.current_session)
         self.workspace.select_run_panel.selection.polish_tree_for_theme(self.current_theme)
         self.workspace.view_output_panel.viewer.load_session(self.current_session)
@@ -584,6 +601,7 @@ class MainShellWindow(QMainWindow):
             graphs_by_csv,
             config=config,
             results_by_csv=results_by_csv,
+            parsed_by_csv=result.get("parsed_by_csv"),
         )
         step += 1
         config_scene.set_progress(step, total_steps, "Ready")
@@ -735,6 +753,7 @@ class MainShellWindow(QMainWindow):
                     graphs,
                     config=cfg,
                     results_df=df if isinstance(df, pd.DataFrame) else None,
+                    parsed_points=data.get("parsed_points") if isinstance(data, dict) else None,
                     **set_graphs_kw,
                 )
             except CalculationAborted:
@@ -811,6 +830,12 @@ class MainShellWindow(QMainWindow):
         except Exception:
             pass
 
+    def _show_pose_studio_panel(self, persist: bool = True) -> None:
+        if persist:
+            self._persist_last_scene("Pose Studio")
+        self.workspace.show_pose_studio()
+        self.sidebar.set_active_tool("pose_studio")
+
     def _show_verify_panel(self, persist: bool = True) -> None:
         if persist:
             self._persist_last_scene("Verify")
@@ -828,6 +853,38 @@ class MainShellWindow(QMainWindow):
             self._persist_last_scene("Graphs")
         self.workspace.show_view_output()
         self.sidebar.set_active_tool("view_output")
+
+    def _on_pose_dataset_send_to_verify(self, csv_path: str) -> None:
+        if not csv_path:
+            return
+        self._on_verify_csv_selected(csv_path)
+        v = self.workspace.verify_panel.verify
+        v.csv_path_field.setText(csv_path)
+        v._sync_path_field_tooltips()
+        v.feedback_box.append(f"\n--- Pose Studio dataset ---\n{csv_path}\n")
+        if v.validate_csv(Path(csv_path)):
+            v.feedback_box.append("Success: Dataset CSV passed validation.\n")
+        else:
+            v.feedback_box.append("Error: Dataset CSV failed validation.\n")
+        self._show_verify_panel(persist=True)
+
+    def _on_pose_studio_config_ready(self, json_path: str) -> None:
+        if not json_path:
+            return
+        v = self.workspace.verify_panel.verify
+        v.json_path_field.setText(json_path)
+        v._sync_path_field_tooltips()
+        v.feedback_box.append(f"\n--- Pose Studio config ---\n{json_path}\n")
+        if v.validate_json(Path(json_path)):
+            v.feedback_box.append("Success: Pose kinematics config is valid.\n")
+        else:
+            v.feedback_box.append("Error: Pose config failed validation.\n")
+            return
+        csv_path = (v.csv_path_field.text() or "").strip() or self._verify_last_csv_path
+        if csv_path and self.current_session:
+            self._verify_last_csv_path = csv_path
+            self._on_verify_json_selected(json_path)
+        self._show_verify_panel(persist=True)
 
     def _on_verify_csv_selected(self, csv_path: str) -> None:
         if not self.current_session:
@@ -923,6 +980,8 @@ class MainShellWindow(QMainWindow):
         """
         if not self._has_session:
             return "Tool can't be selected. Open Session."
+        if tool_key == "pose_studio":
+            return None
         if tool_key == "verify":
             return None
         sess = self.current_session
@@ -941,7 +1000,9 @@ class MainShellWindow(QMainWindow):
             self._warn_sidebar_blocked()
             self._show_error_toast("Sidebar", blocked)
             return
-        if key == "verify":
+        if key == "pose_studio":
+            self._show_pose_studio_panel()
+        elif key == "verify":
             self._show_verify_panel()
         elif key == "select_run":
             self._show_select_run_panel()

@@ -49,6 +49,42 @@ def session_bundle_dir(session_name: str) -> Path:
     return sessions_dir() / session_name
 
 
+def pose_projects_root(session_name: str) -> Path:
+    return session_bundle_dir(session_name) / "pose_projects"
+
+
+def pose_project_dir(session_name: str, project_id: str) -> Path:
+    return pose_projects_root(session_name) / project_id
+
+
+def pose_video_dir(session_name: str, project_id: str, video_id: str) -> Path:
+    return pose_project_dir(session_name, project_id) / "videos" / video_id
+
+
+def human_labelled_dir(session_name: str, project_id: str, video_id: str) -> Path:
+    return pose_project_dir(session_name, project_id) / "human_labelled" / video_id
+
+
+def ai_labelled_dir(session_name: str, project_id: str, video_id: str) -> Path:
+    return pose_project_dir(session_name, project_id) / "ai_labelled" / video_id
+
+
+def final_labelled_dir(session_name: str, project_id: str, video_id: str) -> Path:
+    return pose_project_dir(session_name, project_id) / "final_labelled" / video_id
+
+
+def external_labelled_dir(session_name: str, project_id: str, video_id: str) -> Path:
+    return pose_project_dir(session_name, project_id) / "external_labelled" / video_id
+
+
+def pose_models_dir(session_name: str, project_id: str) -> Path:
+    return pose_project_dir(session_name, project_id) / "models"
+
+
+def pose_analysis_settings_dir(session_name: str, project_id: str) -> Path:
+    return pose_project_dir(session_name, project_id) / "analysis" / "settings"
+
+
 def session_json_path(session_name: str) -> Path:
     """``sessions_dir/<name>/session.json`` (preferred layout)."""
     return session_bundle_dir(session_name) / SESSION_JSON_FILENAME
@@ -360,6 +396,15 @@ __all__ = [
     "sessions_dir",
     "SESSION_JSON_FILENAME",
     "session_bundle_dir",
+    "pose_projects_root",
+    "pose_project_dir",
+    "pose_video_dir",
+    "human_labelled_dir",
+    "ai_labelled_dir",
+    "final_labelled_dir",
+    "external_labelled_dir",
+    "pose_models_dir",
+    "pose_analysis_settings_dir",
     "session_json_path",
     "display_stem_for_session_json",
     "is_session_bundle_json",

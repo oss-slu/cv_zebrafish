@@ -226,6 +226,40 @@ def apply_theme(app, theme):
             background-color: {accent};
             border-radius: 3px;
         }}
+        QProgressBar#PoseLabelScanProgress {{
+            border: 1px solid {line};
+            border-radius: 4px;
+            background-color: {pc};
+            color: {tx};
+            text-align: center;
+            min-height: 18px;
+        }}
+        QProgressBar#PoseLabelScanProgress::chunk {{
+            background-color: #5a96e6;
+            border-radius: 3px;
+        }}
+        QListWidget#BodypartLabelListInner {{
+            background-color: {pm};
+            border: 1px solid {line};
+            border-radius: 6px;
+            outline: none;
+        }}
+        QListWidget#BodypartLabelListInner::item {{
+            padding: 6px 8px;
+            margin: 2px 4px;
+            border: 2px solid transparent;
+            border-radius: 4px;
+        }}
+        QListWidget#BodypartLabelListInner::item:selected,
+        QListWidget#BodypartLabelListInner::item:selected:!active,
+        QListWidget#BodypartLabelListInner::item:selected:active {{
+            background-color: transparent;
+            color: {tx};
+            border: 2px solid #5a96e6;
+        }}
+        QListWidget#BodypartLabelListInner::item:hover:!selected {{
+            background-color: {cb};
+        }}
 
         /* View Output / GraphViewer (embedded under WorkspaceMain) */
         QWidget#WorkspaceMain QWidget#GraphViewerContextBar {{
@@ -328,6 +362,14 @@ def apply_theme(app, theme):
         QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar::add-line:vertical,
         QWidget#WorkspaceMain QScrollArea#GraphViewerCompareLeftScroll QScrollBar::sub-line:vertical {{
             height: 0px;
+        }}
+
+        QWidget#PoseStudioPanel QWidget#PoseStudioLoadingOverlay {{
+            background-color: {pm};
+        }}
+        QWidget#PoseStudioPanel QLabel#PoseStudioLoadingLabel {{
+            color: {tx};
+            font-size: 15px;
         }}
 
         QDialog#GenerateConfigDialog {{

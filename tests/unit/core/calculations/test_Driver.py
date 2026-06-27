@@ -4,8 +4,8 @@ import pandas as pd
 
 import pytest
 
-from cvzebrafish.core.calculations.cancelled import CalculationAborted
-from cvzebrafish.core.calculations.Driver import run_calculations
+from core.calculations.cancelled import CalculationAborted
+from core.calculations.Driver import run_calculations
 
 
 def _build_parsed_points():
