@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from core.pose.labeling.labels_store import LabelDataset
-from core.pose.labeling.schema import PoseSchema, edges_for_bodyparts
+from core.pose.labeling.schema import (
+    PoseSchema,
+    edges_after_bodypart_removed,
+    edges_after_bodypart_reorder,
+    normalize_edge,
+)
 
 
 @dataclass
@@ -18,6 +23,7 @@ class _Snapshot:
     active_bodypart: str | None
     queue_index: int
     add_point_mode: bool
+    bone_mode: bool
 
 
 class LabelingController:
@@ -29,6 +35,8 @@ class LabelingController:
         self.queue_index: int = 0
         self.active_bodypart: str | None = None
         self.add_point_mode: bool = False
+        self.bone_mode: bool = False
+        self._bone_mode_return_bodypart: str | None = None
         self.auto_advance_frames: bool = True
         self._undo: list[_Snapshot] = []
         self._redo: list[_Snapshot] = []
@@ -49,6 +57,7 @@ class LabelingController:
             active_bodypart=self.active_bodypart,
             queue_index=self.queue_index,
             add_point_mode=self.add_point_mode,
+            bone_mode=self.bone_mode,
         )
 
     def _restore(self, snap: _Snapshot) -> None:
@@ -58,6 +67,7 @@ class LabelingController:
         self.active_bodypart = snap.active_bodypart
         self.queue_index = snap.queue_index
         self.add_point_mode = snap.add_point_mode
+        self.bone_mode = snap.bone_mode
 
     def _push_undo(self) -> None:
         self._undo.append(self._snapshot())
@@ -69,6 +79,7 @@ class LabelingController:
         self.queue_index = 0
         self.active_bodypart = dataset.bodyparts()[0] if dataset.bodyparts() else None
         self.add_point_mode = False
+        self.bone_mode = False
         self._undo.clear()
         self._redo.clear()
         self._notify()
@@ -89,6 +100,7 @@ class LabelingController:
 
     def set_active_bodypart(self, name: str | None) -> None:
         self.add_point_mode = False
+        self.bone_mode = False
         self.active_bodypart = name
         if self.frame_queue:
             self.queue_index = max(0, min(self.queue_index, len(self.frame_queue) - 1))
@@ -96,8 +108,35 @@ class LabelingController:
 
     def enter_add_point_mode(self) -> None:
         self.add_point_mode = True
+        self.bone_mode = False
         self.active_bodypart = None
         self._notify()
+
+    def enter_bone_mode(self) -> None:
+        self._bone_mode_return_bodypart = self.active_bodypart
+        self.bone_mode = True
+        self.add_point_mode = False
+        self.active_bodypart = None
+        self._notify()
+
+    def exit_bone_mode(self) -> None:
+        if not self.bone_mode:
+            return
+        self.bone_mode = False
+        self._notify()
+
+    def _finish_bone_mode(self) -> None:
+        """Exit bone tool and restore the bodypart selected before it was activated."""
+        self.bone_mode = False
+        self.active_bodypart = self._bone_mode_return_bodypart
+        self._bone_mode_return_bodypart = None
+        self._notify()
+
+    def cancel_bone_mode(self) -> None:
+        """Exit bone tool without creating a bone (0–1 picks pending)."""
+        if not self.bone_mode:
+            return
+        self._finish_bone_mode()
 
     def add_bodypart(self, name: str) -> None:
         self._push_undo()
@@ -130,8 +169,11 @@ class LabelingController:
         if name not in self.dataset.bodyparts() or len(self.dataset.bodyparts()) <= 1:
             return False
         self._push_undo()
+        idx = self.dataset.schema.bodyparts.index(name)
         self.dataset.schema.bodyparts.remove(name)
-        self.dataset.schema.edges = edges_for_bodyparts(self.dataset.bodyparts())
+        self.dataset.schema.edges = edges_after_bodypart_removed(
+            self.dataset.schema.edges, idx
+        )
         for fl in self.dataset.frames.values():
             fl.points.pop(name, None)
         if self.active_bodypart == name:
@@ -148,6 +190,7 @@ class LabelingController:
         self.dataset.frames.clear()
         self.active_bodypart = None
         self.add_point_mode = False
+        self.bone_mode = False
         self._notify()
 
     def current_frame_index(self) -> int:
@@ -207,6 +250,16 @@ class LabelingController:
         self.queue_index = max(0, min(index, len(self.frame_queue) - 1))
         self._notify()
 
+    def go_to_absolute_frame(self, frame_index: int) -> None:
+        """Jump to a video frame index (frame_queue must list video indices)."""
+        if not self.frame_queue:
+            return
+        try:
+            qi = self.frame_queue.index(int(frame_index))
+        except ValueError:
+            qi = max(0, min(int(frame_index), len(self.frame_queue) - 1))
+        self.go_to_queue_index(qi)
+
     def go_prev_frame(self) -> None:
         self.go_to_queue_index(self.queue_index - 1)
 
@@ -241,3 +294,65 @@ class LabelingController:
         while f"P{n}" in existing:
             n += 1
         return f"P{n}"
+
+    def bone_name_pairs(self) -> list[tuple[str, str]]:
+        names = self.dataset.bodyparts()
+        pairs: list[tuple[str, str]] = []
+        for a, b in self.dataset.schema.edges:
+            if 0 <= a < len(names) and 0 <= b < len(names):
+                lo, hi = min(a, b), max(a, b)
+                pairs.append((names[lo], names[hi]))
+        return pairs
+
+    def add_bone(self, a: str, b: str) -> bool:
+        if a == b:
+            return False
+        names = self.dataset.bodyparts()
+        if a not in names or b not in names:
+            return False
+        edge = normalize_edge(names.index(a), names.index(b))
+        if edge in self.dataset.schema.edges:
+            return False
+        self._push_undo()
+        self.dataset.schema.edges.append(edge)
+        if self.bone_mode:
+            self._finish_bone_mode()
+        else:
+            self._notify()
+        return True
+
+    def remove_bone(self, a: str, b: str) -> bool:
+        names = self.dataset.bodyparts()
+        if a not in names or b not in names:
+            return False
+        edge = normalize_edge(names.index(a), names.index(b))
+        if edge not in self.dataset.schema.edges:
+            return False
+        self._push_undo()
+        self.dataset.schema.edges = [
+            e for e in self.dataset.schema.edges if e != edge
+        ]
+        self._notify()
+        return True
+
+    def reorder_bodypart(self, name: str, target_index: int) -> bool:
+        parts = self.dataset.schema.bodyparts
+        if name not in parts:
+            return False
+        old_index = parts.index(name)
+        target_index = max(0, min(target_index, len(parts) - 1))
+        if old_index == target_index:
+            return False
+        self._push_undo()
+        names_before = list(parts)
+        parts.pop(old_index)
+        if target_index > old_index:
+            target_index -= 1
+        parts.insert(target_index, name)
+        self.dataset.schema.edges = edges_after_bodypart_reorder(
+            self.dataset.schema.edges,
+            names_before,
+            list(parts),
+        )
+        self._notify()
+        return True

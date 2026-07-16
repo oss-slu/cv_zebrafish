@@ -15,9 +15,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
+
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from core.pose.training.dlc_subprocess import (  # noqa: E402
+    SNAPSHOT_SAVE_EPOCHS,
+    clear_stop_flag,
+    find_learning_stats_path,
+    parse_latest_learning_stats_row,
+    parse_learning_stats_csv,
+    read_training_progress,
+    should_skip_create_training_dataset,
+    snapshot_keep_count,
+    stop_requested,
+)
 
 STOP_FLAG = "stop_after_epoch.flag"
 
@@ -55,17 +72,33 @@ def _resolve_training_device(use_gpu: bool) -> str | None:
     return "cuda:0"
 
 
-def _find_learning_stats_path(work_dir: Path) -> Path | None:
-    pytorch = sorted(
-        work_dir.glob("dlc-models-pytorch/**/learning_stats.csv"),
+def _find_train_log_path(work_dir: Path) -> Path | None:
+    logs = sorted(
+        work_dir.glob("dlc-models-pytorch/**/train/train.txt"),
         key=lambda p: p.stat().st_mtime,
     )
-    if pytorch:
-        return pytorch[-1]
-    legacy = work_dir / "dlc-models" / "iteration-0" / "learning_stats.csv"
-    if legacy.is_file():
-        return legacy
-    return None
+    return logs[-1] if logs else None
+
+
+def _train_status_hint(work_dir: Path) -> str:
+    path = _find_train_log_path(work_dir)
+    if path is None or not path.is_file():
+        return "Initializing model and dataset…"
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "Initializing model and dataset…"
+    if "Starting pose model training" in text:
+        return (
+            "Training in progress — the loss curve updates after each epoch completes "
+            "(first epoch on CPU can take several minutes)."
+        )
+    if "Data Transforms" in text or "Loading pretrained weights" in text:
+        return (
+            "Loading weights and building the data pipeline "
+            "(often 10–20 min on CPU before epoch 1 starts)."
+        )
+    return "Preparing training environment…"
 
 
 def run_probe_gpu() -> None:
@@ -96,6 +129,12 @@ def run_create_training_dataset(job: dict) -> None:
     if try_import_dlc():
         import deeplabcut as dlc
 
+        emit(
+            {
+                "type": "status",
+                "message": "Converting labels and building augmented training set (may take a few minutes)…",
+            }
+        )
         dlc.convertcsv2h5(config_path, userfeedback=False, scorer=scorer)
         result = dlc.create_training_dataset(
             config_path,
@@ -111,6 +150,27 @@ def run_create_training_dataset(job: dict) -> None:
         emit({"type": "status", "message": "Training dataset created (DLC)."})
     else:
         emit({"type": "status", "message": "Skipped create_training_dataset (deeplabcut not installed)."})
+
+
+def _emit_epoch_progress(
+    row,
+    *,
+    epochs: int,
+    resumed: bool = False,
+) -> None:
+    payload = {
+        "type": "epoch",
+        "epoch": row.epoch,
+        "total_epochs": epochs,
+        "loss": row.total_loss,
+    }
+    if row.heatmap_loss is not None:
+        payload["heatmap_loss"] = row.heatmap_loss
+    if row.locref_loss is not None:
+        payload["locref_loss"] = row.locref_loss
+    if resumed:
+        payload["resumed"] = True
+    emit(payload)
 
 
 def run_train(job: dict, epochs: int, use_gpu: bool) -> None:
@@ -132,54 +192,118 @@ def run_train(job: dict, epochs: int, use_gpu: bool) -> None:
             )
         if device:
             emit({"type": "status", "message": f"Training on {device}."})
+        emit(
+            {
+                "type": "status",
+                "message": (
+                    f"Saving weight checkpoints every {SNAPSHOT_SAVE_EPOCHS} epochs "
+                    f"(up to {snapshot_keep_count(epochs)} kept, plus best-by-validation)."
+                ),
+            }
+        )
 
-        stats_path = _find_learning_stats_path(work_dir)
+        baseline_epoch = 0
+        stats_path = find_learning_stats_path(work_dir)
+        if stats_path is not None:
+            prior_row = parse_latest_learning_stats_row(stats_path)
+            if prior_row is not None and prior_row.epoch > 0:
+                baseline_epoch = prior_row.epoch
+                emit(
+                    {
+                        "type": "status",
+                        "message": (
+                            f"Resuming from epoch {baseline_epoch} — checkpoints are kept in "
+                            "models/dlc_work/ between runs. Use Reset training progress on the "
+                            "Train tab to start from epoch 1."
+                        ),
+                    }
+                )
+                _emit_epoch_progress(prior_row, epochs=epochs, resumed=True)
+
         stop = threading.Event()
+        force_stop = threading.Event()
+        train_started = time.monotonic()
+        last_heartbeat = 0.0
 
         def poll_stats():
-            last_epoch = 0
+            nonlocal stats_path, last_heartbeat
+            last_epoch = baseline_epoch
+            stop_when_done_after: int | None = None
             while not stop.is_set():
-                path = stats_path or _find_learning_stats_path(work_dir)
+                now = time.monotonic()
+                if stop_requested(work_dir) and stop_when_done_after is None:
+                    stop_when_done_after = last_epoch
+
+                if now - last_heartbeat >= 8.0:
+                    last_heartbeat = now
+                    elapsed_s = int(now - train_started)
+                    emit(
+                        {
+                            "type": "heartbeat",
+                            "phase": "train",
+                            "elapsed_s": elapsed_s,
+                            "message": _train_status_hint(work_dir),
+                        }
+                    )
+
+                path = stats_path or find_learning_stats_path(work_dir)
                 if path is not None and path.is_file():
-                    try:
-                        lines = path.read_text(encoding="utf-8").strip().splitlines()
-                        if len(lines) > 1:
-                            parts = lines[-1].split(",")
-                            if len(parts) >= 2:
-                                try:
-                                    it = int(float(parts[0]))
-                                    loss = float(parts[1])
-                                    if it > last_epoch:
-                                        last_epoch = it
-                                        emit(
-                                            {
-                                                "type": "epoch",
-                                                "epoch": it,
-                                                "total_epochs": epochs,
-                                                "loss": loss,
-                                            }
-                                        )
-                                except ValueError:
-                                    pass
-                    except OSError:
-                        pass
+                    stats_path = path
+                    row = parse_latest_learning_stats_row(path)
+                    if row is not None and row.epoch > last_epoch:
+                        last_epoch = row.epoch
+                        _emit_epoch_progress(row, epochs=epochs)
+                        if (
+                            stop_when_done_after is not None
+                            and row.epoch > stop_when_done_after
+                        ):
+                            emit(
+                                {
+                                    "type": "stopped",
+                                    "epoch": row.epoch,
+                                    "message": (
+                                        f"Stopped after epoch {row.epoch}. "
+                                        "Checkpoint saved on disk."
+                                    ),
+                                }
+                            )
+                            clear_stop_flag(work_dir)
+                            force_stop.set()
+                            return
                 time.sleep(0.5)
 
         t = threading.Thread(target=poll_stats, daemon=True)
         t.start()
-        try:
+
+        def run_dlc_train() -> None:
             gputouse = 0 if device is not None else None
+            # YAML often has display_iters: 0; DLC uses it as a modulo divisor and crashes.
             dlc.train_network(
                 config_path,
                 epochs=epochs,
-                save_epochs=1,
-                display_iters=0,
+                save_epochs=SNAPSHOT_SAVE_EPOCHS,
+                max_snapshots_to_keep=snapshot_keep_count(epochs),
+                display_iters=500,
                 device=device,
                 gputouse=gputouse,
             )
+
+        train_thread = threading.Thread(target=run_dlc_train, daemon=True)
+        train_thread.start()
+        try:
+            while train_thread.is_alive():
+                if force_stop.is_set():
+                    os._exit(0)
+                time.sleep(0.25)
         finally:
             stop.set()
             t.join(timeout=2.0)
+            train_thread.join(timeout=1.0)
+        from core.pose.training.model_registry import archive_completed_training
+
+        record = archive_completed_training(job, epochs=epochs)
+        if record is not None:
+            emit({"type": "model_saved", "run": record.to_dict()})
         emit({"type": "status", "message": "Training finished (DLC)."})
         return
 
@@ -196,11 +320,26 @@ def run_train(job: dict, epochs: int, use_gpu: bool) -> None:
 
 
 def run_analyze(job: dict, *, use_gpu: bool = False) -> None:
-    emit({"type": "phase", "phase": "analyze"})
+    from core.pose.training.analyze_progress import total_analyze_frames
+
+    total_frames = total_analyze_frames(job)
+    emit({"type": "phase", "phase": "analyze", "total_frames": total_frames})
+    emit({"type": "analyze_start", "total_frames": total_frames})
+
     config_path = job["config_path"]
     videos = job.get("video_sources") or []
+    work_dir = Path(job["work_dir"])
+
+    snapshot_path = job.get("snapshot_path")
+    if snapshot_path:
+        from core.pose.training.model_registry import stage_snapshot_for_analyze
+
+        staged = stage_snapshot_for_analyze(work_dir, Path(snapshot_path))
+        emit({"type": "status", "message": f"Using model weights: {staged.name}"})
 
     if try_import_dlc():
+        import threading
+
         import deeplabcut as dlc
 
         device = _resolve_training_device(use_gpu)
@@ -213,7 +352,46 @@ def run_analyze(job: dict, *, use_gpu: bool = False) -> None:
             )
         gputouse = 0 if device is not None else None
         if videos:
-            dlc.analyze_videos(config_path, videos, save_as_csv=True, gputouse=gputouse)
+            dlc.analyze_videos(
+                config_path,
+                videos,
+                save_as_csv=True,
+                gputouse=gputouse,
+                snapshot_index="best",
+                device=device,
+            )
+
+        if total_frames > 0:
+            emit(
+                {
+                    "type": "frame",
+                    "frame": total_frames,
+                    "total_frames": total_frames,
+                    "phase": "analyze",
+                }
+            )
+
+        from core.pose.training.dlc_analyze_import import import_dlc_analyze_outputs_to_ai_labelled
+
+        written = import_dlc_analyze_outputs_to_ai_labelled(job)
+        if written:
+            emit(
+                {
+                    "type": "status",
+                    "message": f"AI predictions saved for {len(written)} video(s) under ai_labelled/.",
+                }
+            )
+        else:
+            emit(
+                {
+                    "type": "status",
+                    "message": (
+                        "Video analysis finished but no prediction CSV was found next to the "
+                        "source video. Check that training produced model snapshots, then re-run "
+                        "analyze."
+                    ),
+                }
+            )
         emit({"type": "status", "message": "Video analysis finished (DLC)."})
         return
 
@@ -233,6 +411,26 @@ def run_analyze(job: dict, *, use_gpu: bool = False) -> None:
         vdir = pose_video_dir(session_name, project_id, vid)
         meta = read_video_meta(vdir)
         frame_count = meta.frame_count if meta else 0
+        if frame_count <= 0:
+            frame_count = max(1, total_frames)
+        for fi in range(0, frame_count, max(1, frame_count // 20)):
+            emit(
+                {
+                    "type": "frame",
+                    "frame": min(fi + 1, frame_count),
+                    "total_frames": frame_count,
+                    "phase": "analyze",
+                }
+            )
+            time.sleep(0.02)
+        emit(
+            {
+                "type": "frame",
+                "frame": frame_count,
+                "total_frames": frame_count,
+                "phase": "analyze",
+            }
+        )
         ds = load_labels(human_labelled_dir(session_name, project_id, vid))
         out_dir = ai_labelled_dir(session_name, project_id, vid)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -243,16 +441,158 @@ def run_analyze(job: dict, *, use_gpu: bool = False) -> None:
     emit({"type": "status", "message": "Analysis finished (simulated CSV from human labels)."})
 
 
+def run_auto_label(job: dict, *, use_gpu: bool = False) -> None:
+    from core.pose.training.analyze_progress import total_analyze_frames
+
+    total_frames = total_analyze_frames(job)
+    emit({"type": "phase", "phase": "auto_label", "total_frames": total_frames})
+    emit({"type": "analyze_start", "total_frames": total_frames})
+
+    work_dir = Path(job["work_dir"])
+    snapshot_path = job.get("snapshot_path")
+    if snapshot_path:
+        from core.pose.training.model_registry import stage_snapshot_for_analyze
+
+        staged = stage_snapshot_for_analyze(work_dir, Path(snapshot_path))
+        emit({"type": "status", "message": f"Using model weights: {staged.name}"})
+        job = dict(job)
+        job["snapshot_path"] = str(staged)
+
+    device = _resolve_training_device(use_gpu)
+    if device:
+        job = dict(job)
+        job["device"] = device
+    elif use_gpu:
+        emit(
+            {
+                "type": "status",
+                "message": "GPU unavailable for auto-label; running on CPU.",
+            }
+        )
+
+    auto = job.get("auto_label") or {}
+    seed = int(auto.get("seed_frame", 0))
+    radius = float(auto.get("search_radius_px", 45.0))
+    use_stored = bool(auto.get("use_existing_heatmaps") and auto.get("heatmap_source_dir"))
+    finish = bool(auto.get("finish_incomplete_archive") and auto.get("heatmap_source_dir"))
+    decode_only = use_stored and not finish
+    if decode_only:
+        src = auto.get("heatmap_source_dir", "")
+        emit(
+            {
+                "type": "status",
+                "message": (
+                    f"Auto-label: seed frame {seed}, search radius {radius:.0f}px, "
+                    f"decoding saved heatmaps from {Path(src).name}."
+                ),
+            }
+        )
+    elif finish:
+        src = auto.get("heatmap_source_dir", "")
+        emit(
+            {
+                "type": "status",
+                "message": (
+                    f"Auto-label: seed frame {seed}, search radius {radius:.0f}px, "
+                    f"finishing heatmaps in {Path(src).name} (infer missing frames)."
+                ),
+            }
+        )
+    else:
+        emit(
+            {
+                "type": "status",
+                "message": (
+                    f"Auto-label: seed frame {seed}, search radius {radius:.0f}px, "
+                    "blob-masked heatmap decode."
+                ),
+            }
+        )
+
+    from core.pose.inference.auto_label_propagate import run_auto_label_job
+
+    def _progress(completed: int, tot: int, _msg: str) -> None:
+        emit(
+            {
+                "type": "frame",
+                "frame": completed,
+                "total_frames": tot,
+                "phase": "auto_label",
+            }
+        )
+
+    if decode_only:
+        written = run_auto_label_job(job, progress_cb=_progress)
+        if written:
+            emit(
+                {
+                    "type": "status",
+                    "message": (
+                        f"Re-decoded labels from saved heatmaps for {len(written)} video(s) "
+                        "under ai_labelled/."
+                    ),
+                }
+            )
+        else:
+            emit(
+                {
+                    "type": "status",
+                    "message": "Auto-label finished but no tracking.csv was written.",
+                }
+            )
+        emit({"type": "status", "message": "Auto-label finished (saved heatmaps)."})
+        return
+
+    if try_import_dlc() and job.get("snapshot_path"):
+        written = run_auto_label_job(job, progress_cb=_progress)
+        if written:
+            emit(
+                {
+                    "type": "status",
+                    "message": (
+                        f"Constrained auto-label saved for {len(written)} video(s) "
+                        "under ai_labelled/."
+                    ),
+                }
+            )
+        else:
+            emit(
+                {
+                    "type": "status",
+                    "message": "Auto-label finished but no tracking.csv was written.",
+                }
+            )
+        emit({"type": "status", "message": "Auto-label finished (DLC)."})
+        return
+
+    # Simulated path (no DLC / no snapshot): synthetic predictor still exercises pipeline.
+    written = run_auto_label_job(job, progress_cb=_progress)
+    emit(
+        {
+            "type": "status",
+            "message": (
+                f"Auto-label finished (simulated — {len(written)} video(s)). "
+                "Install deeplabcut and train a model for real heatmaps."
+            ),
+        }
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pose Studio DLC subprocess step runner")
     parser.add_argument("--job", required=True, help="Path to train_job.json")
     parser.add_argument(
         "--step",
         default="pipeline",
-        choices=["create_training_dataset", "train", "analyze", "pipeline", "dry_run", "probe_gpu"],
+        choices=["create_training_dataset", "train", "analyze", "auto_label", "pipeline", "dry_run", "probe_gpu"],
     )
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--gpu", action="store_true", help="Use GPU when DLC is available")
+    parser.add_argument(
+        "--skip-create-dataset",
+        action="store_true",
+        help="Skip convertcsv2h5 / create_training_dataset (resume mid-training)",
+    )
     args = parser.parse_args()
 
     job_path = Path(args.job)
@@ -269,16 +609,37 @@ def main() -> int:
             run_probe_gpu()
             emit({"type": "done", "work_dir": str(work_dir)})
             return 0
-        if args.step in ("create_training_dataset", "pipeline"):
-            run_create_training_dataset(job)
-            if stop_requested(work_dir):
-                emit({"type": "stopped", "message": "Stopped before train."})
-                return 0
-        if args.step in ("train", "pipeline", "dry_run"):
+        if args.step in ("train", "dry_run"):
+            if args.step == "train":
+                skip_dataset = getattr(args, "skip_create_dataset", False)
+                if skip_dataset or should_skip_create_training_dataset(work_dir):
+                    prior = read_training_progress(work_dir)
+                    if prior is not None and prior[0] > 0:
+                        emit(
+                            {
+                                "type": "status",
+                                "message": (
+                                    f"Skipping dataset rebuild — resuming from epoch "
+                                    f"{prior[0]} with existing training artifacts."
+                                ),
+                            }
+                        )
+                else:
+                    run_create_training_dataset(job)
+                    if stop_requested(work_dir):
+                        emit({"type": "stopped", "message": "Stopped before train."})
+                        return 0
             run_train(job, args.epochs, args.gpu)
             if stop_requested(work_dir):
                 return 0
-        if args.step in ("analyze", "pipeline", "dry_run"):
+        if args.step == "analyze":
+            run_analyze(job, use_gpu=args.gpu)
+        if args.step == "auto_label":
+            run_auto_label(job, use_gpu=args.gpu)
+        if args.step == "dry_run":
+            run_train(job, args.epochs, args.gpu)
+            if stop_requested(work_dir):
+                return 0
             run_analyze(job, use_gpu=args.gpu)
         emit({"type": "done", "work_dir": str(work_dir)})
         return 0

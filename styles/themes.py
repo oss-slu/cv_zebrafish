@@ -260,6 +260,83 @@ def apply_theme(app, theme):
         QListWidget#BodypartLabelListInner::item:hover:!selected {{
             background-color: {cb};
         }}
+        QWidget#BodypartLabelList QLabel#SchemaSectionHeader {{
+            color: {tmenu};
+            font-weight: 600;
+            padding: 2px 0;
+        }}
+        QWidget#BodypartLabelList QScrollArea#SchemaPointsScroll,
+        QWidget#BodypartLabelList QScrollArea#SchemaBonesScroll {{
+            background-color: {pm};
+            border: 1px solid {line};
+            border-radius: 6px;
+        }}
+        QWidget#BodypartLabelList QPushButton#SchemaPointButton {{
+            text-align: left;
+            padding: 6px 8px;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            background-color: transparent;
+            color: {tx};
+        }}
+        QWidget#BodypartLabelList QPushButton#SchemaPointButton:checked {{
+            border: 2px solid #5a96e6;
+            background-color: transparent;
+        }}
+        QWidget#BodypartLabelList QPushButton#SchemaPointButton:hover:!checked {{
+            background-color: {cb};
+        }}
+        QWidget#BodypartLabelList QPushButton#SchemaBoneToolButton:checked {{
+            border: 2px solid #ffb020;
+            background-color: {cb};
+        }}
+        QWidget#BodypartLabelList QLabel#SchemaBoneLabel {{
+            color: {tx};
+            padding: 6px 8px;
+        }}
+        QWidget#BodypartLabelList QToolButton#SchemaRowDeleteButton {{
+            color: {tmenu};
+            border: none;
+            background: transparent;
+            font-size: 14px;
+            min-width: 22px;
+            padding: 2px 4px;
+        }}
+        QWidget#BodypartLabelList QToolButton#SchemaRowDeleteButton:hover {{
+            color: #e07070;
+        }}
+        QWidget#ArtifactFileList QLabel#ArtifactFileName {{
+            color: {tx};
+        }}
+        QWidget#ArtifactFileList QLabel#ArtifactFileSize {{
+            color: {tmenu};
+            font-size: 11px;
+        }}
+        QWidget#ArtifactFileList QToolButton#ArtifactFileDeleteButton {{
+            color: {tmenu};
+            border: none;
+            background: transparent;
+            font-size: 14px;
+            min-width: 22px;
+            padding: 2px 4px;
+        }}
+        QWidget#ArtifactFileList QToolButton#ArtifactFileDeleteButton:hover {{
+            color: #e07070;
+        }}
+        QSplitter#PoseLabelSplitter::handle:horizontal,
+        QSplitter#SchemaPanelSplitter::handle:vertical {{
+            background-color: {line};
+        }}
+        QSplitter#PoseLabelSplitter::handle:horizontal {{
+            width: 5px;
+        }}
+        QSplitter#SchemaPanelSplitter::handle:vertical {{
+            height: 5px;
+        }}
+        QSplitter#PoseLabelSplitter::handle:horizontal:hover,
+        QSplitter#SchemaPanelSplitter::handle:vertical:hover {{
+            background-color: #5a96e6;
+        }}
 
         /* View Output / GraphViewer (embedded under WorkspaceMain) */
         QWidget#WorkspaceMain QWidget#GraphViewerContextBar {{
@@ -364,12 +441,48 @@ def apply_theme(app, theme):
             height: 0px;
         }}
 
-        QWidget#PoseStudioPanel QWidget#PoseStudioLoadingOverlay {{
+        QWidget#PoseStudioPanel QWidget#PoseStudioLoadingOverlay,
+        QWidget#WorkspaceMain QWidget#LoadingOverlay {{
             background-color: {pm};
         }}
-        QWidget#PoseStudioPanel QLabel#PoseStudioLoadingLabel {{
+        QWidget#PoseStudioPanel QLabel#PoseStudioLoadingLabel,
+        QWidget#WorkspaceMain QLabel#LoadingOverlayLabel {{
             color: {tx};
             font-size: 15px;
+        }}
+        QWidget#PoseStudioPanel QTabWidget#PoseStudioTabWidget::pane {{
+            border: 1px solid {line};
+            border-top: none;
+            background-color: {pm};
+        }}
+        QWidget#PoseStudioPanel QTabWidget#PoseStudioTabWidget QTabBar::tab {{
+            background-color: {gv_tab_bg};
+            color: {gv_tab_fg};
+            padding: 8px 14px;
+            margin-right: 2px;
+            border: 1px solid transparent;
+            border-bottom: none;
+            border-top-left-radius: 6px;
+            border-top-right-radius: 6px;
+        }}
+        QWidget#PoseStudioPanel QTabWidget#PoseStudioTabWidget QTabBar::tab:selected {{
+            background-color: {gv_tab_sel_bg};
+            color: {gv_tab_sel_fg};
+            border-color: {line};
+            border-bottom: 2px solid {accent};
+        }}
+        QWidget#PoseStudioPanel QTabWidget#PoseStudioTabWidget QTabBar::tab:!selected:hover {{
+            background-color: {gv_tab_hover_bg};
+            color: {gv_tab_hover_fg};
+        }}
+        QWidget#PoseStudioPanel QTabWidget#PoseStudioTabWidget QTabBar::tab:disabled {{
+            background-color: {gv_tab_bg};
+            color: {tmu};
+        }}
+        QWidget#WorkspaceMain QProgressBar#LoadingOverlayBar {{
+            max-width: 360px;
+            margin-left: auto;
+            margin-right: auto;
         }}
 
         QDialog#GenerateConfigDialog {{

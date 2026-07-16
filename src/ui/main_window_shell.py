@@ -30,7 +30,8 @@ from app_platform.session_registry import sync_registry_with_disk, touch_last_op
 from app_platform.ui_preferences import UiPreferences, load_ui_preferences
 from styles.themes import THEMES, application_tooltip_stylesheet, apply_error_toast_theme, apply_theme
 from styles.ui_scale import scale_stylesheet, set_ui_scale_factor
-from session.session import load_session_from_json
+from ui.components.widgets.loading_overlay import LoadingOverlay
+from ui.workers.session_load_worker import SessionLoadWorker
 
 from ui.components.chrome.chrome_separators import horizontal_separator
 from ui.components.widgets.console_dialog import ConsoleViewerDialog
@@ -136,6 +137,10 @@ class MainShellWindow(QMainWindow):
         self._folder_save_thread: QThread | None = None
         self._folder_save_worker: FolderGraphSaveWorker | None = None
         self._folder_save_ctx: dict | None = None
+
+        self._session_load_worker: SessionLoadWorker | None = None
+        self._session_hydrate_steps: list[tuple[str, object]] = []
+        self._session_hydrate_index = 0
 
         self._stderr_chunks: deque[str] = deque(maxlen=400)
         self._toast_messages: deque[str] = deque(maxlen=120)
@@ -348,6 +353,9 @@ class MainShellWindow(QMainWindow):
             view_output_enabled=view_out,
         )
 
+    def _loading_overlay(self) -> LoadingOverlay:
+        return self.workspace._loading_overlay
+
     def _on_open_session(self) -> None:
         dlg = SessionSelectDialog(self)
         if dlg.exec_() != QDialog.Accepted or not dlg.selected_path:
@@ -355,37 +363,93 @@ class MainShellWindow(QMainWindow):
         self._load_session_from_path(dlg.selected_path)
 
     def _load_session_from_path(self, json_path: str) -> None:
-        try:
-            self.current_session = load_session_from_json(json_path)
-        except ValueError as e:
-            self._show_error_toast("Session error", str(e))
+        if self._session_load_worker is not None and self._session_load_worker.isRunning():
             return
-        touch_last_opened(json_path, self.current_session.getName())
+        overlay = self._loading_overlay()
+        overlay.set_message("Reading session file")
+        overlay.set_indeterminate(True)
+        overlay.show_loading()
+        self._session_load_worker = SessionLoadWorker(json_path, self)
+        self._session_load_worker.finished_ok.connect(self._on_session_loaded)
+        self._session_load_worker.failed.connect(self._on_session_load_failed)
+        self._session_load_worker.finished.connect(self._on_session_load_worker_finished)
+        self._session_load_worker.start()
+
+    def _on_session_load_worker_finished(self) -> None:
+        self._session_load_worker = None
+
+    def _on_session_load_failed(self, message: str) -> None:
+        self._loading_overlay().hide_loading()
+        self._show_error_toast("Session error", message)
+
+    def _on_session_loaded(self, session, json_path: str) -> None:
+        touch_last_opened(json_path, session.getName())
+        self.current_session = session
         self._view_output_sidebar_unlocked = False
         self._has_session = True
         base = "CV Zebrafish"
-        name = self.current_session.getName()
+        name = session.getName()
         self.setWindowTitle(f"{base} — {name}" if name else base)
-        self._verify_last_csv_path = getattr(self.current_session, "last_csv_path", None)
-        if self.current_session.length() == 0:
+        self._verify_last_csv_path = getattr(session, "last_csv_path", None)
+        if session.length() == 0:
             self._calculation_has_run = False
         else:
-            ran = bool(getattr(self.current_session, "calculation_has_run", False))
-            self._calculation_has_run = ran or self.current_session.has_saved_graph_assets()
+            ran = bool(getattr(session, "calculation_has_run", False))
+            self._calculation_has_run = ran or session.has_saved_graph_assets()
         self._apply_session_state()
-        self._broadcast_session_to_panels()
-        self._resume_workspace_from_session()
+        self._begin_session_hydration()
+
+    def _begin_session_hydration(self) -> None:
+        if self.current_session is None:
+            self._loading_overlay().hide_loading()
+            return
+        self._session_hydrate_steps = [
+            ("Loading Pose Studio", self._hydrate_pose_studio_panel),
+            ("Loading Verify", self._hydrate_verify_panel),
+            ("Loading Select & Run", self._hydrate_select_run_panel),
+            ("Loading View Output", self._hydrate_view_output_panel),
+        ]
+        self._session_hydrate_index = 0
+        QTimer.singleShot(0, self._run_next_session_hydrate_step)
+
+    def _run_next_session_hydrate_step(self) -> None:
+        if self._session_hydrate_index >= len(self._session_hydrate_steps):
+            self._loading_overlay().hide_loading()
+            self._resume_workspace_from_session()
+            return
+        label, step_fn = self._session_hydrate_steps[self._session_hydrate_index]
+        self._loading_overlay().set_message(label)
+        self._session_hydrate_index += 1
+        step_fn()
+        QTimer.singleShot(0, self._run_next_session_hydrate_step)
+
+    def _hydrate_pose_studio_panel(self) -> None:
+        if self.current_session is None:
+            return
+        self.workspace.pose_studio_panel.set_ui_preferences(self._ui_prefs)
+        self.workspace.pose_studio_panel.load_session(self.current_session)
+
+    def _hydrate_verify_panel(self) -> None:
+        if self.current_session is None:
+            return
+        self.workspace.verify_panel.load_session(self.current_session)
+
+    def _hydrate_select_run_panel(self) -> None:
+        if self.current_session is None:
+            return
+        self.workspace.select_run_panel.selection.load_session(self.current_session)
+        self.workspace.select_run_panel.selection.polish_tree_for_theme(self.current_theme)
+
+    def _hydrate_view_output_panel(self) -> None:
+        if self.current_session is None:
+            return
+        self.workspace.view_output_panel.viewer.load_session(self.current_session)
 
     def _broadcast_session_to_panels(self) -> None:
         """Push ``current_session`` into workspace panels (Verify / Select & Run / View Output)."""
         if self.current_session is None:
             return
-        self.workspace.pose_studio_panel.set_ui_preferences(self._ui_prefs)
-        self.workspace.pose_studio_panel.load_session(self.current_session)
-        self.workspace.verify_panel.load_session(self.current_session)
-        self.workspace.select_run_panel.selection.load_session(self.current_session)
-        self.workspace.select_run_panel.selection.polish_tree_for_theme(self.current_theme)
-        self.workspace.view_output_panel.viewer.load_session(self.current_session)
+        self._begin_session_hydration()
 
     def _resume_workspace_from_session(self) -> None:
         """

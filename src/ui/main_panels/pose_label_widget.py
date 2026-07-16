@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QShortcut,
     QSlider,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -55,6 +56,7 @@ class PoseLabelWidget(QWidget):
     """One bodypart × many frames on blob-centered square crop."""
 
     tracking_exported = pyqtSignal(str)
+    background_work_finished = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -158,12 +160,17 @@ class PoseLabelWidget(QWidget):
         scan_row.addWidget(self._scan_progress)
         root.addLayout(scan_row)
 
-        mid = QHBoxLayout()
+        mid = QSplitter(Qt.Horizontal)
+        mid.setObjectName("PoseLabelSplitter")
+        mid.setChildrenCollapsible(False)
         self._bodypart_list = BodypartLabelList()
-        mid.addWidget(self._bodypart_list, stretch=0)
         self._canvas = LabelCanvas()
-        mid.addWidget(self._canvas, stretch=1)
-        root.addLayout(mid, stretch=1)
+        mid.addWidget(self._bodypart_list)
+        mid.addWidget(self._canvas)
+        mid.setStretchFactor(0, 0)
+        mid.setStretchFactor(1, 1)
+        mid.setSizes([BodypartLabelList.DEFAULT_WIDTH, 720])
+        root.addWidget(mid, stretch=1)
 
         self._strip = LabelFrameStrip()
         root.addWidget(self._strip)
@@ -173,6 +180,13 @@ class PoseLabelWidget(QWidget):
         self._bodypart_list.bodypart_removed.connect(self._on_bodypart_removed)
         self._bodypart_list.add_point_requested.connect(self._controller.enter_add_point_mode)
         self._bodypart_list.clear_all_requested.connect(self._on_clear_all)
+        self._bodypart_list.bone_tool_requested.connect(self._controller.enter_bone_mode)
+        self._bodypart_list.bone_tool_cancel_requested.connect(
+            self._controller.cancel_bone_mode
+        )
+        self._bodypart_list.bone_pair_requested.connect(self._on_bone_pair)
+        self._bodypart_list.bone_removed.connect(self._on_bone_removed)
+        self._bodypart_list.bodypart_reordered.connect(self._on_bodypart_reordered)
         self._canvas.point_placed.connect(self._on_point_placed)
         self._canvas.point_moved.connect(self._on_point_moved)
         self._canvas.add_point_at.connect(self._on_add_point_at)
@@ -312,6 +326,10 @@ class PoseLabelWidget(QWidget):
         self._read_frame = read_frame
         self._frame_count = frame_count
 
+    def is_background_work_running(self) -> bool:
+        worker = self._queue_worker
+        return worker is not None and worker.isRunning()
+
     def stop_background_work(self) -> None:
         worker = self._queue_worker
         if worker is None or not worker.isRunning():
@@ -358,6 +376,7 @@ class PoseLabelWidget(QWidget):
         self._canvas.set_crop_frame(None)
         self._canvas.set_fish_outline(None)
         self._canvas.set_display_points({}, None)
+        self._canvas.set_display_bones([])
         self._canvas.set_ghost_point(None)
         self._strip.clear_thumbnail_cache()
         self._strip.set_queue([], 0, "", frame_count=1)
@@ -639,6 +658,10 @@ class PoseLabelWidget(QWidget):
             return
         self._strip.set_live_queue(queue, frame_count=self._frame_count)
 
+    def _emit_background_work_finished(self) -> None:
+        if not self.is_background_work_running():
+            self.background_work_finished.emit()
+
     def _on_queue_ready(self, queue: list) -> None:
         if (
             self._active_pick_target is not None
@@ -660,6 +683,7 @@ class PoseLabelWidget(QWidget):
                     blob_params=self._blob_params,
                     load_fingerprints=False,
                 )
+            self._emit_background_work_finished()
             return
         target = self._active_pick_target
         gap = self._gap_for_target(target)
@@ -681,10 +705,12 @@ class PoseLabelWidget(QWidget):
             )
         self._apply_frame_queue(target, gap, queue, persist=True)
         self._active_pick_target = None
+        self._emit_background_work_finished()
 
     def _on_queue_failed(self, msg: str) -> None:
         if self._active_pick_target is None:
             self._hide_scan_progress()
+            self._emit_background_work_finished()
             return
         if self._worker_pick_generation != self._pick_generation:
             return
@@ -699,6 +725,7 @@ class PoseLabelWidget(QWidget):
             "Pose Studio",
             f"Pose scan failed; using uniform spacing.\n{msg}",
         )
+        self._emit_background_work_finished()
 
     def _on_frames_preview(self, value: int) -> None:
         """Slider drag — update spinbox only."""
@@ -745,6 +772,22 @@ class PoseLabelWidget(QWidget):
     def _on_bodypart_removed(self, name: str) -> None:
         if not self._controller.remove_bodypart(name):
             QMessageBox.warning(self, "Pose Studio", f"Could not remove '{name}'.")
+            return
+        self._save_labels(silent=True)
+
+    def _on_bone_pair(self, a: str, b: str) -> None:
+        if not self._controller.add_bone(a, b):
+            self._bodypart_list.clear_bone_pick()
+            return
+        self._save_labels(silent=True)
+
+    def _on_bone_removed(self, a: str, b: str) -> None:
+        if not self._controller.remove_bone(a, b):
+            return
+        self._save_labels(silent=True)
+
+    def _on_bodypart_reordered(self, name: str, target_index: int) -> None:
+        if not self._controller.reorder_bodypart(name, target_index):
             return
         self._save_labels(silent=True)
 
@@ -828,11 +871,15 @@ class PoseLabelWidget(QWidget):
             qlen,
             selected_name=ctrl.active_bodypart,
         )
+        self._bodypart_list.set_bones(ctrl.bone_name_pairs())
         self._bodypart_list.set_add_point_mode(ctrl.add_point_mode)
+        self._bodypart_list.set_bone_mode(ctrl.bone_mode)
         if ctrl.active_bodypart:
             self._active_lbl.setText(
-                f"Labeling: {ctrl.active_bodypart}  ·  scroll to zoom, double-click to fit"
+                f"Labeling: {ctrl.active_bodypart}  ·  scroll to zoom, middle-drag to pan, double-click to fit"
             )
+        elif ctrl.bone_mode:
+            self._active_lbl.setText("Bone tool: click two points to link them")
         elif ctrl.add_point_mode:
             self._active_lbl.setText("Click image to add a new point")
         else:
@@ -861,6 +908,7 @@ class PoseLabelWidget(QWidget):
                 if xy is not None:
                     points_crop[name] = full_frame_to_crop(xy[0], xy[1], blob)
         self._canvas.set_display_points(points_crop, ctrl.active_bodypart)
+        self._canvas.set_display_bones(ctrl.bone_name_pairs())
         self._canvas.set_ghost_point(self._ghost_point_crop(ctrl, blob))
         self._strip.set_queue(
             ctrl.frame_queue,

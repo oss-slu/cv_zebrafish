@@ -6,6 +6,7 @@ from ui.main_panels.pose_studio_panel import PoseStudioPanel
 from ui.main_panels.select_run_panel import SelectRunPanel
 from ui.main_panels.verify_panel import VerifyPanel
 from ui.main_panels.view_output_panel import ViewOutputPanel
+from ui.components.widgets.loading_overlay import LoadingOverlay
 
 
 class WorkspaceWidget(QWidget):
@@ -43,6 +44,13 @@ class WorkspaceWidget(QWidget):
 
         self.pose_studio_panel = PoseStudioPanel()
         self._stack.addWidget(self.pose_studio_panel)
+
+        self._loading_overlay = LoadingOverlay(self, title="Loading session")
+        self._loading_overlay.hide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._loading_overlay.resize_to_parent()
 
     def show_empty(self) -> None:
         self._stack.setCurrentIndex(self.IDX_EMPTY)

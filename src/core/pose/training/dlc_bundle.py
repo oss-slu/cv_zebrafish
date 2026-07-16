@@ -46,6 +46,44 @@ class ProjectLabelStats:
         return self.total_labeled_frames >= MIN_LABELED_FRAMES
 
 
+def train_job_path(session_name: str, project_id: str) -> Path:
+    """Path to ``train_job.json`` under ``models/dlc_work/``."""
+    return pose_models_dir(session_name, project_id) / DLC_WORK_DIRNAME / TRAIN_JOB_FILENAME
+
+
+def find_train_job_path(session_name: str, project_id: str) -> Path | None:
+    """Return existing ``train_job.json`` when the prepared bundle is on disk."""
+    path = train_job_path(session_name, project_id)
+    return path if path.is_file() else None
+
+
+def load_train_job_if_present(session_name: str, project_id: str) -> dict | None:
+    path = find_train_job_path(session_name, project_id)
+    if path is None:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def training_bundle_is_stale(
+    session_name: str,
+    project_id: str,
+    video_ids: list[str],
+    job: dict,
+) -> bool:
+    """True when human labels changed since the bundle in ``job`` was prepared."""
+    stats = gather_project_label_stats(session_name, project_id, video_ids)
+    if stats.total_labeled_frames != int(job.get("labeled_frame_count") or 0):
+        return True
+    if list(video_ids) != list(job.get("video_ids") or []):
+        return True
+    if stats.bodyparts != list(job.get("bodyparts") or []):
+        return True
+    return False
+
+
 def gather_project_label_stats(
     session_name: str,
     project_id: str,

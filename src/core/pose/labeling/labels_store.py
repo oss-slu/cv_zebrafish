@@ -77,6 +77,14 @@ class LabelDataset:
                 n += 1
         return n
 
+    def count_frames_with_any_point(self) -> int:
+        """Frames that have at least one non-null bodypart coordinate."""
+        n = 0
+        for fl in self.frames.values():
+            if any(xy is not None for xy in fl.points.values()):
+                n += 1
+        return n
+
     def to_dict(self) -> dict:
         return {
             "gap": self.gap,
@@ -112,6 +120,30 @@ def labels_path(label_dir: Path) -> Path:
     return label_dir / LABELS_FILENAME
 
 
+def schema_path(label_dir: Path) -> Path:
+    return label_dir / SCHEMA_FILENAME
+
+
+def load_schema(label_dir: Path) -> PoseSchema | None:
+    """Load sidecar ``schema.json`` if present (used beside tracking.csv)."""
+    path = schema_path(label_dir)
+    if not path.is_file():
+        return None
+    try:
+        return PoseSchema.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def save_schema(label_dir: Path, schema: PoseSchema) -> None:
+    """Persist bodyparts + bone edges beside a tracking CSV dataset."""
+    label_dir.mkdir(parents=True, exist_ok=True)
+    schema_path(label_dir).write_text(
+        json.dumps(schema.to_dict(), indent=2),
+        encoding="utf-8",
+    )
+
+
 def load_labels(label_dir: Path) -> LabelDataset:
     p = labels_path(label_dir)
     if not p.is_file():
@@ -127,6 +159,7 @@ def save_labels(label_dir: Path, dataset: LabelDataset) -> None:
         json.dumps(dataset.to_dict(), indent=2),
         encoding="utf-8",
     )
+    save_schema(label_dir, dataset.schema)
     manifest = {
         "bodyparts": dataset.bodyparts(),
         "labeled_frame_count": len(dataset.frames),

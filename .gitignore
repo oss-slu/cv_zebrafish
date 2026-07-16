@@ -59,6 +59,16 @@ data/sessions/
 # machine-local app state (session registry: paths + last opened)
 data/local/
 
+# Local backups / scratch copies (not source)
+data/backups/
+**/backups/
+*.bak
+*.bak.*
+*~
+*.orig
+*.tmp
+*.temp
+
 # results
 results/
 source/

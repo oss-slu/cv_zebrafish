@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QSpinBox, QWidget
 
 
@@ -16,6 +17,7 @@ class FrameScrubber(QWidget):
         super().__init__(parent)
         self.setObjectName("FrameScrubber")
         self._flagged: set[int] = set()
+        self._outlier_orange = QColor(255, 152, 50)
         self._playing = False
         self._slider = QSlider(Qt.Horizontal)
         self._slider.setMinimum(0)
@@ -144,3 +146,10 @@ class FrameScrubber(QWidget):
         total = self._slider.maximum() + 1
         flag = " ●" if i in self._flagged else ""
         self._label.setText(f"Frame {i} / {max(0, total - 1)}{flag}")
+        if i in self._flagged:
+            self._label.setStyleSheet(
+                f"color: rgb({self._outlier_orange.red()}, "
+                f"{self._outlier_orange.green()}, {self._outlier_orange.blue()});"
+            )
+        else:
+            self._label.setStyleSheet("")

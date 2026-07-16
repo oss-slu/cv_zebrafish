@@ -48,11 +48,15 @@ from ui.components.pose.pose_preview_widget import PosePreviewWidget
 from ui.components.widgets.scene_help import create_scene_help_button
 from ui.main_panels.pose_dataset_widget import PoseDatasetWidget
 from ui.main_panels.pose_label_widget import PoseLabelWidget
+from ui.main_panels.pose_auto_label_widget import PoseAutoLabelWidget
 from ui.main_panels.pose_train_widget import PoseTrainWidget
+from ui.main_panels.verify_labels_widget import VerifyLabelsWidget
 from ui.popup_panels.video_upload_dialog import VideoUploadDialog
+from ui.components.widgets.loading_overlay import LoadingOverlay
 from ui.workers.blob_scan_worker import BlobScanWorker
 from ui.workers.playback_migrate_worker import PlaybackMigrateWorker
 from ui.workers.playback_blob_cache_worker import PlaybackBlobCacheWorker
+from ui.workers.video_open_worker import VideoOpenWorker
 from ui.workers.video_register_worker import VideoRegisterWorker
 
 
@@ -79,9 +83,11 @@ class PoseStudioPanel(QWidget):
         self._blob_worker: BlobScanWorker | None = None
         self._migrate_worker: PlaybackMigrateWorker | None = None
         self._blob_cache_worker: PlaybackBlobCacheWorker | None = None
+        self._video_open_worker: VideoOpenWorker | None = None
         self._blob_playback_cache: list[PlaybackBlobEntry] | None = None
         self._blob_cache_key: str | None = None
         self._blob_cache_frame_count = 0
+        self._blob_cache_build_pending = False
         self._setup_preview: PosePreviewWidget | None = None
         self._ui_ready = False
         self._busy = QLabel("")
@@ -99,9 +105,7 @@ class PoseStudioPanel(QWidget):
         self._blob_cache_debounce.setSingleShot(True)
         self._blob_cache_debounce.timeout.connect(self._start_blob_cache_build)
         self._setup_tab_index = 1
-        self._loading_dots = 0
-        self._loading_dots_timer = QTimer(self)
-        self._loading_dots_timer.timeout.connect(self._tick_pose_loading_label)
+        self._reader_open_pending = False
 
         root = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -119,6 +123,7 @@ class PoseStudioPanel(QWidget):
         root.addWidget(self._busy_bar)
 
         self._tabs = QTabWidget()
+        self._tabs.setObjectName("PoseStudioTabWidget")
         root.addWidget(self._tabs, stretch=1)
 
         # --- Videos tab ---
@@ -254,11 +259,19 @@ class PoseStudioPanel(QWidget):
 
         self._label_widget = PoseLabelWidget()
         self._label_widget.tracking_exported.connect(self._on_tracking_exported)
+        self._label_widget.background_work_finished.connect(self._sync_pose_loading_overlay)
         self._tabs.addTab(self._label_widget, "Label")
 
         self._train_widget = PoseTrainWidget()
         self._train_widget.labels_imported.connect(self._on_labels_imported)
         self._tabs.addTab(self._train_widget, "Train")
+
+        self._auto_label_widget = PoseAutoLabelWidget()
+        self._auto_label_widget.labels_exported.connect(self._on_auto_label_exported)
+        self._tabs.addTab(self._auto_label_widget, "Auto Label")
+
+        self._verify_labels_widget = VerifyLabelsWidget()
+        self._tabs.addTab(self._verify_labels_widget, "Verify Labels")
 
         self._dataset_widget = PoseDatasetWidget()
         self._dataset_widget.send_to_verify.connect(self.dataset_send_to_verify.emit)
@@ -266,47 +279,57 @@ class PoseStudioPanel(QWidget):
         self._tabs.addTab(self._dataset_widget, "Datasets")
 
         self._label_tab_index = self._tabs.indexOf(self._label_widget)
+        self._verify_labels_tab_index = self._tabs.indexOf(self._verify_labels_widget)
         self._tabs.currentChanged.connect(self._on_tab_changed)
         self._bind_arena_blob_signals()
         self._sync_arena_sliders_from_model()
         self._update_arena_blob_ui_state()
         self._ui_ready = True
 
-        self._loading_overlay = QWidget(self)
-        self._loading_overlay.setObjectName("PoseStudioLoadingOverlay")
-        self._loading_overlay.setAttribute(Qt.WA_StyledBackground, True)
-        overlay_layout = QVBoxLayout(self._loading_overlay)
-        overlay_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_layout.addStretch(1)
-        self._loading_label = QLabel("Pose Studio loading")
-        self._loading_label.setObjectName("PoseStudioLoadingLabel")
-        self._loading_label.setAlignment(Qt.AlignCenter)
-        overlay_layout.addWidget(self._loading_label)
-        overlay_layout.addStretch(1)
+        self._loading_overlay = LoadingOverlay(self, title="Loading Pose Studio")
         self._loading_overlay.hide()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if hasattr(self, "_loading_overlay"):
-            self._loading_overlay.setGeometry(self.rect())
+            self._loading_overlay.resize_to_parent()
 
-    def _tick_pose_loading_label(self) -> None:
-        self._loading_dots = (self._loading_dots + 1) % 4
-        self._loading_label.setText(
-            "Pose Studio loading" + "." * self._loading_dots
-        )
+    def _is_pose_background_loading(self) -> bool:
+        if self._needs_video_open:
+            return True
+        if self._reader_open_pending:
+            return True
+        if self._video_open_worker is not None and self._video_open_worker.isRunning():
+            return True
+        if self._migrate_worker is not None and self._migrate_worker.isRunning():
+            return True
+        if self._blob_cache_worker is not None and self._blob_cache_worker.isRunning():
+            return True
+        if self._blob_cache_build_pending:
+            return True
+        if self._label_widget.is_background_work_running():
+            return True
+        return False
 
-    def _show_pose_loading(self) -> None:
-        self._loading_dots = 0
-        self._tick_pose_loading_label()
-        self._loading_overlay.setGeometry(self.rect())
-        self._loading_overlay.raise_()
-        self._loading_overlay.show()
-        self._loading_dots_timer.start(400)
+    def _show_pose_loading(self, message: str = "Loading Pose Studio") -> None:
+        self._loading_overlay.set_message(message)
+        self._loading_overlay.set_indeterminate(True)
+        self._loading_overlay.show_loading()
+        self._tabs.setEnabled(False)
 
     def _hide_pose_loading(self) -> None:
-        self._loading_dots_timer.stop()
-        self._loading_overlay.hide()
+        self._loading_overlay.hide_loading()
+        self._tabs.setEnabled(True)
+
+    def _sync_pose_loading_overlay(self) -> None:
+        if not self._panel_visible:
+            self._hide_pose_loading()
+            return
+        if self._is_pose_background_loading():
+            if not self._loading_overlay.isVisible():
+                self._show_pose_loading()
+            return
+        self._hide_pose_loading()
 
     def _bind_arena_blob_signals(self) -> None:
         """Wire arena/blob controls after every preview widget exists."""
@@ -462,6 +485,7 @@ class PoseStudioPanel(QWidget):
         self._update_arena_blob_ui_state()
         self._apply_preview_modes()
         self._sync_label_tab()
+        self._sync_verify_labels_tab()
         self._schedule_blob_cache_build()
         self._label_widget.start_pose_fingerprint_scan_if_needed()
         QMessageBox.information(
@@ -476,10 +500,13 @@ class PoseStudioPanel(QWidget):
         self._update_arena_blob_ui_state()
         self._apply_preview_modes()
         self._sync_label_tab()
+        self._sync_verify_labels_tab()
 
     def _on_tab_changed(self, index: int) -> None:
         on_label = index == self._label_tab_index and self._arena_is_confirmed()
         self._label_widget.set_diverse_scan_allowed(on_label)
+        if index == self._verify_labels_tab_index:
+            self._verify_labels_widget.refresh_display()
         if (
             index == self._setup_tab_index
             and self._reader is not None
@@ -492,21 +519,27 @@ class PoseStudioPanel(QWidget):
         return (
             "Upload dish videos, set arena and blob, then label keypoints on the "
             "square fish crop (one bodypart across frames). Export DLC CSV when ready. "
-            "Use the Train tab after labeling (DLC 3 PyTorch subprocess)."
+            "Use the Train tab after labeling (DLC 3 PyTorch subprocess), then Auto Label "
+            "to propagate from your human seed frame with blob-masked heatmap search. "
+            "Review results on Verify Labels."
         )
 
     def set_ui_preferences(self, prefs: UiPreferences) -> None:
         self._ui_prefs = prefs
         self._train_widget.set_dlc_python(getattr(prefs, "dlc_python_path", "") or "")
+        self._auto_label_widget.set_dlc_python(getattr(prefs, "dlc_python_path", "") or "")
         self._label_widget.set_ui_preferences(prefs)
 
     def on_panel_shown(self) -> None:
         """Open the active video only after Pose Studio becomes visible."""
         self._panel_visible = True
-        if not self._needs_video_open or not self._current_video_id or self._session is None:
+        if not self._current_video_id or self._session is None:
             return
         self._show_pose_loading()
-        QTimer.singleShot(0, self._deferred_prepare_playback)
+        if self._needs_video_open:
+            QTimer.singleShot(0, self._deferred_prepare_playback)
+            return
+        self._sync_pose_loading_overlay()
 
     def _deferred_prepare_playback(self) -> None:
         if (
@@ -515,11 +548,10 @@ class PoseStudioPanel(QWidget):
             or not self._current_video_id
             or self._session is None
         ):
-            self._hide_pose_loading()
+            self._sync_pose_loading_overlay()
             return
         self._prepare_playback(self._video_dir(self._current_video_id))
-        if self._migrate_worker is None or not self._migrate_worker.isRunning():
-            self._hide_pose_loading()
+        self._sync_pose_loading_overlay()
 
     def _stop_panel_workers(self) -> None:
         for worker in (
@@ -527,6 +559,7 @@ class PoseStudioPanel(QWidget):
             self._blob_worker,
             self._migrate_worker,
             self._blob_cache_worker,
+            self._video_open_worker,
         ):
             if worker is not None and worker.isRunning():
                 worker.requestInterruption()
@@ -536,6 +569,7 @@ class PoseStudioPanel(QWidget):
         """Clear previews, label state, and workers before binding a new session."""
         self._stop_panel_workers()
         self._clear_busy()
+        self._hide_pose_loading()
         self._release_reader()
         self._current_video_id = None
         self._needs_video_open = False
@@ -550,7 +584,10 @@ class PoseStudioPanel(QWidget):
             preview.set_arena(self._arena)
             preview.set_blob_params(self._blob_params)
         self._label_widget.reset_for_new_session()
+        self._verify_labels_widget.reset_for_new_session()
+        self._auto_label_widget.load_session(None, "default")
         self._invalidate_blob_cache()
+        self._blob_cache_build_pending = False
         self._sync_arena_sliders_from_model()
         self._update_arena_blob_ui_state()
         self._apply_preview_modes()
@@ -566,9 +603,11 @@ class PoseStudioPanel(QWidget):
         self._refresh_video_list(defer_video=True)
         if self._session is not None:
             self._train_widget.load_session(self._session, self._project_id())
+            self._auto_label_widget.load_session(self._session, self._project_id())
             self._dataset_widget.load_session(self._session, self._project_id())
         else:
             self._train_widget.load_session(None, "default")
+            self._auto_label_widget.load_session(None, "default")
             self._dataset_widget.load_session(None, "default")
 
     def _project_id(self) -> str:
@@ -697,7 +736,7 @@ class PoseStudioPanel(QWidget):
         self._refresh_video_list(defer_video=not self._panel_visible)
 
     def _on_worker_failed(self, msg: str) -> None:
-        self._hide_pose_loading()
+        self._sync_pose_loading_overlay()
         self._clear_busy()
         QMessageBox.critical(self, "Pose Studio", msg)
 
@@ -721,7 +760,9 @@ class PoseStudioPanel(QWidget):
                 preview.clear_frame()
             self._needs_video_open = True
         else:
+            self._show_pose_loading()
             self._prepare_playback(vdir)
+            self._sync_pose_loading_overlay()
         qc_path = vdir / "blob_qc.json"
         if qc_path.is_file():
             data = json.loads(qc_path.read_text(encoding="utf-8"))
@@ -734,12 +775,21 @@ class PoseStudioPanel(QWidget):
         else:
             self._scrubber.set_flagged_frames(set())
         self._sync_label_tab()
+        self._sync_verify_labels_tab()
+        self._sync_auto_label_tab()
         if self._session is not None:
-            self._train_widget.load_session(self._session, self._project_id())
+            self._train_widget.refresh_project_context(self._session, self._project_id())
             self._dataset_widget.load_session(self._session, self._project_id())
 
     def _on_labels_imported(self) -> None:
         self._sync_label_tab()
+        self._sync_verify_labels_tab()
+        self._sync_auto_label_tab()
+        if self._session is not None:
+            self._dataset_widget.load_session(self._session, self._project_id())
+
+    def _on_auto_label_exported(self) -> None:
+        self._sync_verify_labels_tab(force_reload=True)
         if self._session is not None:
             self._dataset_widget.load_session(self._session, self._project_id())
 
@@ -753,6 +803,7 @@ class PoseStudioPanel(QWidget):
     def _sync_label_tab(self) -> None:
         if not self._current_video_id or self._session is None:
             self._label_widget.reset_for_new_session()
+            self._verify_labels_widget.reset_for_new_session()
             return
         vdir = self._video_dir(self._current_video_id)
         meta_path = vdir / "meta.json"
@@ -775,6 +826,40 @@ class PoseStudioPanel(QWidget):
             self._label_widget.set_diverse_scan_allowed(True)
         else:
             self._label_widget.set_diverse_scan_allowed(False)
+
+    def _sync_verify_labels_tab(self, *, force_reload: bool = False) -> None:
+        if not self._current_video_id or self._session is None:
+            self._verify_labels_widget.reset_for_new_session()
+            return
+        vdir = self._video_dir(self._current_video_id)
+        meta_path = vdir / "meta.json"
+        frame_count = 0
+        if meta_path.is_file():
+            frame_count = int(
+                json.loads(meta_path.read_text(encoding="utf-8")).get("frame_count", 0)
+            )
+        proj = self._session.pose_projects.get(self._project_id(), {})
+        videos = proj.get("videos") or {}
+        display = (videos.get(self._current_video_id) or {}).get(
+            "display_name",
+            self._current_video_id,
+        )
+        self._verify_labels_widget.set_video_context(
+            read_frame=self._read_frame,
+            frame_count=frame_count,
+            session_name=self._session.getName(),
+            project_id=self._project_id(),
+            video_id=self._current_video_id,
+            video_display_name=display,
+            force_reload=force_reload,
+        )
+
+    def _sync_auto_label_tab(self) -> None:
+        if self._session is None:
+            self._auto_label_widget.load_session(None, "default")
+            return
+        self._auto_label_widget.load_session(self._session, self._project_id())
+        self._auto_label_widget.set_video_id(self._current_video_id)
 
     def _sync_controls_from_model(self) -> None:
         if (
@@ -808,6 +893,8 @@ class PoseStudioPanel(QWidget):
         self._update_arena_blob_ui_state()
         self._apply_preview_modes()
         self._sync_label_tab()
+        self._sync_verify_labels_tab()
+        self._sync_auto_label_tab()
 
     def _apply_video_metadata(self, vdir: Path) -> None:
         meta = read_video_meta(vdir)
@@ -820,29 +907,54 @@ class PoseStudioPanel(QWidget):
         src = resolve_video_source(vdir)
         if src is None:
             self._needs_video_open = False
+            self._sync_pose_loading_overlay()
             return
         preferred = vdir / "source.mp4"
         if preferred.is_file() or not needs_transcode(src):
-            self._open_video_reader(vdir)
-            self._needs_video_open = False
+            self._start_video_open(vdir)
             return
-        self._hide_pose_loading()
         self._set_busy("Converting video to H.264 MP4…", 0, -1)
         self._migrate_worker = PlaybackMigrateWorker(vdir)
         self._migrate_worker.progress.connect(self._set_busy)
         self._migrate_worker.finished_ok.connect(self._on_playback_migrate_done)
         self._migrate_worker.failed.connect(self._on_worker_failed)
         self._migrate_worker.start()
+        self._sync_pose_loading_overlay()
 
-    def _on_playback_migrate_done(self, _path: str) -> None:
-        self._clear_busy()
-        if self._current_video_id and self._session is not None:
-            self._open_video_reader(self._video_dir(self._current_video_id))
+    def _start_video_open(self, vdir: Path) -> None:
+        if self._video_open_worker is not None and self._video_open_worker.isRunning():
+            return
+        self._show_pose_loading("Opening video")
+        self._video_open_worker = VideoOpenWorker(vdir, self)
+        self._video_open_worker.finished_ok.connect(self._on_video_open_done)
+        self._video_open_worker.failed.connect(self._on_video_open_failed)
+        self._video_open_worker.start()
+        self._sync_pose_loading_overlay()
+
+    def _on_video_open_done(self, vdir_str: str) -> None:
+        self._video_open_worker = None
+        vdir = Path(vdir_str)
+        self._show_pose_loading("Preparing playback")
+        self._reader_open_pending = True
+        self._sync_pose_loading_overlay()
+        QTimer.singleShot(0, lambda: self._finish_video_open_deferred(vdir))
+
+    def _on_video_open_failed(self, msg: str) -> None:
+        self._video_open_worker = None
         self._needs_video_open = False
-        self._sync_label_tab()
-        self._hide_pose_loading()
+        self._reader_open_pending = False
+        self._sync_pose_loading_overlay()
+        QMessageBox.warning(self, "Pose Studio", msg)
 
-    def _open_video_reader(self, vdir: Path) -> None:
+    def _finish_video_open_deferred(self, vdir: Path) -> None:
+        try:
+            self._finish_video_open(vdir)
+        finally:
+            self._reader_open_pending = False
+            self._needs_video_open = False
+            self._sync_pose_loading_overlay()
+
+    def _finish_video_open(self, vdir: Path) -> None:
         self._release_reader()
         src = resolve_video_source(vdir)
         if src is None:
@@ -855,14 +967,30 @@ class PoseStudioPanel(QWidget):
         meta = read_video_meta(vdir)
         n = meta.frame_count if meta and meta.frame_count > 0 else 1
         self._scrubber.set_frame_count(max(1, n))
-        self._show_frame(0)
+        QTimer.singleShot(0, lambda: self._show_frame(0, fast=True))
         self._sync_arena_sliders_from_model()
         self._apply_preview_modes()
         if self._tabs.currentIndex() == self._label_tab_index:
             self._label_widget.refresh_display()
+        if self._tabs.currentIndex() == self._verify_labels_tab_index:
+            self._verify_labels_widget.refresh_display()
         if self._arena_is_confirmed():
             self._schedule_blob_cache_build()
             self._label_widget.start_pose_fingerprint_scan_if_needed()
+
+    def _on_playback_migrate_done(self, _path: str) -> None:
+        self._clear_busy()
+        if self._current_video_id and self._session is not None:
+            self._start_video_open(self._video_dir(self._current_video_id))
+        self._needs_video_open = False
+        self._sync_label_tab()
+        self._sync_verify_labels_tab()
+        self._sync_pose_loading_overlay()
+
+    def _open_video_reader(self, vdir: Path) -> None:
+        """Synchronous open — prefer ``_start_video_open`` for UI responsiveness."""
+        self._finish_video_open(vdir)
+        self._sync_pose_loading_overlay()
 
     def _release_reader(self) -> None:
         if self._reader is not None:
@@ -970,6 +1098,7 @@ class PoseStudioPanel(QWidget):
 
     def _invalidate_blob_cache(self) -> None:
         self._blob_cache_debounce.stop()
+        self._blob_cache_build_pending = False
         if self._blob_cache_worker is not None and self._blob_cache_worker.isRunning():
             self._blob_cache_worker.requestInterruption()
         self._blob_cache_worker = None
@@ -983,6 +1112,8 @@ class PoseStudioPanel(QWidget):
     def _schedule_blob_cache_build(self) -> None:
         if not self._arena_is_confirmed():
             return
+        self._blob_cache_build_pending = True
+        self._sync_pose_loading_overlay()
         self._blob_cache_debounce.start(600)
 
     def _blob_cache_entry(self, index: int) -> PlaybackBlobEntry | None:
@@ -993,53 +1124,58 @@ class PoseStudioPanel(QWidget):
         return self._blob_playback_cache[index]
 
     def _start_blob_cache_build(self) -> None:
-        if not self._arena_is_confirmed() or not self._current_video_id or self._session is None:
-            return
-        vdir = self._video_dir(self._current_video_id)
-        src = resolve_video_source(vdir)
-        if src is None:
-            return
-        meta = read_video_meta(vdir)
-        frame_count = meta.frame_count if meta and meta.frame_count > 0 else 1
-        cache_key = playback_blob_cache_key(self._arena, self._blob_params)
-        if (
-            self._blob_cache_key == cache_key
-            and self._blob_playback_cache is not None
-            and len(self._blob_playback_cache) >= frame_count
-        ):
-            return
-        loaded = load_playback_overlay_cache(
-            vdir,
-            frame_count=frame_count,
-            video_path=src,
-            arena=self._arena,
-            blob_params=self._blob_params,
-            preview_max_edge=self.PREVIEW_MAX_EDGE,
-        )
-        if loaded is not None:
+        try:
+            if not self._arena_is_confirmed() or not self._current_video_id or self._session is None:
+                return
+            vdir = self._video_dir(self._current_video_id)
+            src = resolve_video_source(vdir)
+            if src is None:
+                return
+            meta = read_video_meta(vdir)
+            frame_count = meta.frame_count if meta and meta.frame_count > 0 else 1
+            cache_key = playback_blob_cache_key(self._arena, self._blob_params)
+            if (
+                self._blob_cache_key == cache_key
+                and self._blob_playback_cache is not None
+                and len(self._blob_playback_cache) >= frame_count
+            ):
+                return
+            loaded = load_playback_overlay_cache(
+                vdir,
+                frame_count=frame_count,
+                video_path=src,
+                arena=self._arena,
+                blob_params=self._blob_params,
+                preview_max_edge=self.PREVIEW_MAX_EDGE,
+            )
+            if loaded is not None:
+                self._blob_cache_key = cache_key
+                self._blob_playback_cache = loaded
+                self._blob_cache_frame_count = frame_count
+                self._cache_hint.hide()
+                return
+            if self._blob_cache_worker is not None and self._blob_cache_worker.isRunning():
+                self._blob_cache_worker.requestInterruption()
             self._blob_cache_key = cache_key
-            self._blob_playback_cache = loaded
             self._blob_cache_frame_count = frame_count
-            self._cache_hint.hide()
-            return
-        if self._blob_cache_worker is not None and self._blob_cache_worker.isRunning():
-            self._blob_cache_worker.requestInterruption()
-        self._blob_cache_key = cache_key
-        self._blob_cache_frame_count = frame_count
-        self._blob_playback_cache = None
-        self._blob_cache_worker = PlaybackBlobCacheWorker(
-            src,
-            frame_count,
-            self._arena,
-            self._blob_params,
-            preview_max_edge=self.PREVIEW_MAX_EDGE,
-        )
-        self._blob_cache_worker.progress.connect(self._on_blob_cache_progress)
-        self._blob_cache_worker.finished_ok.connect(self._on_blob_cache_finished)
-        self._blob_cache_worker.failed.connect(self._on_blob_cache_failed)
-        self._cache_hint.setText("Preparing playback overlays…")
-        self._cache_hint.show()
-        self._blob_cache_worker.start()
+            self._blob_playback_cache = None
+            self._blob_cache_worker = PlaybackBlobCacheWorker(
+                src,
+                frame_count,
+                self._arena,
+                self._blob_params,
+                preview_max_edge=self.PREVIEW_MAX_EDGE,
+            )
+            self._blob_cache_worker.progress.connect(self._on_blob_cache_progress)
+            self._blob_cache_worker.finished_ok.connect(self._on_blob_cache_finished)
+            self._blob_cache_worker.failed.connect(self._on_blob_cache_failed)
+            self._cache_hint.setText("Preparing playback overlays…")
+            self._cache_hint.show()
+            self._blob_cache_worker.start()
+            self._sync_pose_loading_overlay()
+        finally:
+            self._blob_cache_build_pending = False
+            self._sync_pose_loading_overlay()
 
     def _on_blob_cache_progress(self, cur: int, tot: int) -> None:
         if not self._scrubber.is_playing():
@@ -1069,10 +1205,12 @@ class PoseStudioPanel(QWidget):
                         pass
         if not self._scrubber.is_playing():
             self._cache_hint.hide()
+        self._sync_pose_loading_overlay()
 
     def _on_blob_cache_failed(self, _msg: str) -> None:
         self._blob_playback_cache = None
         self._cache_hint.hide()
+        self._sync_pose_loading_overlay()
 
     def _on_auto_threshold(self) -> None:
         if not self._arena_is_confirmed():

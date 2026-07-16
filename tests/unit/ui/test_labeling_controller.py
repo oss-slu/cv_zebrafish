@@ -90,3 +90,46 @@ def test_remove_bodypart_tail_point():
     assert ctrl.remove_bodypart("T5")
     assert "T5" not in ctrl.dataset.bodyparts()
     assert len(ctrl.dataset.bodyparts()) == 10
+
+
+def test_add_and_remove_bone():
+    ctrl = LabelingController()
+    ctrl.dataset.schema.bodyparts = ["A", "B", "C"]
+    ctrl.dataset.schema.edges = []
+    assert ctrl.add_bone("A", "B")
+    assert ("A", "B") in ctrl.bone_name_pairs()
+    assert not ctrl.add_bone("A", "B")
+    assert ctrl.remove_bone("A", "B")
+    assert ctrl.bone_name_pairs() == []
+
+
+def test_add_bone_exits_bone_mode_and_restores_selection():
+    ctrl = LabelingController()
+    ctrl.dataset.schema.bodyparts = ["A", "B", "C"]
+    ctrl.dataset.schema.edges = []
+    ctrl.active_bodypart = "A"
+    ctrl.enter_bone_mode()
+    assert ctrl.bone_mode
+    assert ctrl.active_bodypart is None
+    assert ctrl.add_bone("B", "C")
+    assert not ctrl.bone_mode
+    assert ctrl.active_bodypart == "A"
+
+
+def test_reorder_bodypart_preserves_edges_by_name():
+    ctrl = LabelingController()
+    ctrl.dataset.schema.bodyparts = ["A", "B", "C"]
+    ctrl.dataset.schema.edges = []
+    ctrl.add_bone("A", "C")
+    assert ctrl.reorder_bodypart("C", 0)
+    assert ctrl.dataset.bodyparts() == ["C", "A", "B"]
+    assert ("C", "A") in ctrl.bone_name_pairs()
+
+
+def test_remove_bodypart_drops_incident_bones():
+    ctrl = LabelingController()
+    ctrl.dataset.schema = default_lab_schema()
+    ctrl.dataset.schema.edges = []
+    ctrl.add_bone("Head", "BF")
+    ctrl.remove_bodypart("BF")
+    assert ("Head", "BF") not in ctrl.bone_name_pairs()

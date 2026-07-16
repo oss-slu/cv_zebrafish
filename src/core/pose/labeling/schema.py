@@ -59,10 +59,11 @@ def edges_for_bodyparts(names: list[str]) -> list[tuple[int, int]]:
         if a in idx and b in idx:
             edges.append((idx[a], idx[b]))
 
+    # Fins attach near the body (BF), not the head tip — matches Label-tab bone tool.
     link("Head", "BF")
-    link("Head", "LF1")
+    link("BF", "LF1")
     link("LF1", "LF2")
-    link("Head", "RF1")
+    link("BF", "RF1")
     link("RF1", "RF2")
     tail = sorted(
         (n for n in names if len(n) > 1 and n.startswith("T") and n[1:].isdigit()),
@@ -79,3 +80,51 @@ def default_lab_schema() -> PoseSchema:
     """11-point lab preset: head, BF, fin center+tip pairs, five tail segments."""
     names = list(LAB_BODYPARTS)
     return PoseSchema(bodyparts=names, edges=edges_for_bodyparts(names))
+
+
+def normalize_edge(a: int, b: int) -> tuple[int, int]:
+    return (min(a, b), max(a, b))
+
+
+def bone_display_name(a: str, b: str) -> str:
+    return f"{a} — {b}"
+
+
+def edges_after_bodypart_removed(
+    edges: list[tuple[int, int]], removed_index: int
+) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for a, b in edges:
+        if a == removed_index or b == removed_index:
+            continue
+        na = a - 1 if a > removed_index else a
+        nb = b - 1 if b > removed_index else b
+        out.append(normalize_edge(na, nb))
+    return out
+
+
+def edges_after_bodypart_reorder(
+    edges: list[tuple[int, int]],
+    names_before: list[str],
+    names_after: list[str],
+) -> list[tuple[int, int]]:
+    """Remap edge indices after bodyparts list reorder (edges stored by name)."""
+    idx = {n: i for i, n in enumerate(names_after)}
+    out: list[tuple[int, int]] = []
+    for a, b in edges:
+        if a >= len(names_before) or b >= len(names_before):
+            continue
+        na, nb = names_before[a], names_before[b]
+        if na not in idx or nb not in idx:
+            continue
+        out.append(normalize_edge(idx[na], idx[nb]))
+    return out
+
+
+def transfer_schema_edges(
+    source_bodyparts: list[str],
+    source_edges: list[tuple[int, int]],
+    target_bodyparts: list[str],
+) -> list[tuple[int, int]]:
+    """Copy skeleton bones onto a (possibly reordered) bodypart list by name."""
+    return edges_after_bodypart_reorder(source_edges, source_bodyparts, target_bodyparts)

@@ -69,6 +69,20 @@ def ai_labelled_dir(session_name: str, project_id: str, video_id: str) -> Path:
     return pose_project_dir(session_name, project_id) / "ai_labelled" / video_id
 
 
+def custom_labelled_root(session_name: str, project_id: str, video_id: str) -> Path:
+    """Parent folder for user-named label sets for one video."""
+    return pose_project_dir(session_name, project_id) / "custom_labelled" / video_id
+
+
+def custom_labelled_dir(session_name: str, project_id: str, video_id: str, set_name: str) -> Path:
+    """One named label set under custom_labelled/<video_id>/<slug>/."""
+    from core.pose.labeling.named_label_sets import slugify_dataset_name
+
+    return custom_labelled_root(session_name, project_id, video_id) / slugify_dataset_name(
+        set_name
+    )
+
+
 def final_labelled_dir(session_name: str, project_id: str, video_id: str) -> Path:
     return pose_project_dir(session_name, project_id) / "final_labelled" / video_id
 

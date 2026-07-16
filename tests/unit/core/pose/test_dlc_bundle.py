@@ -1,5 +1,6 @@
 """Tests for DLC training bundle preparation."""
 
+import json
 from pathlib import Path
 
 import cv2
@@ -89,6 +90,35 @@ def test_prepare_training_bundle_writes_job(tmp_path: Path, monkeypatch):
     work = job_path.parent
     assert (work / "config.yaml").is_file()
     assert (work / "labeled-data" / "source" / collected_data_filename()).is_file()
+
+
+def test_training_bundle_is_stale_detects_label_changes(tmp_path: Path, monkeypatch):
+    from core.pose.training.dlc_bundle import training_bundle_is_stale
+
+    monkeypatch.setattr("app_platform.paths.sessions_dir", lambda: tmp_path / "data" / "sessions")
+    n = MIN_LABELED_FRAMES
+    _seed_video_bundle(tmp_path, "sess", "default", "v0", n)
+    job_path, stats = prepare_training_bundle("sess", "default", ["v0"])
+    job = json.loads(job_path.read_text(encoding="utf-8"))
+    assert not training_bundle_is_stale("sess", "default", ["v0"], job)
+
+    from app_platform.paths import human_labelled_dir
+    from core.pose.labeling.labels_store import LabelDataset, save_labels
+
+    ds = LabelDataset(schema=default_lab_schema())
+    ds.set_point(0, "Head", 1.0, 2.0)
+    save_labels(human_labelled_dir("sess", "default", "v0"), ds)
+    assert training_bundle_is_stale("sess", "default", ["v0"], job)
+
+
+def test_find_train_job_path(tmp_path: Path, monkeypatch):
+    from core.pose.training.dlc_bundle import find_train_job_path
+
+    monkeypatch.setattr("app_platform.paths.sessions_dir", lambda: tmp_path / "data" / "sessions")
+    assert find_train_job_path("sess", "default") is None
+    _seed_video_bundle(tmp_path, "sess", "default", "v0", MIN_LABELED_FRAMES)
+    prepare_training_bundle("sess", "default", ["v0"])
+    assert find_train_job_path("sess", "default") is not None
 
 
 def test_write_config_yaml_includes_iteration(tmp_path: Path, monkeypatch):
