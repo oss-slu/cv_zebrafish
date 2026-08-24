@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app_platform.paths import (
     ai_labelled_dir,
+    custom_labelled_dir,
     external_labelled_dir,
     final_labelled_dir,
     human_labelled_dir,
@@ -19,6 +20,9 @@ from core.pose.dataset.import_dlc_csv import import_dlc_csv
 from core.pose.labeling.labels_store import LabelDataset, load_labels
 
 PROVENANCE_FILENAME = "provenance.json"
+
+# Default merge stack when callers pass boolean flags (low → high).
+_DEFAULT_FLAG_ORDER = ("external", "ai", "human")
 
 
 def _video_frame_count(session_name: str, project_id: str, video_id: str) -> int:
@@ -37,7 +41,7 @@ def load_dataset_from_source(
     video_id: str,
     source: str,
 ) -> tuple[LabelDataset, int]:
-    """Load human labels.json or tracking.csv for a source bucket."""
+    """Load labels.json or tracking.csv for a source key (``human``, ``ai``, ``custom:slug``, …)."""
     if source == "human":
         root = human_labelled_dir(session_name, project_id, video_id)
     elif source == "ai":
@@ -46,6 +50,11 @@ def load_dataset_from_source(
         root = final_labelled_dir(session_name, project_id, video_id)
     elif source == "external":
         root = external_labelled_dir(session_name, project_id, video_id)
+    elif source.startswith("custom:"):
+        slug = source.split(":", 1)[1].strip()
+        if not slug:
+            raise ValueError("Custom source requires a slug (custom:<slug>).")
+        root = custom_labelled_dir(session_name, project_id, video_id, slug)
     else:
         raise ValueError(f"Unknown source: {source}")
 
@@ -108,6 +117,20 @@ def merge_manual_over_ai(
     return merge_label_datasets(ai, manual)
 
 
+def _sources_from_flags(
+    *,
+    use_human: bool,
+    use_ai: bool,
+    use_external: bool,
+) -> list[str]:
+    selected = {
+        "human": use_human,
+        "ai": use_ai,
+        "external": use_external,
+    }
+    return [key for key in _DEFAULT_FLAG_ORDER if selected.get(key)]
+
+
 def combine_video_datasets(
     session_name: str,
     project_id: str,
@@ -116,55 +139,48 @@ def combine_video_datasets(
     use_human: bool = True,
     use_ai: bool = True,
     use_external: bool = False,
+    sources_low_to_high: list[str] | None = None,
     scorer: str = "pose_studio",
 ) -> tuple[Path, Path]:
     """
     Write ``final_labelled/<video_id>/tracking.csv`` and ``provenance.json``.
 
-    Merge priority (low → high): external, AI, human.
+    Merge priority is **low → high** in ``sources_low_to_high`` (later overwrites earlier).
+    When ``sources_low_to_high`` is omitted, boolean flags use external → AI → human.
 
     Returns ``(csv_path, provenance_path)``.
     """
-    base_fc = _video_frame_count(session_name, project_id, video_id)
-    human_ds, human_fc = (
-        load_dataset_from_source(session_name, project_id, video_id, "human")
-        if use_human
-        else (LabelDataset(), base_fc)
-    )
-    ai_ds, ai_fc = (
-        load_dataset_from_source(session_name, project_id, video_id, "ai")
-        if use_ai
-        else (LabelDataset(), 0)
-    )
-    external_ds, external_fc = (
-        load_dataset_from_source(session_name, project_id, video_id, "external")
-        if use_external
-        else (LabelDataset(), 0)
-    )
-    frame_count = max(base_fc, human_fc, ai_fc, external_fc)
+    if sources_low_to_high is None:
+        source_keys = _sources_from_flags(
+            use_human=use_human,
+            use_ai=use_ai,
+            use_external=use_external,
+        )
+    else:
+        source_keys = [str(s).strip() for s in sources_low_to_high if str(s).strip()]
 
+    if not source_keys:
+        raise ValueError("Select at least one dataset source to merge.")
+
+    base_fc = _video_frame_count(session_name, project_id, video_id)
     layers: list[LabelDataset] = []
-    if use_external and external_ds.frames:
-        layers.append(external_ds)
-    if use_ai and ai_ds.frames:
-        layers.append(ai_ds)
-    if use_human and human_ds.frames:
-        layers.append(human_ds)
+    used_keys: list[str] = []
+    frame_count = base_fc
+
+    for key in source_keys:
+        ds, fc = load_dataset_from_source(session_name, project_id, video_id, key)
+        frame_count = max(frame_count, fc)
+        if ds.frames:
+            layers.append(ds)
+            used_keys.append(key)
 
     if not layers:
         raise ValueError("No label data available to combine for this video.")
 
     merged = merge_label_datasets(*layers)
-    if len(layers) == 1:
-        if use_external and external_ds.frames and not use_ai and not use_human:
-            rule = "external_only"
-        elif use_ai and ai_ds.frames and not use_human and not use_external:
-            rule = "ai_only"
-        elif use_human and human_ds.frames and not use_ai and not use_external:
-            rule = "human_only"
-        else:
-            rule = "single_source"
-    elif use_human and use_ai and not use_external:
+    if len(used_keys) == 1:
+        rule = f"{used_keys[0]}_only"
+    elif used_keys == ["ai", "human"]:
         rule = "manual_over_ai"
     else:
         rule = "layered_merge"
@@ -177,10 +193,13 @@ def combine_video_datasets(
     prov = {
         "video_id": video_id,
         "rule": rule,
+        "sources_low_to_high": used_keys,
         "sources": {
-            "human": use_human,
-            "ai": use_ai,
-            "external": use_external,
+            "human": "human" in used_keys,
+            "ai": "ai" in used_keys,
+            "external": "external" in used_keys,
+            "final": "final" in used_keys,
+            "custom": [k for k in used_keys if k.startswith("custom:")],
         },
         "frame_count": frame_count,
         "labeled_frames": len(merged.frames),

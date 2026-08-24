@@ -201,24 +201,56 @@ def save_frame_heatmaps(
     *,
     crop_h: int,
     crop_w: int,
+    peak_locref: dict[str, np.ndarray] | None = None,
 ) -> Path:
     """
     Write one compressed ``.npz`` per frame with full crop-resolution maps (float16).
 
-    Keys are bodypart names; ``frame_index`` is stored as metadata.
+    Keys are bodypart names; ``{bodypart}_locref`` stores peak (dx, dy) when present.
+    Metadata: ``frame_index``, ``crop_h``, ``crop_w``.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"frame{frame_index:06d}.npz"
     full = full_crop_heatmaps(heatmaps, crop_h, crop_w)
     payload = {bp: arr.astype(np.float16) for bp, arr in full.items()}
+    if peak_locref:
+        for bp, lr in peak_locref.items():
+            if bp in payload:
+                payload[f"{bp}_locref"] = np.asarray(lr, dtype=np.float16).reshape(2)
     payload["frame_index"] = np.int32(frame_index)
+    payload["crop_h"] = np.int32(crop_h)
+    payload["crop_w"] = np.int32(crop_w)
     np.savez_compressed(path, **payload)
     return path
+
+
+_META_KEYS = frozenset({"frame_index", "crop_h", "crop_w"})
+_LOCREF_SUFFIX = "_locref"
+
+
+def _is_heatmap_key(key: str) -> bool:
+    return key not in _META_KEYS and not key.endswith(_LOCREF_SUFFIX)
 
 
 def load_frame_heatmaps(path: Path) -> tuple[int, dict[str, np.ndarray]]:
     """Load a single frame archive written by ``save_frame_heatmaps``."""
     with np.load(path, allow_pickle=False) as data:
         fi = int(data["frame_index"])
-        maps = {k: np.asarray(data[k], dtype=np.float32) for k in data.files if k != "frame_index"}
+        maps = {
+            k: np.asarray(data[k], dtype=np.float32)
+            for k in data.files
+            if _is_heatmap_key(k)
+        }
     return fi, maps
+
+
+def load_frame_peak_locref(path: Path) -> dict[str, np.ndarray]:
+    """Load peak locref vectors from a frame archive, if any were saved."""
+    out: dict[str, np.ndarray] = {}
+    with np.load(path, allow_pickle=False) as data:
+        for key in data.files:
+            if not key.endswith(_LOCREF_SUFFIX):
+                continue
+            bp = key[: -len(_LOCREF_SUFFIX)]
+            out[bp] = np.asarray(data[key], dtype=np.float32).reshape(2)
+    return out

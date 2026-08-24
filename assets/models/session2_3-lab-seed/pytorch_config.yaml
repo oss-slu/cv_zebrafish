@@ -1,0 +1,134 @@
+data:
+  bbox_margin: 20
+  colormode: RGB
+  inference:
+    normalize_images: true
+  train:
+    affine:
+      p: 0.5
+      rotation: 30
+      scaling:
+      - 0.5
+      - 1.25
+      translation: 0
+    crop_sampling:
+      width: 448
+      height: 448
+      max_shift: 0.1
+      method: hybrid
+    gaussian_noise: 12.75
+    motion_blur: true
+    normalize_images: true
+device: auto
+inference:
+  multithreading:
+    enabled: true
+    queue_length: 4
+    timeout: 30.0
+  compile:
+    enabled: false
+    backend: inductor
+  autocast:
+    enabled: false
+metadata:
+  project_path: C:\Users\Bruce\Desktop\Zebrafish 
+    Rerum\cv_zebrafish\data\sessions\Session2_3\pose_projects\default\models\dlc_work
+  pose_config_path: C:\Users\Bruce\Desktop\Zebrafish 
+    Rerum\cv_zebrafish\data\sessions\Session2_3\pose_projects\default\models\dlc_work\dlc-models-pytorch\iteration-0\zebrafish_poseJun30-trainset95shuffle1\train\pytorch_config.yaml
+  bodyparts:
+  - Head
+  - BF
+  - LF1
+  - LF2
+  - RF1
+  - RF2
+  - T1
+  - T2
+  - T4
+  - T5
+  - T3
+  unique_bodyparts: []
+  individuals:
+  - animal
+  with_identity:
+method: bu
+model:
+  backbone:
+    type: ResNet
+    model_name: resnet50_gn
+    output_stride: 16
+    freeze_bn_stats: false
+    freeze_bn_weights: false
+  backbone_output_channels: 2048
+  heads:
+    bodypart:
+      type: HeatmapHead
+      weight_init: normal
+      predictor:
+        type: HeatmapPredictor
+        apply_sigmoid: false
+        clip_scores: true
+        location_refinement: true
+        locref_std: 7.2801
+      target_generator:
+        type: HeatmapGaussianGenerator
+        num_heatmaps: 11
+        pos_dist_thresh: 17
+        heatmap_mode: KEYPOINT
+        gradient_masking: false
+        generate_locref: true
+        locref_std: 7.2801
+      criterion:
+        heatmap:
+          type: WeightedMSECriterion
+          weight: 1.0
+        locref:
+          type: WeightedHuberCriterion
+          weight: 0.05
+      heatmap_config:
+        channels:
+        - 2048
+        - 11
+        kernel_size:
+        - 3
+        strides:
+        - 2
+      locref_config:
+        channels:
+        - 2048
+        - 22
+        kernel_size:
+        - 3
+        strides:
+        - 2
+net_type: resnet_50
+runner:
+  type: PoseTrainingRunner
+  gpus:
+  key_metric: test.mAP
+  key_metric_asc: true
+  eval_interval: 10
+  optimizer:
+    type: AdamW
+    params:
+      lr: 0.0005
+  scheduler:
+    type: LRListScheduler
+    params:
+      lr_list:
+      - - 0.0001
+      - - 1e-05
+      milestones:
+      - 90
+      - 120
+  snapshots:
+    max_snapshots: 5
+    save_epochs: 5
+    save_optimizer_state: false
+train_settings:
+  batch_size: 8
+  dataloader_workers: 0
+  dataloader_pin_memory: false
+  display_iters: 500
+  epochs: 30
+  seed: 42

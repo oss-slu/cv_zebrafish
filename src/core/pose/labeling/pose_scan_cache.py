@@ -27,15 +27,19 @@ class PoseScanCache:
     fingerprints_loaded: bool = True
     last_frames_to_analyze: int = 0
     last_queue: list[int] = field(default_factory=list)
+    queue_ranks: dict[int, int] = field(default_factory=dict)
 
 
 def scan_settings_hash(
     arena: ArenaConfig,
     blob_params: BlobParams,
 ) -> str:
+    arena_payload = dict(arena.to_dict())
+    # confirmed is UI state and must not invalidate geometric fingerprints
+    arena_payload.pop("confirmed", None)
     payload = json.dumps(
         {
-            "arena": arena.to_dict(),
+            "arena": arena_payload,
             "blob": blob_params.to_dict(),
         },
         sort_keys=True,
@@ -128,6 +132,8 @@ def load_pose_scan_cache(
         coarse_stride = int(meta.get("coarse_stride", 1))
         last_frames_to_analyze = int(meta.get("last_frames_to_analyze", 0))
         last_queue = [int(x) for x in (meta.get("last_queue") or [])]
+        ranks_raw = meta.get("queue_ranks") or {}
+        queue_ranks = {int(k): int(v) for k, v in ranks_raw.items()}
         if load_fingerprints:
             data = np.load(data_path)
             indices = data["indices"]
@@ -145,6 +151,7 @@ def load_pose_scan_cache(
             fingerprints_loaded=fingerprints_loaded,
             last_frames_to_analyze=last_frames_to_analyze,
             last_queue=last_queue,
+            queue_ranks=queue_ranks,
         )
     except (OSError, ValueError, KeyError):
         return None
@@ -163,6 +170,7 @@ def save_pose_scan_cache(
     gap: int | None = None,
     frames_to_analyze: int | None = None,
     fingerprints_unchanged: bool = False,
+    queue_ranks: dict[int, int] | None = None,
 ) -> None:
     video_dir.mkdir(parents=True, exist_ok=True)
     meta_path = video_dir / SCAN_CACHE_META
@@ -172,6 +180,7 @@ def save_pose_scan_cache(
     queues_by_target: dict[int, list[int]] = {}
     last_frames_to_analyze = 0
     last_queue: list[int] = []
+    saved_ranks: dict[int, int] = {}
     if meta_path.is_file():
         try:
             existing = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -190,9 +199,12 @@ def save_pose_scan_cache(
                 }
                 last_frames_to_analyze = int(existing.get("last_frames_to_analyze", 0))
                 last_queue = [int(x) for x in (existing.get("last_queue") or [])]
+                ranks_raw = existing.get("queue_ranks") or {}
+                saved_ranks = {int(k): int(v) for k, v in ranks_raw.items()}
         except (OSError, ValueError, json.JSONDecodeError):
             queues_by_gap = {}
             queues_by_target = {}
+            saved_ranks = {}
 
     if queue is not None and gap is not None:
         queues_by_gap[int(gap)] = list(queue)
@@ -202,6 +214,8 @@ def save_pose_scan_cache(
         last_queue = list(queue)
         if frames_to_analyze is not None:
             last_frames_to_analyze = int(frames_to_analyze)
+        if queue_ranks is not None:
+            saved_ranks = dict(queue_ranks)
 
     indices, vectors = _sparse_from_fingerprints(fingerprints)
     if not fingerprints_unchanged:
@@ -217,5 +231,6 @@ def save_pose_scan_cache(
         "queues_by_target": {str(k): v for k, v in queues_by_target.items()},
         "last_frames_to_analyze": last_frames_to_analyze,
         "last_queue": last_queue,
+        "queue_ranks": {str(k): v for k, v in saved_ranks.items()},
     }
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")

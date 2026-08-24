@@ -142,17 +142,22 @@ def register_video(
     policy: str,
     existing_video_ids: set[str],
     progress: Callable[[str, int, int], None] | None = None,
+    preferred_video_id: str | None = None,
 ) -> tuple[str, VideoMeta]:
     """
     Register one video under pose_projects/<project_id>/videos/<video_id>/.
 
     policy: ``copy`` | ``reference``
+    preferred_video_id: reuse an existing folder id (missing-stub re-link).
     """
     source_path = source_path.resolve()
     if not source_path.is_file():
         raise ValueError(f"Video file not found: {source_path}")
 
-    video_id = slugify_video_id(source_path.stem, existing_video_ids)
+    if preferred_video_id:
+        video_id = preferred_video_id
+    else:
+        video_id = slugify_video_id(source_path.stem, existing_video_ids)
     vdir = pose_video_dir(session_name, project_id, video_id)
     vdir.mkdir(parents=True, exist_ok=True)
 
@@ -210,3 +215,49 @@ def read_video_meta(video_dir: Path) -> VideoMeta | None:
         height=int(d.get("height", 0)),
         source_policy=str(d.get("source_policy", "")),
     )
+
+
+def remove_video_source_files(video_dir: Path) -> list[Path]:
+    """
+    Delete source media / refs under ``video_dir`` (keep arena, labels, models).
+
+    Returns paths that were removed. Leaves ``meta.json`` for re-link matching.
+    """
+    removed: list[Path] = []
+    video_dir = Path(video_dir)
+    if not video_dir.is_dir():
+        return removed
+    patterns = ("source.mp4", "source.ref.json", "source.*")
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for path in video_dir.glob(pattern):
+            if path.suffix.lower() == ".json" and path.name != "source.ref.json":
+                continue
+            if path.name.startswith("meta"):
+                continue
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if path.is_file():
+                path.unlink()
+                removed.append(path)
+    return removed
+
+
+def clear_video_runtime_caches(video_dir: Path) -> None:
+    """Remove playback / pose-scan caches (not labels or models)."""
+    video_dir = Path(video_dir)
+    for name in (
+        "playback_overlay_cache.json",
+        "playback_overlay_cache.npz",
+        "pose_scan_cache.json",
+        "pose_scan_cache.npz",
+        "blob_qc.json",
+    ):
+        path = video_dir / name
+        if path.is_file():
+            path.unlink(missing_ok=True)

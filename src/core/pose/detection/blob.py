@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from core.pose.detection.arena import ArenaConfig, arena_mask
+from core.pose.detection.arena import ArenaConfig, effective_arena_mask
 
 
 @dataclass
@@ -71,6 +71,16 @@ class BlobResult:
     found: bool
 
 
+def mask_bbox_stats(mask: np.ndarray) -> tuple[int, int, int]:
+    """Return (volume_px, length_px, width_px) from a boolean fish mask."""
+    if mask.size == 0 or not mask.any():
+        return 0, 0, 0
+    ys, xs = np.where(mask)
+    fw = int(xs.max() - xs.min() + 1)
+    fh = int(ys.max() - ys.min() + 1)
+    return int(mask.sum()), max(fw, fh), min(fw, fh)
+
+
 def _largest_component(mask: np.ndarray) -> np.ndarray:
     n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
     if n <= 1:
@@ -91,33 +101,43 @@ def _dilate_mask(mask: np.ndarray, padding_px: int, clip_mask: np.ndarray | None
     return dilated
 
 
-def detect_blob_square_crop(
-    frame_bgr: np.ndarray,
-    arena: ArenaConfig,
+def _morph_kernel(size: int) -> np.ndarray | None:
+    if size <= 1:
+        return None
+    return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+
+
+@dataclass
+class BlobDetectionContext:
+    """Reusable arena mask and morphology kernels for a fixed frame size."""
+
+    arena_mask: np.ndarray
+    open_kernel: np.ndarray | None
+    close_kernel: np.ndarray | None
+
+    @classmethod
+    def for_frame(
+        cls,
+        frame_h: int,
+        frame_w: int,
+        arena: ArenaConfig,
+        params: BlobParams,
+    ) -> "BlobDetectionContext":
+        return cls(
+            arena_mask=effective_arena_mask(frame_h, frame_w, arena),
+            open_kernel=_morph_kernel(params.morph_open_size),
+            close_kernel=_morph_kernel(params.morph_close_size),
+        )
+
+
+def _blob_from_fish_mask(
+    fish: np.ndarray,
+    *,
+    h: int,
+    w: int,
     params: BlobParams,
+    clip_mask: np.ndarray,
 ) -> BlobResult:
-    h, w = frame_bgr.shape[:2]
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY) if frame_bgr.ndim == 3 else frame_bgr
-    a_mask = arena_mask(h, w, arena)
-    thresh = cv2.inRange(
-        gray,
-        int(params.brightness_min),
-        int(params.brightness_max),
-    )
-    binary = (thresh > 0) & a_mask
-    if params.morph_open_size > 1:
-        k = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE,
-            (params.morph_open_size, params.morph_open_size),
-        )
-        binary = cv2.morphologyEx(binary.astype(np.uint8), cv2.MORPH_OPEN, k) > 0
-    if params.morph_close_size > 1:
-        k = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE,
-            (params.morph_close_size, params.morph_close_size),
-        )
-        binary = cv2.morphologyEx(binary.astype(np.uint8), cv2.MORPH_CLOSE, k) > 0
-    fish = _largest_component(binary)
     if not fish.any():
         return BlobResult(
             mask=fish,
@@ -130,7 +150,7 @@ def detect_blob_square_crop(
             y1=h,
             found=False,
         )
-    fish = _dilate_mask(fish, params.blob_padding_px, a_mask)
+    fish = _dilate_mask(fish, params.blob_padding_px, clip_mask)
     ys, xs = np.where(fish)
     x0, x1 = int(xs.min()), int(xs.max()) + 1
     y0, y1 = int(ys.min()), int(ys.max()) + 1
@@ -155,3 +175,34 @@ def detect_blob_square_crop(
         y1=sy1,
         found=True,
     )
+
+
+def detect_blob_square_crop(
+    frame_bgr: np.ndarray,
+    arena: ArenaConfig,
+    params: BlobParams,
+) -> BlobResult:
+    h, w = frame_bgr.shape[:2]
+    ctx = BlobDetectionContext.for_frame(h, w, arena, params)
+    return detect_blob_square_crop_ctx(frame_bgr, params, ctx)
+
+
+def detect_blob_square_crop_ctx(
+    frame_bgr: np.ndarray,
+    params: BlobParams,
+    ctx: BlobDetectionContext,
+) -> BlobResult:
+    h, w = frame_bgr.shape[:2]
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY) if frame_bgr.ndim == 3 else frame_bgr
+    thresh = cv2.inRange(
+        gray,
+        int(params.brightness_min),
+        int(params.brightness_max),
+    )
+    binary = (thresh > 0) & ctx.arena_mask
+    if ctx.open_kernel is not None:
+        binary = cv2.morphologyEx(binary.astype(np.uint8), cv2.MORPH_OPEN, ctx.open_kernel) > 0
+    if ctx.close_kernel is not None:
+        binary = cv2.morphologyEx(binary.astype(np.uint8), cv2.MORPH_CLOSE, ctx.close_kernel) > 0
+    fish = _largest_component(binary)
+    return _blob_from_fish_mask(fish, h=h, w=w, params=params, clip_mask=ctx.arena_mask)

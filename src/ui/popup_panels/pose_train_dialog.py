@@ -70,7 +70,7 @@ class PoseJobDialog(FramelessResizeMixin, QDialog):
         bl = QVBoxLayout(body)
         bl.setContentsMargins(14, 12, 14, 14)
 
-        self._phase_lbl = QLabel("Preparing…")
+        self._phase_lbl = QLabel("Training — preparing first epoch…")
         self._phase_lbl.setObjectName("SettingsHintLabel")
         bl.addWidget(self._phase_lbl)
 
@@ -83,12 +83,15 @@ class PoseJobDialog(FramelessResizeMixin, QDialog):
             max_val = max(1, self._total_frames)
             self._progress.setRange(0, max_val)
             if self._auto_label_mode:
-                self._progress.setFormat("Completed %v / %m")
+                self._progress.setFormat("Auto-labeling - %v/%m frames")
             else:
-                self._progress.setFormat("Frame %v / %m")
+                self._progress.setFormat("Analyzing - %v/%m frames")
             self._progress.setValue(0)
         else:
             self._progress.setRange(0, max(1, epochs))
+            self._progress.setFormat("Training Progress - %v/%m Epochs")
+            self._progress.setValue(0)
+            self._progress.setTextVisible(True)
         bl.addWidget(self._progress)
 
         self._loss_plot = TrainingLossPlot()
@@ -215,18 +218,15 @@ class PoseJobDialog(FramelessResizeMixin, QDialog):
                 if total > 0:
                     self._total_frames = total
                     self._progress.setRange(0, total)
-                    self._progress.setFormat("Frame %v / %m")
+                    self._progress.setFormat("Analyzing - %v/%m frames")
                 self._phase_lbl.setText(f"Analyzing video — {total or '?'} frames")
             elif phase == "auto_label":
                 total = int(obj.get("total_frames") or self._total_frames or 0)
-            if total > 0:
-                self._total_frames = total
-                if self._progress.maximum() != total:
-                    self._progress.setRange(0, total)
-                    if self._auto_label_mode:
-                        self._progress.setFormat("Completed %v / %m")
-                    else:
-                        self._progress.setFormat("Frame %v / %m")
+                if total > 0:
+                    self._total_frames = total
+                    if self._progress.maximum() != total:
+                        self._progress.setRange(0, total)
+                    self._progress.setFormat("Auto-labeling - %v/%m frames")
                 self._phase_lbl.setText(f"Auto-labeling — {total or '?'} frames")
             else:
                 self._phase_lbl.setText(f"Phase: {phase}")
@@ -237,9 +237,9 @@ class PoseJobDialog(FramelessResizeMixin, QDialog):
                 self._total_frames = total
                 self._progress.setRange(0, total)
                 if self._auto_label_mode:
-                    self._progress.setFormat("Completed %v / %m")
+                    self._progress.setFormat("Auto-labeling - %v/%m frames")
                 else:
-                    self._progress.setFormat("Frame %v / %m")
+                    self._progress.setFormat("Analyzing - %v/%m frames")
             verb = "Auto-labeling" if self._auto_label_mode else "Analyzing"
             if self._auto_label_mode:
                 self._phase_lbl.setText(f"{verb} — 0 / {total or '?'} completed")
@@ -280,9 +280,9 @@ class PoseJobDialog(FramelessResizeMixin, QDialog):
                 if self._progress.maximum() != total:
                     self._progress.setRange(0, total)
                     if self._auto_label_mode:
-                        self._progress.setFormat("Completed %v / %m")
+                        self._progress.setFormat("Auto-labeling - %v/%m frames")
                     else:
-                        self._progress.setFormat("Frame %v / %m")
+                        self._progress.setFormat("Analyzing - %v/%m frames")
             self._progress.setValue(min(frame, self._progress.maximum()))
             verb = "Auto-labeling" if self._auto_label_mode else "Analyzing"
             if self._auto_label_mode:

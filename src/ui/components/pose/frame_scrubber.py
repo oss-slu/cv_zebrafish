@@ -95,6 +95,9 @@ class FrameScrubber(QWidget):
     def frame_index(self) -> int:
         return int(self._slider.value())
 
+    def is_slider_down(self) -> bool:
+        return bool(self._slider.isSliderDown())
+
     def set_flagged_frames(self, indices: set[int]) -> None:
         self._flagged = set(indices)
         self._update_label()
@@ -110,9 +113,29 @@ class FrameScrubber(QWidget):
         if was_playing:
             self.playback_stopped.emit(self._slider.value())
 
+    def set_scrub_enabled(self, enabled: bool) -> None:
+        """Enable/disable frame scrubbing (independent of Update-for-all)."""
+        on = bool(enabled)
+        self._slider.setEnabled(on)
+        self._prev.setEnabled(on)
+        self._next.setEnabled(on)
+
+    def set_play_enabled(self, enabled: bool) -> None:
+        """Enable/disable Play (typically gated on Update-for-all + overlay cache)."""
+        if not enabled:
+            self.stop_playback()
+        on = bool(enabled)
+        self._play.setEnabled(on)
+        self._fps_spin.setEnabled(on)
+
+    def set_playback_enabled(self, enabled: bool) -> None:
+        """Enable/disable both scrubbing and Play."""
+        self.set_scrub_enabled(enabled)
+        self.set_play_enabled(enabled)
+
     def _on_play_toggled(self, checked: bool) -> None:
         if checked:
-            if self._slider.maximum() <= 0:
+            if not self._play.isEnabled() or self._slider.maximum() <= 0:
                 self.stop_playback()
                 return
             self._playing = True

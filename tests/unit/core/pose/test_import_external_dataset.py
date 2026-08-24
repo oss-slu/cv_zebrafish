@@ -116,6 +116,59 @@ def test_combine_with_external_only(tmp_path, monkeypatch):
     assert prov_path.is_file()
 
 
+def test_combine_ordered_sources_top_wins(tmp_path, monkeypatch):
+    """sources_low_to_high: later keys overwrite earlier on conflicts."""
+    session = "sess"
+    project = "default"
+    video = "vid1"
+
+    def fake_pose_video_dir(s, p, v):
+        return tmp_path / "videos" / v
+
+    def fake_external_dir(s, p, v):
+        return tmp_path / "external_labelled" / v
+
+    def fake_final_dir(s, p, v):
+        return tmp_path / "final_labelled" / v
+
+    def fake_human_dir(s, p, v):
+        return tmp_path / "human_labelled" / v
+
+    def fake_ai_dir(s, p, v):
+        return tmp_path / "ai_labelled" / v
+
+    monkeypatch.setattr("core.pose.dataset.dataset_merge.pose_video_dir", fake_pose_video_dir)
+    monkeypatch.setattr("core.pose.dataset.dataset_merge.external_labelled_dir", fake_external_dir)
+    monkeypatch.setattr("core.pose.dataset.dataset_merge.final_labelled_dir", fake_final_dir)
+    monkeypatch.setattr("core.pose.dataset.dataset_merge.human_labelled_dir", fake_human_dir)
+    monkeypatch.setattr("core.pose.dataset.dataset_merge.ai_labelled_dir", fake_ai_dir)
+
+    _write_video_meta(tmp_path / "videos" / video)
+    ai_dir = tmp_path / "ai_labelled" / video
+    human_dir = tmp_path / "human_labelled" / video
+    ai_dir.mkdir(parents=True)
+    human_dir.mkdir(parents=True)
+    _write_dlc_csv(ai_dir / "tracking.csv", {0: (5.0, 5.0), 1: (6.0, 6.0)})
+    _write_dlc_csv(human_dir / "tracking.csv", {0: (1.0, 2.0)})
+
+    csv_path, prov_path = combine_video_datasets(
+        session,
+        project,
+        video,
+        sources_low_to_high=["ai", "human"],
+    )
+    assert csv_path.is_file()
+    from core.pose.dataset.import_dlc_csv import import_dlc_csv
+
+    merged, _, _ = import_dlc_csv(csv_path)
+    assert merged.get_point(0, "Head") == (1.0, 2.0)
+    assert merged.get_point(1, "Head") == (6.0, 6.0)
+    import json
+
+    prov = json.loads(prov_path.read_text(encoding="utf-8"))
+    assert prov["sources_low_to_high"] == ["ai", "human"]
+
+
 def test_catalog_lists_external(tmp_path, monkeypatch):
     session = "sess"
     project = "default"

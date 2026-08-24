@@ -116,6 +116,7 @@ class LabelFrameQueueWorker(QThread):
                 else:
                     progress.build(cur, tot, "Building diverse frame queue")
 
+            queue_ranks: dict[int, int] = {}
             queue = build_diverse_label_frame_queue(
                 self._frame_count,
                 gap,
@@ -123,6 +124,7 @@ class LabelFrameQueueWorker(QThread):
                 target=self._frames_to_analyze,
                 on_pick=_on_pick,
                 on_build_progress=_on_build,
+                ranks=queue_ranks,
             )
             progress.save("Saving pose scan cache…")
             if self._save_fingerprints or not self._build_from_disk_cache:
@@ -137,6 +139,7 @@ class LabelFrameQueueWorker(QThread):
                     queue=queue,
                     gap=gap,
                     frames_to_analyze=self._frames_to_analyze,
+                    queue_ranks=queue_ranks,
                 )
             else:
                 save_pose_scan_cache(
@@ -151,6 +154,7 @@ class LabelFrameQueueWorker(QThread):
                     gap=gap,
                     frames_to_analyze=self._frames_to_analyze,
                     fingerprints_unchanged=True,
+                    queue_ranks=queue_ranks,
                 )
             progress.done()
             self.finished_ok.emit(queue)

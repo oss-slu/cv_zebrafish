@@ -38,6 +38,7 @@ class PoseSubprocessWorker(QThread):
         use_gpu: bool = False,
         work_dir: Path | None = None,
         skip_create_dataset: bool = False,
+        save_every_n: int = 5,
         parent=None,
     ):
         super().__init__(parent)
@@ -48,6 +49,7 @@ class PoseSubprocessWorker(QThread):
         self._use_gpu = use_gpu
         self._work_dir = work_dir
         self._skip_create_dataset = skip_create_dataset
+        self._save_every_n = max(1, int(save_every_n))
         self._proc: subprocess.Popen | None = None
         self._stop_requested = False
 
@@ -86,6 +88,8 @@ class PoseSubprocessWorker(QThread):
             self._step,
             "--epochs",
             str(self._epochs),
+            "--save-every-n",
+            str(self._save_every_n),
         ]
         if self._use_gpu:
             cmd.append("--gpu")

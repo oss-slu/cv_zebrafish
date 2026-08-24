@@ -28,6 +28,11 @@ def assets_dir() -> Path:
     return project_root() / "assets"
 
 
+def bundled_models_dir() -> Path:
+    """Drop-in pretrained DLC runs copied into empty project ``models/`` dirs."""
+    return assets_dir() / "models"
+
+
 def images_dir() -> Path:
     return assets_dir() / "images"
 
@@ -400,6 +405,7 @@ __all__ = [
     "project_root",
     "src_root",
     "assets_dir",
+    "bundled_models_dir",
     "images_dir",
     "configs_dir",
     "sample_csv_dir",

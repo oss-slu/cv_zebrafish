@@ -5,11 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from core.pose.inference.dlc_heatmap_predictor import (
+    CropHeatmapResult,
     DlcCropHeatmapPredictor,
+    RunnerScoremaps,
     _find_pytorch_config,
     _heatmaps_are_usable,
+    _peak_locref_at_argmax,
+    gaussian_heatmaps_from_coords,
     parse_runner_prediction,
     poses_array_to_coords,
 )
@@ -92,16 +97,73 @@ def test_parse_runner_prediction_legacy_name_keys() -> None:
     assert coords["BF"] == (7.0, 8.0)
 
 
-def test_predict_crop_prefers_parsed_coords_over_zero_scoremaps() -> None:
+def test_peak_locref_at_argmax_interleaved_channels() -> None:
+    maps = np.zeros((2, 4, 4), dtype=np.float32)
+    maps[0, 2, 2] = 0.9
+    maps[1, 1, 1] = 0.8
+    locref = np.zeros((4, 4, 4), dtype=np.float32)
+    locref[0, 2, 2] = 0.25
+    locref[1, 2, 2] = -0.5
+    locref[2, 1, 1] = 1.0
+    locref[3, 1, 1] = 2.0
+    out = _peak_locref_at_argmax(maps, locref, ["Head", "BF"])
+    assert out["Head"][0] == 0.25
+    assert out["Head"][1] == -0.5
+    assert out["BF"][0] == 1.0
+    assert out["BF"][1] == 2.0
+
+
+def test_predict_crop_prefers_raw_scoremaps_over_gaussians() -> None:
     pred = object.__new__(DlcCropHeatmapPredictor)
     pred._bodyparts = ["Head", "BF"]
-    pred._runner = object()
+
+    raw_head = np.zeros((8, 8), dtype=np.float32)
+    raw_head[3, 4] = 0.42
+    raw_bf = np.zeros((8, 8), dtype=np.float32)
+    raw_bf[5, 2] = 0.37
+
+    def _scoremaps(_crop):
+        return RunnerScoremaps(
+            scoremaps={"Head": raw_head, "BF": raw_bf},
+            peak_locref={
+                "Head": np.array([0.1, -0.2], dtype=np.float32),
+                "BF": np.array([0.3, 0.4], dtype=np.float32),
+            },
+        )
+
+    def _coords(_crop, bodyparts):
+        return {bp: (3.0, 4.0) for bp in bodyparts}
+
+    pred._scoremaps_from_runner = _scoremaps  # type: ignore[method-assign]
+    pred._coords_from_runner = _coords  # type: ignore[method-assign]
+
+    crop = np.zeros((16, 16, 3), dtype=np.uint8)
+    result = pred.predict_crop(crop, ["Head", "BF"])
+    assert isinstance(result, CropHeatmapResult)
+    assert _heatmaps_are_usable(result.heatmaps)
+    # Raw scoremap peak — not a tight σ=8 Gaussian (which would max near 1.0).
+    assert float(result.heatmaps["Head"].max()) < 0.5
+    assert float(result.heatmaps["Head"].max()) > 0.2
+    gaussian_peak = float(
+        gaussian_heatmaps_from_coords(16, 16, {"Head": (3.0, 4.0)})["Head"].max()
+    )
+    assert float(result.heatmaps["Head"].max()) < gaussian_peak
+    assert result.peak_locref is not None
+    assert result.peak_locref["Head"][0] == pytest.approx(0.1)
+
+
+def test_predict_crop_falls_back_to_gaussians_when_scoremaps_zero() -> None:
+    pred = object.__new__(DlcCropHeatmapPredictor)
+    pred._bodyparts = ["Head", "BF"]
 
     def _zero_maps(_crop):
-        return {
-            "Head": np.zeros((8, 8), dtype=np.float32),
-            "BF": np.zeros((8, 8), dtype=np.float32),
-        }
+        return RunnerScoremaps(
+            scoremaps={
+                "Head": np.zeros((8, 8), dtype=np.float32),
+                "BF": np.zeros((8, 8), dtype=np.float32),
+            },
+            peak_locref={},
+        )
 
     def _coords(_crop, bodyparts):
         return {bp: (3.0, 4.0) for bp in bodyparts}
@@ -110,18 +172,22 @@ def test_predict_crop_prefers_parsed_coords_over_zero_scoremaps() -> None:
     pred._coords_from_runner = _coords  # type: ignore[method-assign]
 
     crop = np.zeros((16, 16, 3), dtype=np.uint8)
-    maps = pred.predict_crop(crop, ["Head", "BF"])
-    assert _heatmaps_are_usable(maps)
-    assert float(maps["Head"].max()) > 0.5
+    result = pred.predict_crop(crop, ["Head", "BF"])
+    assert _heatmaps_are_usable(result.heatmaps)
+    assert float(result.heatmaps["Head"].max()) > 0.5
+    assert result.peak_locref is None
+    gaussian_only = gaussian_heatmaps_from_coords(16, 16, {"Head": (3.0, 4.0), "BF": (3.0, 4.0)})
+    assert float(result.heatmaps["Head"].max()) == pytest.approx(
+        float(gaussian_only["Head"].max()), rel=1e-3
+    )
 
 
 def test_predict_crop_returns_zeros_when_both_paths_fail() -> None:
     pred = object.__new__(DlcCropHeatmapPredictor)
     pred._bodyparts = ["Head"]
-    pred._runner = object()
     pred._scoremaps_from_runner = lambda _c: None  # type: ignore[method-assign]
     pred._coords_from_runner = lambda _c, bps: {bp: None for bp in bps}  # type: ignore[method-assign]
 
     crop = np.zeros((8, 8, 3), dtype=np.uint8)
-    maps = pred.predict_crop(crop, ["Head"])
-    assert not _heatmaps_are_usable(maps)
+    result = pred.predict_crop(crop, ["Head"])
+    assert not _heatmaps_are_usable(result.heatmaps)

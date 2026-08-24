@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-from PyQt5.QtCore import Qt, QPoint, pyqtSignal
+from PyQt5.QtCore import Qt, QPoint, QRectF, pyqtSignal
 from PyQt5.QtGui import QImage, QPainter, QPen, QColor, QPolygon
 from PyQt5.QtWidgets import QLabel
 
-from core.pose.detection.arena import ArenaConfig, arena_mask, arena_rect_pixels
+from core.pose.detection.arena import (
+    MAIN_ARENA_ID,
+    ArenaConfig,
+    arena_rect_pixels,
+    circle_geometry_pixels,
+    clamp_circle_center,
+    effective_arena_mask,
+)
 from core.pose.detection.blob import BlobParams, BlobResult, detect_blob_square_crop
 from core.pose.cache.playback_blob_cache import PlaybackBlobEntry
+from core.pose.preview.preview_blob import scale_blob_result
 from core.pose.preview.preview_coords import DisplayMapping, wheel_arena_size_delta
 from core.pose.video.video_reader import downscale_frame
 
@@ -48,7 +56,46 @@ class PosePreviewWidget(QLabel):
         self._last_mapping = DisplayMapping(0, 0, 0, 0, 0, 0, 0, 0)
         self._playback_mode = False
         self._playback_entry: PlaybackBlobEntry | None = None
+        self._bare_frame = False
         self._last_paint_size: tuple[int, int] | None = None
+        self._active_region_id = MAIN_ARENA_ID
+        self._exclusion_edit_cfg: ArenaConfig | None = None
+        self._exclusion_edit_cfg_id: str | None = None
+
+    def set_active_arena_region(self, region_id: str) -> None:
+        self._active_region_id = region_id or MAIN_ARENA_ID
+        self._exclusion_edit_cfg = None
+        self._exclusion_edit_cfg_id = None
+        self._paint()
+
+    def _editing_cfg(self) -> ArenaConfig:
+        if (
+            self._active_region_id == MAIN_ARENA_ID
+            or not self._arena.exclude_mode
+        ):
+            return self._arena
+        for ex in self._arena.exclusions:
+            if ex.id == self._active_region_id:
+                if (
+                    self._exclusion_edit_cfg is None
+                    or self._exclusion_edit_cfg_id != ex.id
+                ):
+                    self._exclusion_edit_cfg = ex.to_arena_config()
+                    self._exclusion_edit_cfg_id = ex.id
+                return self._exclusion_edit_cfg
+        return self._arena
+
+    def _commit_editing_cfg(self) -> None:
+        if (
+            self._active_region_id == MAIN_ARENA_ID
+            or not self._arena.exclude_mode
+            or self._exclusion_edit_cfg is None
+        ):
+            return
+        for ex in self._arena.exclusions:
+            if ex.id == self._active_region_id:
+                ex.apply_from_arena_config(self._exclusion_edit_cfg)
+                break
 
     def set_arena_editable(self, enabled: bool) -> None:
         self._arena_editable = enabled
@@ -59,11 +106,14 @@ class PosePreviewWidget(QLabel):
 
     def set_blob_enabled(self, enabled: bool) -> None:
         self._blob_enabled = bool(enabled)
+        self._bare_frame = False
         self._recompute_blob()
         self._paint()
 
     def set_dim_outside_arena(self, enabled: bool) -> None:
         self._dim_outside_arena = bool(enabled)
+        if enabled:
+            self._bare_frame = False
         self._paint()
 
     def set_playback_mode(self, enabled: bool) -> None:
@@ -79,9 +129,11 @@ class PosePreviewWidget(QLabel):
         blob: BlobResult | None = None,
         playback_entry: PlaybackBlobEntry | None = None,
         playback: bool = False,
+        bare: bool = False,
     ) -> None:
-        self._playback_mode = playback
-        self._playback_entry = playback_entry
+        self._playback_mode = playback and not bare
+        self._playback_entry = None if bare else playback_entry
+        self._bare_frame = bool(bare)
         self._frame_bgr_source = frame
         display = frame
         self._display_scale = 1.0
@@ -95,7 +147,9 @@ class PosePreviewWidget(QLabel):
         if frame is not None and self._arena.is_rectangle():
             fh, fw = frame.shape[:2]
             self._arena.ensure_explicit_rect(fw, fh)
-        if blob is not None:
+        if bare:
+            self._blob = None
+        elif blob is not None:
             self._blob = blob
         elif update_blob:
             self._recompute_blob()
@@ -114,12 +168,14 @@ class PosePreviewWidget(QLabel):
         self._arena_at_drag_start = None
         self._playback_mode = False
         self._playback_entry = None
+        self._bare_frame = False
         self._last_paint_size = None
         QLabel.clear(self)
         self.setText("No frame")
 
     def set_arena(self, arena: ArenaConfig) -> None:
         self._arena = arena
+        self._bare_frame = False
         if self._frame_bgr is not None and self._arena.is_rectangle():
             fh, fw = self._frame_bgr.shape[:2]
             self._arena.ensure_explicit_rect(fw, fh)
@@ -128,6 +184,7 @@ class PosePreviewWidget(QLabel):
 
     def set_blob_params(self, params: BlobParams) -> None:
         self._blob_params = params
+        self._bare_frame = False
         self._recompute_blob()
         self._paint()
 
@@ -143,29 +200,39 @@ class PosePreviewWidget(QLabel):
         h, w = self._frame_bgr.shape[:2]
         return w, h
 
-    def _rect_bounds_px(self) -> tuple[int, int, int, int]:
+    def _rect_bounds_px(self, cfg: ArenaConfig | None = None) -> tuple[int, int, int, int]:
         w, h = self._frame_size()
-        return arena_rect_pixels(h, w, self._arena)
+        return arena_rect_pixels(h, w, cfg or self._editing_cfg())
 
     def _edge_threshold_px(self, x0: int, y0: int, x1: int, y1: int) -> float:
         side = max(1.0, min(x1 - x0, y1 - y0))
         return max(10.0, side * self._EDGE_HIT_FRAC)
 
-    def _hit_circle_center(self, nx: float, ny: float) -> bool:
-        if self._frame_bgr is None or self._arena.shape != "circle":
-            return False
+    def _pick_circle_drag_mode(self, nx: float, ny: float, cfg: ArenaConfig | None = None) -> str | None:
+        """Interior = move; narrow outer ring = resize."""
+        cfg = cfg or self._editing_cfg()
+        if self._frame_bgr is None or cfg.shape != "circle":
+            return None
         w, h = self._frame_size()
         min_edge = min(h, w)
-        cx = self._arena.center_x * w
-        cy = self._arena.center_y * h
-        half = self._arena.size * min_edge / 2.0
-        thresh = max(12.0, half * 0.12)
+        cx = cfg.center_x * w
+        cy = cfg.center_y * h
+        half = cfg.size * min_edge / 2.0
+        if half <= 1.0:
+            return "move"
         dx = nx * w - cx
         dy = ny * h - cy
-        return (dx * dx + dy * dy) ** 0.5 <= thresh
+        dist = (dx * dx + dy * dy) ** 0.5
+        edge_band = max(10.0, half * 0.15)
+        if dist <= max(0.0, half - edge_band):
+            return "move"
+        if dist <= half + edge_band:
+            return "circle_resize"
+        return None
 
-    def _pick_rectangle_drag_mode(self, nx: float, ny: float) -> str | None:
-        if self._frame_bgr is None or not self._arena.is_rectangle():
+    def _pick_rectangle_drag_mode(self, nx: float, ny: float, cfg: ArenaConfig | None = None) -> str | None:
+        cfg = cfg or self._editing_cfg()
+        if self._frame_bgr is None or not cfg.is_rectangle():
             return None
         w, h = self._frame_size()
         fx, fy = nx * w, ny * h
@@ -215,6 +282,7 @@ class PosePreviewWidget(QLabel):
     def _apply_rectangle_drag(self, nx: float, ny: float) -> None:
         assert self._arena_at_drag_start is not None
         start = self._arena_at_drag_start
+        target = self._editing_cfg()
         w, h = self._frame_size()
         sx0 = start.rect_x
         sy0 = start.rect_y
@@ -225,55 +293,63 @@ class PosePreviewWidget(QLabel):
         if mode == "move":
             dx = nx - (self._drag_start_norm or (0, 0))[0]
             dy = ny - (self._drag_start_norm or (0, 0))[1]
-            self._arena.rect_x = max(0.0, min(1.0 - sw, sx0 + dx))
-            self._arena.rect_y = max(0.0, min(1.0 - sh, sy0 + dy))
+            target.rect_x = max(0.0, min(1.0 - sw, sx0 + dx))
+            target.rect_y = max(0.0, min(1.0 - sh, sy0 + dy))
         elif mode == "resize_l":
             x1 = sx0 + sw
             new_x = max(0.0, min(x1 - min_f, nx))
-            self._arena.rect_x = new_x
-            self._arena.rect_w = max(min_f, x1 - new_x)
+            target.rect_x = new_x
+            target.rect_w = max(min_f, x1 - new_x)
         elif mode == "resize_r":
-            self._arena.rect_w = max(min_f, min(1.0 - sx0, nx - sx0))
+            target.rect_w = max(min_f, min(1.0 - sx0, nx - sx0))
         elif mode == "resize_t":
             y1 = sy0 + sh
             new_y = max(0.0, min(y1 - min_f, ny))
-            self._arena.rect_y = new_y
-            self._arena.rect_h = max(min_f, y1 - new_y)
+            target.rect_y = new_y
+            target.rect_h = max(min_f, y1 - new_y)
         elif mode == "resize_b":
-            self._arena.rect_h = max(min_f, min(1.0 - sy0, ny - sy0))
+            target.rect_h = max(min_f, min(1.0 - sy0, ny - sy0))
         elif mode == "resize_tl":
             x1, y1 = sx0 + sw, sy0 + sh
             new_x = max(0.0, min(x1 - min_f, nx))
             new_y = max(0.0, min(y1 - min_f, ny))
-            self._arena.rect_x = new_x
-            self._arena.rect_y = new_y
-            self._arena.rect_w = max(min_f, x1 - new_x)
-            self._arena.rect_h = max(min_f, y1 - new_y)
+            target.rect_x = new_x
+            target.rect_y = new_y
+            target.rect_w = max(min_f, x1 - new_x)
+            target.rect_h = max(min_f, y1 - new_y)
         elif mode == "resize_tr":
             y1 = sy0 + sh
             new_y = max(0.0, min(y1 - min_f, ny))
-            self._arena.rect_y = new_y
-            self._arena.rect_w = max(min_f, min(1.0 - sx0, nx - sx0))
-            self._arena.rect_h = max(min_f, y1 - new_y)
+            target.rect_y = new_y
+            target.rect_w = max(min_f, min(1.0 - sx0, nx - sx0))
+            target.rect_h = max(min_f, y1 - new_y)
         elif mode == "resize_bl":
             x1 = sx0 + sw
             new_x = max(0.0, min(x1 - min_f, nx))
-            self._arena.rect_x = new_x
-            self._arena.rect_w = max(min_f, x1 - new_x)
-            self._arena.rect_h = max(min_f, min(1.0 - sy0, ny - sy0))
+            target.rect_x = new_x
+            target.rect_w = max(min_f, x1 - new_x)
+            target.rect_h = max(min_f, min(1.0 - sy0, ny - sy0))
         elif mode == "resize_br":
-            self._arena.rect_w = max(min_f, min(1.0 - sx0, nx - sx0))
-            self._arena.rect_h = max(min_f, min(1.0 - sy0, ny - sy0))
-        self._arena.uses_rect = True
-        self._arena.clamp_rectangle()
+            target.rect_w = max(min_f, min(1.0 - sx0, nx - sx0))
+            target.rect_h = max(min_f, min(1.0 - sy0, ny - sy0))
+        target.uses_rect = True
+        target.clamp_rectangle()
+        self._commit_editing_cfg()
 
     def _recompute_blob(self) -> None:
         if self._frame_bgr is None or not self._blob_enabled:
             self._blob = None
             return
-        self._blob = detect_blob_square_crop(
-            self._frame_bgr, self._arena, self._blob_params
+        source = (
+            self._frame_bgr_source
+            if self._frame_bgr_source is not None
+            else self._frame_bgr
         )
+        blob = detect_blob_square_crop(source, self._arena, self._blob_params)
+        if self._display_scale != 1.0:
+            h, w = self._frame_bgr.shape[:2]
+            blob = scale_blob_result(blob, self._display_scale, h, w)
+        self._blob = blob
 
     def _apply_mask_tint(self, disp: np.ndarray, h: int, w: int) -> None:
         if not self._blob_enabled or not self._show_mask or self._blob is None or not self._blob.found:
@@ -342,13 +418,24 @@ class PosePreviewWidget(QLabel):
             self.setText("No frame")
             return
         h, w = self._frame_bgr.shape[:2]
+        if self._bare_frame:
+            rgb = cv2.cvtColor(self._frame_bgr, cv2.COLOR_BGR2RGB)
+            qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+            from PyQt5.QtGui import QPixmap
+
+            pix = QPixmap.fromImage(qimg)
+            self._last_mapping = self._mapping()
+            target = self.size()
+            self.setPixmap(pix.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self._last_paint_size = (target.width(), target.height())
+            return
         needs_copy = (
             (not self._playback_mode and self._dim_outside_arena)
             or (self._blob_enabled and self._show_mask and self._blob_has_mask())
         )
         disp = self._frame_bgr.copy() if needs_copy else self._frame_bgr
         if not self._playback_mode and self._dim_outside_arena:
-            mask = arena_mask(h, w, self._arena)
+            mask = effective_arena_mask(h, w, self._arena)
             outside = ~mask
             disp[outside] = (disp[outside].astype(np.float32) * 0.28).astype(np.uint8)
         if self._blob_enabled and self._show_mask and self._blob_has_mask():
@@ -360,16 +447,7 @@ class PosePreviewWidget(QLabel):
         pix = QPixmap.fromImage(qimg)
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing)
-        pen_arena = QPen(QColor(80, 160, 255), 2)
-        painter.setPen(pen_arena)
-        if self._arena.shape == "circle":
-            x0, y0, x1, y1 = arena_rect_pixels(h, w, self._arena)
-            cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
-            half = (x1 - x0) / 2.0
-            painter.drawEllipse(int(cx - half), int(cy - half), int(2 * half), int(2 * half))
-        else:
-            x0, y0, x1, y1 = arena_rect_pixels(h, w, self._arena)
-            painter.drawRect(x0, y0, x1 - x0, y1 - y0)
+        self._draw_all_arena_regions(painter, h, w)
         if self._playback_mode:
             if self._blob_enabled:
                 if self._blob_has_mask():
@@ -395,6 +473,51 @@ class PosePreviewWidget(QLabel):
             self.setPixmap(pix.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self._last_paint_size = (target.width(), target.height())
 
+    def _draw_arena_region(
+        self,
+        painter: QPainter,
+        h: int,
+        w: int,
+        cfg: ArenaConfig,
+        *,
+        active: bool,
+        exclusion: bool,
+    ) -> None:
+        base = QColor(255, 140, 80) if exclusion else QColor(80, 160, 255)
+        color = QColor(base)
+        color.setAlpha(255 if active else 90)
+        pen = QPen(color, 2 if active else 1)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        if cfg.shape == "circle":
+            cx, cy, radius = circle_geometry_pixels(h, w, cfg)
+            diameter = 2.0 * radius
+            painter.drawEllipse(QRectF(cx - radius, cy - radius, diameter, diameter))
+        else:
+            x0, y0, x1, y1 = arena_rect_pixels(h, w, cfg)
+            painter.drawRect(x0, y0, x1 - x0, y1 - y0)
+
+    def _draw_all_arena_regions(self, painter: QPainter, h: int, w: int) -> None:
+        active_id = self._active_region_id if self._arena.exclude_mode else MAIN_ARENA_ID
+        regions: list[tuple[str, ArenaConfig, bool]] = [
+            (MAIN_ARENA_ID, self._arena, False),
+        ]
+        if self._arena.exclude_mode:
+            for ex in self._arena.exclusions:
+                regions.append((ex.id, ex.to_arena_config(), True))
+        for region_id, cfg, is_exclusion in regions:
+            if region_id == active_id:
+                continue
+            self._draw_arena_region(
+                painter, h, w, cfg, active=False, exclusion=is_exclusion
+            )
+        for region_id, cfg, is_exclusion in regions:
+            if region_id != active_id:
+                continue
+            self._draw_arena_region(
+                painter, h, w, cfg, active=True, exclusion=is_exclusion
+            )
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if not self._playback_mode:
@@ -408,19 +531,16 @@ class PosePreviewWidget(QLabel):
         if norm is None:
             return
         nx, ny = norm
-        mode: str | None = None
-        if self._arena.shape == "circle":
-            if self._hit_circle_center(nx, ny):
-                mode = "move"
-            else:
-                mode = "circle_resize"
+        cfg = self._editing_cfg()
+        if cfg.shape == "circle":
+            mode = self._pick_circle_drag_mode(nx, ny, cfg)
         else:
-            mode = self._pick_rectangle_drag_mode(nx, ny)
+            mode = self._pick_rectangle_drag_mode(nx, ny, cfg)
         if mode is None:
             return
         self._drag_mode = mode
         self._drag_start_norm = (nx, ny)
-        self._arena_at_drag_start = self._arena.clone()
+        self._arena_at_drag_start = cfg.clone()
         self.setCursor(
             Qt.ClosedHandCursor if mode == "move" else self._cursor_for_drag_mode(mode)
         )
@@ -432,22 +552,31 @@ class PosePreviewWidget(QLabel):
             if norm is None:
                 return
             nx, ny = norm
-            if self._arena.shape == "circle":
+            cfg = self._editing_cfg()
+            if cfg.shape == "circle":
                 if self._drag_mode == "move":
                     dx = nx - self._drag_start_norm[0]
                     dy = ny - self._drag_start_norm[1]
-                    self._arena.center_x = max(0.05, min(0.95, self._arena_at_drag_start.center_x + dx))
-                    self._arena.center_y = max(0.05, min(0.95, self._arena_at_drag_start.center_y + dy))
+                    w, h = self._frame_size()
+                    new_x = self._arena_at_drag_start.center_x + dx
+                    new_y = self._arena_at_drag_start.center_y + dy
+                    cfg.center_x, cfg.center_y = clamp_circle_center(
+                        new_x, new_y, self._arena_at_drag_start.size, w, h
+                    )
+                    cfg.size = self._arena_at_drag_start.size
                 elif self._drag_mode == "circle_resize":
                     w, h = self._frame_size()
                     min_edge = min(h, w)
-                    cx = self._arena_at_drag_start.center_x * w
-                    cy = self._arena_at_drag_start.center_y * h
+                    cfg.center_x = self._arena_at_drag_start.center_x
+                    cfg.center_y = self._arena_at_drag_start.center_y
+                    cx = cfg.center_x * w
+                    cy = cfg.center_y * h
                     fx, fy = nx * w, ny * h
                     half_px = max(abs(fx - cx), abs(fy - cy))
-                    self._arena.size = max(0.1, min(1.0, (2.0 * half_px) / min_edge))
+                    cfg.size = max(0.1, min(1.0, (2.0 * half_px) / min_edge))
             else:
                 self._apply_rectangle_drag(nx, ny)
+            self._commit_editing_cfg()
             self._recompute_blob()
             self._paint()
             self.arena_changed.emit(self._arena)
@@ -456,10 +585,11 @@ class PosePreviewWidget(QLabel):
         if self._arena_editable and self._frame_bgr is not None:
             norm = self._last_mapping.widget_to_normalized(event.x(), event.y())
             if norm:
-                if self._arena.shape == "circle":
-                    mode = "move" if self._hit_circle_center(norm[0], norm[1]) else "circle_resize"
+                cfg = self._editing_cfg()
+                if cfg.shape == "circle":
+                    mode = self._pick_circle_drag_mode(norm[0], norm[1], cfg)
                 else:
-                    mode = self._pick_rectangle_drag_mode(norm[0], norm[1])
+                    mode = self._pick_rectangle_drag_mode(norm[0], norm[1], cfg)
                 self.setCursor(self._cursor_for_drag_mode(mode))
             else:
                 self.setCursor(Qt.ArrowCursor)
@@ -476,9 +606,11 @@ class PosePreviewWidget(QLabel):
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event) -> None:
-        if self._arena_editable and self._frame_bgr is not None and self._arena.shape == "circle":
+        cfg = self._editing_cfg()
+        if self._arena_editable and self._frame_bgr is not None and cfg.shape == "circle":
             delta = wheel_arena_size_delta(event.angleDelta().y())
-            self._arena.size = max(0.1, min(1.0, self._arena.size + delta))
+            cfg.size = max(0.1, min(1.0, cfg.size + delta))
+            self._commit_editing_cfg()
             self._recompute_blob()
             self._paint()
             self.arena_changed.emit(self._arena)

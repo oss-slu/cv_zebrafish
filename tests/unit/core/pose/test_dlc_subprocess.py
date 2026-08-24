@@ -97,13 +97,16 @@ def test_snapshot_keep_count():
     assert snapshot_keep_count(47) == 10
     assert snapshot_keep_count(5) == 1
     assert snapshot_keep_count(1) == 1
+    assert snapshot_keep_count(50, save_every_n=10) == 5
+    assert snapshot_keep_count(47, save_every_n=3) == 16
 
 
 def test_should_skip_create_training_dataset_when_resuming(tmp_path: Path):
     work_dir = tmp_path / "dlc_work"
-    train_dir = work_dir / "dlc-models-pytorch" / "iteration-0" / "model" / "train"
+    train_dir = work_dir / "dlc-models-pytorch" / "iteration-0" / "model-trainset95shuffle1" / "train"
     train_dir.mkdir(parents=True)
     (train_dir / "pytorch_config.yaml").write_text("engine: pytorch\n", encoding="utf-8")
+    (work_dir / "config.yaml").write_text("TrainingFraction: [0.95]\n", encoding="utf-8")
     stats = train_dir.parent / "learning_stats.csv"
     stats.write_text(
         "step,losses/train.total_loss\n"
@@ -116,10 +119,44 @@ def test_should_skip_create_training_dataset_when_resuming(tmp_path: Path):
     assert read_training_progress(work_dir) == (10, 0.12)
 
 
+def test_should_not_skip_when_training_fraction_changed(tmp_path: Path):
+    """Old 95% artifacts must not skip create after config moves to 80/20."""
+    from core.pose.training.dlc_subprocess import has_shuffle_for_fraction
+
+    work_dir = tmp_path / "dlc_work"
+    train_dir = (
+        work_dir / "dlc-models-pytorch" / "iteration-0" / "model-trainset95shuffle1" / "train"
+    )
+    train_dir.mkdir(parents=True)
+    (train_dir / "pytorch_config.yaml").write_text("engine: pytorch\n", encoding="utf-8")
+    (work_dir / "config.yaml").write_text("TrainingFraction: [0.8]\n", encoding="utf-8")
+    stats = train_dir.parent / "learning_stats.csv"
+    stats.write_text(
+        "step,losses/train.total_loss\n"
+        "10,0.12\n",
+        encoding="utf-8",
+    )
+    assert has_training_dataset(work_dir)
+    assert not has_shuffle_for_fraction(work_dir, 0.8)
+    assert not should_skip_create_training_dataset(work_dir)
+
+
 def test_should_not_skip_create_training_dataset_without_progress(tmp_path: Path):
     work_dir = tmp_path / "dlc_work"
-    train_dir = work_dir / "training-datasets" / "iteration-0"
-    train_dir.mkdir(parents=True)
+    # Empty shuffle metadata must not count as a usable dataset (forces rebuild).
+    meta_dir = work_dir / "training-datasets" / "iteration-0" / "UnaugmentedDataSet"
+    meta_dir.mkdir(parents=True)
+    (meta_dir / "metadata.yaml").write_text(
+        "# auto\n---\nshuffles: {}\n", encoding="utf-8"
+    )
+    assert not has_training_dataset(work_dir)
+    assert not should_skip_create_training_dataset(work_dir)
+
+    # Non-empty shuffle metadata counts, but without progress we still rebuild.
+    (meta_dir / "metadata.yaml").write_text(
+        "# auto\n---\nshuffles:\n  1:\n    train_fraction: 0.95\n",
+        encoding="utf-8",
+    )
     assert has_training_dataset(work_dir)
     assert not should_skip_create_training_dataset(work_dir)
 

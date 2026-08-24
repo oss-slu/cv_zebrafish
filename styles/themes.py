@@ -271,6 +271,11 @@ def apply_theme(app, theme):
             border: 1px solid {line};
             border-radius: 6px;
         }}
+        QWidget#ArenaRegionList QScrollArea#ArenaRegionScroll {{
+            background-color: {pm};
+            border: 1px solid {line};
+            border-radius: 6px;
+        }}
         QWidget#BodypartLabelList QPushButton#SchemaPointButton {{
             text-align: left;
             padding: 6px 8px;
@@ -479,6 +484,126 @@ def apply_theme(app, theme):
             background-color: {gv_tab_bg};
             color: {tmu};
         }}
+
+        /* Pose Studio overhaul chrome (scene shells) */
+        QWidget#PoseContextBar {{
+            background-color: {pc};
+            border-bottom: 1px solid {line};
+        }}
+        QLabel#PoseContextStage {{
+            color: {tmu};
+            font-size: 10pt;
+        }}
+        QLabel#PoseContextSep {{
+            color: {tmu};
+        }}
+        QLabel#PoseContextChip {{
+            color: {tx};
+            padding: 2px 8px;
+            border-radius: 4px;
+            background-color: {cb};
+        }}
+        QLabel#PoseContextChip:hover,
+        QLabel#PoseContextChip[hovered="true"] {{
+            background-color: {gv_tab_hover_bg};
+            color: {gv_tab_hover_fg};
+        }}
+        QLabel#PoseContextChip[active="true"] {{
+            background-color: {accent};
+            color: #ffffff;
+        }}
+        QLabel#PoseContextChip[active="true"]:hover,
+        QLabel#PoseContextChip[active="true"][hovered="true"] {{
+            background-color: {accent};
+            color: #ffffff;
+        }}
+        QDialog#BriefBusyDialog {{
+            background-color: {pc};
+            border: 1px solid {line};
+            border-radius: 8px;
+        }}
+        QLabel#BriefBusyLabel {{
+            color: {tx};
+            font-size: 10pt;
+        }}
+        QProgressBar#BriefBusyBar {{
+            background-color: {cb};
+            border: none;
+            border-radius: 3px;
+        }}
+        QProgressBar#BriefBusyBar::chunk {{
+            background-color: {accent};
+            border-radius: 3px;
+        }}
+        QFrame#PoseSceneSide {{
+            background-color: {pc};
+            border-right: 1px solid {line};
+        }}
+        QSplitter#PoseSceneSplitter::handle:horizontal {{
+            background-color: {line};
+            width: 10px;
+            margin: 0px;
+        }}
+        QSplitter#PoseSceneSplitter::handle:horizontal:hover {{
+            background-color: {accent};
+        }}
+        QFrame#PoseSceneMain {{
+            background-color: {pm};
+        }}
+        QFrame#PoseSceneAdvanced {{
+            background-color: {pc};
+            border-top: 1px solid {line};
+        }}
+        QPushButton[needsAttention="true"] {{
+            border: 2px dotted {accent};
+        }}
+        QLabel#PoseSceneTitle {{
+            color: {tx};
+            font-size: 13pt;
+            font-weight: bold;
+        }}
+        QLabel#PoseSceneBody {{
+            color: {tmu};
+        }}
+
+        /* Label scene timeline: Auto + frame nav — clear idle / pressed / toggled states */
+        QToolButton#LabelPrevBtn,
+        QToolButton#LabelNextBtn,
+        QToolButton#LabelAutoBtn {{
+            background-color: {cb};
+            color: {btxt};
+            border: 1px solid {line};
+            border-radius: 6px;
+            padding: 6px 12px;
+            min-width: 36px;
+            min-height: 28px;
+        }}
+        QToolButton#LabelPrevBtn:hover,
+        QToolButton#LabelNextBtn:hover,
+        QToolButton#LabelAutoBtn:hover:!checked {{
+            background-color: {gv_tab_hover_bg};
+            border: 1px solid {accent};
+            color: {gv_tab_hover_fg};
+        }}
+        QToolButton#LabelPrevBtn:pressed,
+        QToolButton#LabelNextBtn:pressed,
+        QToolButton#LabelAutoBtn:pressed {{
+            background-color: {cb};
+            color: {btxt};
+            border: 2px solid {accent};
+        }}
+        QToolButton#LabelAutoBtn:checked {{
+            background-color: {cb};
+            color: {btxt};
+            border: 2px solid {accent};
+            font-weight: bold;
+        }}
+        QToolButton#LabelAutoBtn:checked:hover {{
+            background-color: {gv_tab_hover_bg};
+            color: {gv_tab_hover_fg};
+            border: 2px solid {accent};
+        }}
+
         QWidget#WorkspaceMain QProgressBar#LoadingOverlayBar {{
             max-width: 360px;
             margin-left: auto;

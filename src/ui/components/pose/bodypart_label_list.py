@@ -344,9 +344,12 @@ class BodypartLabelList(QWidget):
         tools.addWidget(self._bone_btn)
         points_section_lay.addLayout(tools)
 
-        self._clear_btn = QPushButton("Clear all points")
-        self._clear_btn.clicked.connect(self.clear_all_requested.emit)
-        points_section_lay.addWidget(self._clear_btn)
+        self._clear_all_btn = QPushButton("Clear all")
+        self._clear_all_btn.setObjectName("SchemaClearAllButton")
+        self._clear_all_btn.setToolTip("Remove all bodyparts and labels")
+        self._clear_all_btn.setVisible(False)
+        self._clear_all_btn.clicked.connect(self.clear_all_requested.emit)
+        points_section_lay.addWidget(self._clear_all_btn)
 
         bones_section = QWidget()
         bones_section.setObjectName("SchemaBonesSection")
@@ -375,8 +378,10 @@ class BodypartLabelList(QWidget):
         panel_splitter.addWidget(points_section)
         panel_splitter.addWidget(bones_section)
         panel_splitter.setStretchFactor(0, 3)
-        panel_splitter.setStretchFactor(1, 1)
-        panel_splitter.setSizes([420, 140])
+        panel_splitter.setStretchFactor(1, 2)
+        panel_splitter.setSizes([480, 280])
+        points_scroll.setMinimumHeight(220)
+        bones_scroll.setMinimumHeight(180)
         root.addWidget(panel_splitter, stretch=1)
 
         self._pulse_timer = QTimer(self)
@@ -583,6 +588,10 @@ class BodypartLabelList(QWidget):
             self._clear_point_selection()
             if self._selected_name and self._selected_name in self._point_rows:
                 self._point_rows[self._selected_name].set_selected(True)
+
+    def set_clear_all_visible(self, visible: bool) -> None:
+        """Show the Clear all button (e.g. Verify Labels tab)."""
+        self._clear_all_btn.setVisible(visible)
 
     def select_bodypart(self, name: str | None) -> None:
         if not name:

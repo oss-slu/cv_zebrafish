@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -125,9 +126,29 @@ def run_probe_gpu() -> None:
 def run_create_training_dataset(job: dict) -> None:
     emit({"type": "phase", "phase": "create_training_dataset"})
     config_path = job["config_path"]
+    work_dir = Path(job["work_dir"])
     scorer = job.get("scorer", "pose_studio")
     if try_import_dlc():
         import deeplabcut as dlc
+
+        from core.pose.training.dlc_subprocess import (
+            clear_training_datasets,
+            has_shuffle_for_fraction,
+            read_config_training_fraction,
+        )
+
+        frac = read_config_training_fraction(work_dir)
+        if frac is not None and not has_shuffle_for_fraction(work_dir, frac):
+            emit(
+                {
+                    "type": "status",
+                    "message": (
+                        f"Rebuilding training dataset for train fraction {frac:g} "
+                        "(no matching shuffle on disk yet)…"
+                    ),
+                }
+            )
+            clear_training_datasets(work_dir)
 
         emit(
             {
@@ -147,9 +168,40 @@ def run_create_training_dataset(job: dict) -> None:
                 "DLC could not build a training dataset from the prepared labels. "
                 "Re-run Prepare training bundle, then try training again."
             )
+        if not _shuffle_artifacts_ready(work_dir):
+            raise ValueError(
+                "DLC created a training-datasets folder but no shuffle (empty metadata). "
+                "This usually means multiple videos share the same filename (e.g. source.mp4). "
+                "Re-prepare the training bundle so each video gets a unique DLC stem, then train again."
+            )
         emit({"type": "status", "message": "Training dataset created (DLC)."})
     else:
         emit({"type": "status", "message": "Skipped create_training_dataset (deeplabcut not installed)."})
+
+
+def _shuffle_artifacts_ready(work_dir: Path) -> bool:
+    """True when DLC wrote a non-empty shuffle (not ``shuffles: {}``) or a train folder."""
+    if list(work_dir.glob("dlc-models-pytorch/**/train")):
+        return True
+    for meta_path in work_dir.glob("training-datasets/**/metadata.yaml"):
+        try:
+            text = meta_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(text) or {}
+            shuffles = data.get("shuffles")
+            if isinstance(shuffles, dict) and shuffles:
+                return True
+            if isinstance(shuffles, list) and shuffles:
+                return True
+        except Exception:
+            compact = re.sub(r"\s+", "", text)
+            if "shuffles:" in compact and "shuffles:{}" not in compact:
+                return True
+    return False
 
 
 def _emit_epoch_progress(
@@ -173,7 +225,7 @@ def _emit_epoch_progress(
     emit(payload)
 
 
-def run_train(job: dict, epochs: int, use_gpu: bool) -> None:
+def run_train(job: dict, epochs: int, use_gpu: bool, *, save_every_n: int = SNAPSHOT_SAVE_EPOCHS) -> None:
     emit({"type": "phase", "phase": "train", "total_epochs": epochs, "use_gpu": use_gpu})
     work_dir = Path(job["work_dir"])
     config_path = job["config_path"]
@@ -196,8 +248,9 @@ def run_train(job: dict, epochs: int, use_gpu: bool) -> None:
             {
                 "type": "status",
                 "message": (
-                    f"Saving weight checkpoints every {SNAPSHOT_SAVE_EPOCHS} epochs "
-                    f"(up to {snapshot_keep_count(epochs)} kept, plus best-by-validation)."
+                    f"Saving weight checkpoints every {save_every_n} epochs "
+                    f"(up to {snapshot_keep_count(epochs, save_every_n=save_every_n)} kept, "
+                    "plus best-by-validation)."
                 ),
             }
         )
@@ -276,18 +329,24 @@ def run_train(job: dict, epochs: int, use_gpu: bool) -> None:
         t.start()
 
         def run_dlc_train() -> None:
-            gputouse = 0 if device is not None else None
-            # YAML often has display_iters: 0; DLC uses it as a modulo divisor and crashes.
-            dlc.train_network(
-                config_path,
-                epochs=epochs,
-                save_epochs=SNAPSHOT_SAVE_EPOCHS,
-                max_snapshots_to_keep=snapshot_keep_count(epochs),
-                display_iters=500,
-                device=device,
-                gputouse=gputouse,
-            )
+            try:
+                gputouse = 0 if device is not None else None
+                # YAML often has display_iters: 0; DLC uses it as a modulo divisor and crashes.
+                dlc.train_network(
+                    config_path,
+                    epochs=epochs,
+                    save_epochs=save_every_n,
+                    max_snapshots_to_keep=snapshot_keep_count(
+                        epochs, save_every_n=save_every_n
+                    ),
+                    display_iters=500,
+                    device=device,
+                    gputouse=gputouse,
+                )
+            except Exception as exc:  # noqa: BLE001 — surface to UI via process exit
+                train_errors.append(exc)
 
+        train_errors: list[BaseException] = []
         train_thread = threading.Thread(target=run_dlc_train, daemon=True)
         train_thread.start()
         try:
@@ -299,6 +358,8 @@ def run_train(job: dict, epochs: int, use_gpu: bool) -> None:
             stop.set()
             t.join(timeout=2.0)
             train_thread.join(timeout=1.0)
+        if train_errors:
+            raise train_errors[0]
         from core.pose.training.model_registry import archive_completed_training
 
         record = archive_completed_training(job, epochs=epochs)
@@ -587,6 +648,12 @@ def main() -> int:
         choices=["create_training_dataset", "train", "analyze", "auto_label", "pipeline", "dry_run", "probe_gpu"],
     )
     parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument(
+        "--save-every-n",
+        type=int,
+        default=SNAPSHOT_SAVE_EPOCHS,
+        help="Save a weight checkpoint every N epochs during training",
+    )
     parser.add_argument("--gpu", action="store_true", help="Use GPU when DLC is available")
     parser.add_argument(
         "--skip-create-dataset",
@@ -629,7 +696,7 @@ def main() -> int:
                     if stop_requested(work_dir):
                         emit({"type": "stopped", "message": "Stopped before train."})
                         return 0
-            run_train(job, args.epochs, args.gpu)
+            run_train(job, args.epochs, args.gpu, save_every_n=args.save_every_n)
             if stop_requested(work_dir):
                 return 0
         if args.step == "analyze":
@@ -637,7 +704,7 @@ def main() -> int:
         if args.step == "auto_label":
             run_auto_label(job, use_gpu=args.gpu)
         if args.step == "dry_run":
-            run_train(job, args.epochs, args.gpu)
+            run_train(job, args.epochs, args.gpu, save_every_n=args.save_every_n)
             if stop_requested(work_dir):
                 return 0
             run_analyze(job, use_gpu=args.gpu)

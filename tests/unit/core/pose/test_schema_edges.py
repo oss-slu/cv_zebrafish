@@ -1,6 +1,10 @@
 """Tests for schema edge helpers."""
 
+from core.pose.labeling.labels_store import LabelDataset
 from core.pose.labeling.schema import (
+    PoseSchema,
+    apply_canonical_schema,
+    canonical_lab_schema,
     edges_after_bodypart_removed,
     edges_after_bodypart_reorder,
     edges_for_bodyparts,
@@ -42,3 +46,19 @@ def test_transfer_schema_edges_preserves_label_tab_bones():
     out = transfer_schema_edges(src_names, src_edges, dst_names)
     named = {(dst_names[a], dst_names[b]) for a, b in out}
     assert named == {("BF", "LF1"), ("BF", "RF1")}
+
+
+def test_apply_canonical_schema_replaces_custom_points_and_bones():
+    ds = LabelDataset(
+        schema=PoseSchema(
+            bodyparts=["Head", "BF", "P1"],
+            edges=[(0, 1)],
+        )
+    )
+    ds.set_point(0, "Head", 1.0, 2.0)
+    ds.set_point(0, "P1", 9.0, 9.0)
+    apply_canonical_schema(ds)
+    assert ds.bodyparts() == canonical_lab_schema().bodyparts
+    assert ds.schema.edges == canonical_lab_schema().edges
+    assert ds.get_point(0, "Head") == (1.0, 2.0)
+    assert "P1" not in ds.frames[0].points

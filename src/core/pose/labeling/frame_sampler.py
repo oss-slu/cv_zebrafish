@@ -413,12 +413,28 @@ def _pick_widest_gap_frame(
     return -1
 
 
+def _distinctness_at_pick(
+    fingerprints: list[np.ndarray | None],
+    selected: list[int],
+    frame_idx: int,
+) -> float:
+    """Min shape-distance from ``frame_idx`` to ``selected`` (0 if no fingerprint)."""
+    fp = fingerprints[frame_idx]
+    if fp is None:
+        return 0.0
+    sel = [s for s in selected if fingerprints[s] is not None]
+    if not sel:
+        return 0.0
+    return min(shape_distance(fp, fingerprints[s]) for s in sel)
+
+
 def _phase1_farthest_shape_picks(
     fingerprints: list[np.ndarray | None],
     *,
     target: int,
     n: int,
     on_pick: Callable[[list[int]], None] | None = None,
+    ranks: dict[int, int] | None = None,
 ) -> list[int]:
     """
     Greedy farthest-point on blob shapes.
@@ -432,6 +448,10 @@ def _phase1_farthest_shape_picks(
     first = _first_valid_frame(fingerprints)
     selected = [first]
     selected_set = {first}
+    rank_counter = 1
+    if ranks is not None:
+        ranks[first] = rank_counter
+        rank_counter += 1
     if on_pick is not None:
         on_pick(list(selected))
     half_target = max(1, (target + 1) // 2)
@@ -449,6 +469,9 @@ def _phase1_farthest_shape_picks(
         peak_min_dist = max(peak_min_dist, best_min)
         selected.append(best_f)
         selected_set.add(best_f)
+        if ranks is not None:
+            ranks[best_f] = rank_counter
+            rank_counter += 1
         selected.sort()
         if on_pick is not None:
             on_pick(list(selected))
@@ -463,18 +486,28 @@ def _phase2_fill_gaps(
     n: int,
     fingerprints: list[np.ndarray | None],
     on_pick: Callable[[list[int]], None] | None = None,
+    ranks: dict[int, int] | None = None,
 ) -> list[int]:
     """Fill widest timeline gaps until ``target`` frames are chosen."""
     selected_set = set(selected)
+    gap_picks: list[tuple[int, float]] = []
     while len(selected) < target:
         pick = _pick_widest_gap_frame(sorted(selected), n, fingerprints)
         if pick < 0 or pick in selected_set:
             break
+        score = _distinctness_at_pick(fingerprints, selected, pick)
+        gap_picks.append((pick, score))
         selected.append(pick)
         selected_set.add(pick)
         selected.sort()
         if on_pick is not None:
             on_pick(list(selected))
+    if ranks is not None and gap_picks:
+        base = max(ranks.values(), default=0) + 1
+        ordered = sorted(gap_picks, key=lambda x: (-x[1], x[0]))
+        for i, (pick, _) in enumerate(ordered):
+            if pick not in ranks:
+                ranks[pick] = base + i
     return selected
 
 
@@ -498,6 +531,183 @@ def distinctness_vs_selected(
     return scores
 
 
+def rank_queue_by_uniqueness(
+    fingerprints: list[np.ndarray | None],
+    queue: list[int],
+) -> dict[int, int]:
+    """
+    Assign uniqueness ranks to every frame in ``queue`` (higher = more unique).
+
+    Greedy farthest-point order sets the top ranks; remaining members (e.g. gap
+    fills) are ranked by distinctness vs the full queue.
+    """
+    n = len(fingerprints)
+    ordered: list[int] = []
+    seen: set[int] = set()
+    for idx in queue:
+        i = int(idx)
+        if i < 0 or i >= n or i in seen:
+            continue
+        seen.add(i)
+        ordered.append(i)
+    if not ordered:
+        return {}
+
+    ranks: dict[int, int] = {}
+    rank_counter = 1
+    seed = next((i for i in ordered if fingerprints[i] is not None), ordered[0])
+    ranks[seed] = rank_counter
+    rank_counter += 1
+    selected = [seed]
+    selected_set = {seed}
+
+    while len(selected) < len(ordered):
+        best_f = -1
+        best_min = -1.0
+        for f in ordered:
+            if f in selected_set:
+                continue
+            fp = fingerprints[f]
+            if fp is None:
+                continue
+            min_d = min(
+                shape_distance(fp, fingerprints[s])
+                for s in selected
+                if fingerprints[s] is not None
+            )
+            if min_d > best_min:
+                best_min = min_d
+                best_f = f
+        if best_f < 0:
+            break
+        ranks[best_f] = rank_counter
+        rank_counter += 1
+        selected.append(best_f)
+        selected_set.add(best_f)
+
+    remaining = [f for f in ordered if f not in ranks]
+    if remaining:
+        distinct = distinctness_vs_selected(fingerprints, ordered)
+        base = rank_counter
+        for i, f in enumerate(
+            sorted(remaining, key=lambda x: (-distinct[x], x))
+        ):
+            ranks[f] = base + i
+    return ranks
+
+
+def reduce_queue_using_ranks(
+    queue: list[int],
+    ranks: dict[int, int],
+    keep_n: int,
+    *,
+    fingerprints: list[np.ndarray | None] | None = None,
+) -> list[int]:
+    """
+    Shrink ``queue`` to ``keep_n`` frames, preferring highest uniqueness ranks.
+
+    Frames without ranks fall back to ``reduce_queue_by_uniqueness`` when
+    ``fingerprints`` is provided, else queue order.
+    """
+    ordered: list[int] = []
+    seen: set[int] = set()
+    for idx in queue:
+        i = int(idx)
+        if i in seen:
+            continue
+        seen.add(i)
+        ordered.append(i)
+    if not ordered:
+        return []
+    keep = max(1, min(int(keep_n), len(ordered)))
+    if keep >= len(ordered):
+        return sorted(ordered)
+
+    ranked = [f for f in ordered if f in ranks]
+    unranked = [f for f in ordered if f not in ranks]
+
+    selected: list[int] = []
+    if ranked:
+        by_rank = sorted(ranked, key=lambda f: (-ranks[f], f))
+        selected = by_rank[:keep]
+
+    if len(selected) < keep and unranked:
+        need = keep - len(selected)
+        if fingerprints is not None:
+            fallback = reduce_queue_by_uniqueness(
+                fingerprints, unranked, need
+            )
+        else:
+            fallback = unranked[:need]
+        for f in fallback:
+            if f not in selected:
+                selected.append(f)
+            if len(selected) >= keep:
+                break
+
+    return sorted(selected[:keep])
+
+
+def reduce_queue_by_uniqueness(
+    fingerprints: list[np.ndarray | None],
+    queue: list[int],
+    keep_n: int,
+) -> list[int]:
+    """
+    Shrink ``queue`` to the ``keep_n`` most unique frames (greedy farthest-point).
+
+    Preserves relative timeline order in the returned list. Frames without
+    fingerprints sort last and are dropped first when shrinking.
+    """
+    n = len(fingerprints)
+    ordered = []
+    seen: set[int] = set()
+    for idx in queue:
+        i = int(idx)
+        if i < 0 or i >= n or i in seen:
+            continue
+        seen.add(i)
+        ordered.append(i)
+    if not ordered:
+        return []
+    keep = max(1, min(int(keep_n), len(ordered)))
+    if keep >= len(ordered):
+        return ordered
+
+    # Seed with first valid fingerprint in queue order, else first index.
+    seed = next((i for i in ordered if fingerprints[i] is not None), ordered[0])
+    selected = [seed]
+    selected_set = {seed}
+    while len(selected) < keep:
+        best_f = -1
+        best_min = -1.0
+        for f in ordered:
+            if f in selected_set:
+                continue
+            fp = fingerprints[f]
+            if fp is None:
+                continue
+            min_d = min(
+                shape_distance(fp, fingerprints[s])
+                for s in selected
+                if fingerprints[s] is not None
+            )
+            if min_d > best_min:
+                best_min = min_d
+                best_f = f
+        if best_f < 0:
+            # Fall back to queue order for frames lacking fingerprints.
+            for f in ordered:
+                if f not in selected_set:
+                    best_f = f
+                    break
+        if best_f < 0:
+            break
+        selected.append(best_f)
+        selected_set.add(best_f)
+    return sorted(selected)
+
+
 def build_diverse_label_frame_queue(
     frame_count: int,
     avg_gap: int,
@@ -506,6 +716,7 @@ def build_diverse_label_frame_queue(
     target: int | None = None,
     on_pick: Callable[[list[int]], None] | None = None,
     on_build_progress: Callable[[int, int], None] | None = None,
+    ranks: dict[int, int] | None = None,
 ) -> list[int]:
     """
     Build a labeling queue with exactly ``target`` frames (or derived from gap).
@@ -543,10 +754,17 @@ def build_diverse_label_frame_queue(
         if on_build_progress is not None:
             on_build_progress(build_steps, tgt)
 
-    selected = _phase1_farthest_shape_picks(fps, target=tgt, n=n, on_pick=_pick_cb)
+    selected = _phase1_farthest_shape_picks(
+        fps, target=tgt, n=n, on_pick=_pick_cb, ranks=ranks
+    )
     selected = _phase2_fill_gaps(
-        selected, target=tgt, n=n, fingerprints=fps, on_pick=_pick_cb
+        selected, target=tgt, n=n, fingerprints=fps, on_pick=_pick_cb, ranks=ranks
     )
     if on_build_progress is not None:
         on_build_progress(tgt, tgt)
-    return pad_queue_to_target(selected, tgt, n)
+    result = pad_queue_to_target(selected, tgt, n)
+    if ranks is not None:
+        for f in result:
+            if f not in ranks:
+                ranks[f] = rank_queue_by_uniqueness(fps, result).get(f, 0)
+    return result

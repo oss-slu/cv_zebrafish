@@ -79,12 +79,13 @@ class _SessionTableWidget(QTableWidget):
 
     def eventFilter(self, obj, event):
         if obj is self.viewport():
-            if event.type() == QEvent.HoverMove:
+            et = event.type()
+            if et in (QEvent.HoverMove, QEvent.MouseMove):
                 r = self.rowAt(event.pos().y())
                 if r != self._hover_row:
                     self._hover_row = r
                     self.viewport().update()
-            elif event.type() == QEvent.Leave:
+            elif et in (QEvent.Leave, QEvent.HoverLeave):
                 if self._hover_row != -1:
                     self._hover_row = -1
                     self.viewport().update()
@@ -126,8 +127,14 @@ class _SessionTableDelegate(QStyledItemDelegate):
                 painter.fillRect(rect, pal.brush(QPalette.Highlight))
                 fg = pal.color(QPalette.HighlightedText)
         elif hovered:
-            painter.fillRect(rect, pal.brush(QPalette.Mid))
-            fg = pal.color(QPalette.Text)
+            bg_hex = getattr(widget, "_hover_row_bg", None)
+            fg_hex = getattr(widget, "_hover_row_fg", None)
+            if bg_hex and fg_hex:
+                painter.fillRect(rect, QColor(bg_hex))
+                fg = QColor(fg_hex)
+            else:
+                painter.fillRect(rect, pal.brush(QPalette.Mid))
+                fg = pal.color(QPalette.Text)
         else:
             painter.fillRect(rect, pal.brush(QPalette.Base))
             fg = pal.color(QPalette.Text)
@@ -308,6 +315,12 @@ class SessionSelectDialog(FramelessResizeMixin, QDialog):
         self._table = _SessionTableWidget(0, 3)
         self._table._selection_row_bg = theme["chrome_button"]
         self._table._selection_row_fg = theme["text"]
+        self._table._hover_row_bg = theme.get(
+            "graph_viewer_tab_hover_bg", theme.get("generate_selection_bg", theme["chrome_button"])
+        )
+        self._table._hover_row_fg = theme.get(
+            "graph_viewer_tab_hover_fg", theme["text"]
+        )
         self._table._invalid_row_fg = theme["text_muted"]
         self._table.setObjectName("SessionSelectTable")
         self._table.setAttribute(Qt.WA_StyledBackground, True)
@@ -326,7 +339,7 @@ class SessionSelectDialog(FramelessResizeMixin, QDialog):
         self._table.setTextElideMode(Qt.ElideRight)
         self._table.setItemDelegate(_SessionTableDelegate(self._table))
         self._table.verticalHeader().setVisible(False)
-        self._table.doubleClicked.connect(self._on_double_click)
+        self._table.cellClicked.connect(self._on_cell_clicked)
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_context_menu)
         body_layout.addWidget(self._table, stretch=1)
@@ -456,7 +469,7 @@ class SessionSelectDialog(FramelessResizeMixin, QDialog):
     def _open_current(self) -> None:
         path = self._current_json_path()
         if path is None:
-            self._show_dialog_status("Select a session row first (or double‑click a row to open).")
+            self._show_dialog_status("Select a session row first (or click a row to open).")
             return
         r = self._table.currentRow()
         it = self._table.item(r, 0)
@@ -467,7 +480,11 @@ class SessionSelectDialog(FramelessResizeMixin, QDialog):
             return
         self._validate_and_accept(path)
 
-    def _on_double_click(self, _index) -> None:
+    def _on_cell_clicked(self, row: int, _column: int) -> None:
+        """One click opens a valid existing session."""
+        if row < 0:
+            return
+        self._table.selectRow(row)
         self._open_current()
 
     def _on_context_menu(self, pos) -> None:

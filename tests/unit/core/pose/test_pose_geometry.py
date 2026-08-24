@@ -4,7 +4,23 @@ from __future__ import annotations
 
 import numpy as np
 
-from core.pose.detection.arena import ArenaConfig, arena_mask
+from core.pose.detection.arena import (
+    ARENA_FRAC_SLIDER_SCALE,
+    ArenaConfig,
+    arena_mask,
+    arena_pos_from_slider,
+    arena_pos_slider_range,
+    arena_pos_to_slider,
+    arena_rect_pixels,
+    circle_center_bounds,
+    circle_geometry_pixels,
+    circle_size_from_slider,
+    circle_size_slider_range,
+    circle_size_to_slider,
+    clamp_circle_center,
+    effective_arena_mask,
+    make_default_exclusion,
+)
 from core.pose.detection.blob import BlobParams, detect_blob_square_crop
 from core.pose.detection.crop import crop_to_full_frame, extract_square_crop, fish_mask_in_crop, full_frame_to_crop
 from core.pose.labeling.schema import LAB_BODYPARTS, default_lab_schema, edges_for_bodyparts
@@ -27,6 +43,16 @@ def test_edges_for_three_point_tail():
     assert (idx["T3"], idx.get("T4", -1)) not in edges
 
 
+def test_arena_slider_preview_span_mismatch_corrupts_center():
+    """Regression: slider pixels from full-frame sync must not use preview span on commit."""
+    full_w, preview_w = 1712, 644
+    center = 0.5
+    slider_at_full = arena_pos_to_slider(center, full_w)
+    corrupt = arena_pos_from_slider(slider_at_full, preview_w)
+    assert corrupt > 1.0
+    assert arena_pos_from_slider(slider_at_full, full_w) == center
+
+
 def test_arena_circle_mask_center():
     arena = ArenaConfig(shape="circle", center_x=0.5, center_y=0.5, size=0.5)
     mask = arena_mask(100, 100, arena)
@@ -40,6 +66,75 @@ def test_arena_rectangle_mask():
     assert mask[50, 100]
     assert not mask[0, 0]
     assert not mask[99, 199]
+
+
+def test_arena_slider_helpers_use_pixels_when_frame_known():
+    fw, fh = 1920, 1080
+    assert arena_pos_to_slider(0.5, fw) == 960
+    assert arena_pos_from_slider(960, fw) == 0.5
+    assert circle_size_to_slider(0.5, fw, fh) == 540
+    assert circle_size_from_slider(540, fw, fh) == 0.5
+    lo, hi = circle_size_slider_range(fw, fh)
+    assert lo == 108
+    assert hi == 1080
+    x_lo, x_hi = arena_pos_slider_range(-0.25, 1.25, fw)
+    assert x_lo == -480
+    assert x_hi == 2400
+
+
+def test_arena_slider_helpers_fallback_without_frame():
+    assert arena_pos_to_slider(0.5, 0) == ARENA_FRAC_SLIDER_SCALE // 2
+    assert circle_size_to_slider(0.4, 0, 0) == 4000
+
+
+def test_circle_geometry_pixels_unchanged_when_off_screen():
+    arena = ArenaConfig(shape="circle", center_x=-0.2, center_y=0.5, size=0.8)
+    cx, cy, radius = circle_geometry_pixels(100, 200, arena)
+    assert cx == -40.0
+    assert cy == 50.0
+    assert radius == 40.0
+    # Clipped rect must not be used for the true circle outline.
+    x0, y0, x1, y1 = arena_rect_pixels(100, 200, arena)
+    clipped_cx = (x0 + x1) / 2.0
+    assert clipped_cx != cx
+
+
+def test_circle_center_bounds_allow_half_off_screen():
+    min_x, max_x, min_y, max_y = circle_center_bounds(0.8, 100, 100)
+    assert min_x == -0.4
+    assert max_x == 1.4
+    assert min_y == -0.4
+    assert max_y == 1.4
+    cx, cy = clamp_circle_center(1.5, -0.5, 0.8, 100, 100)
+    assert cx == 1.4
+    assert cy == -0.4
+
+
+def test_arena_to_dict_persists_exclusions_when_exclude_mode_off():
+    exclusion = make_default_exclusion([])
+    arena = ArenaConfig(exclude_mode=False, exclusions=[exclusion])
+    data = arena.to_dict()
+    assert "exclusions" in data
+    assert len(data["exclusions"]) == 1
+    restored = ArenaConfig.from_dict(data)
+    assert len(restored.exclusions) == 1
+    assert restored.exclusions[0].id == exclusion.id
+
+
+def test_effective_arena_mask_subtracts_exclusions():
+    arena = ArenaConfig(shape="circle", center_x=0.5, center_y=0.5, size=0.8)
+    exclusion = make_default_exclusion([])
+    exclusion.center_x = 0.5
+    exclusion.center_y = 0.5
+    exclusion.size = 0.2
+    arena.exclude_mode = True
+    arena.exclusions = [exclusion]
+    mask = effective_arena_mask(100, 100, arena)
+    main = arena_mask(100, 100, arena)
+    assert main[50, 20]
+    assert mask[50, 20]
+    assert main[50, 50]
+    assert not mask[50, 50]
 
 
 def test_blob_padding_expands_mask():

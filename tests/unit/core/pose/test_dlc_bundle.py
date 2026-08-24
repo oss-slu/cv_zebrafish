@@ -89,7 +89,8 @@ def test_prepare_training_bundle_writes_job(tmp_path: Path, monkeypatch):
     assert stats.total_labeled_frames == n
     work = job_path.parent
     assert (work / "config.yaml").is_file()
-    assert (work / "labeled-data" / "source" / collected_data_filename()).is_file()
+    assert (work / "labeled-data" / "v0" / collected_data_filename()).is_file()
+    assert (work / "videos" / "v0.mp4").exists()
 
 
 def test_training_bundle_is_stale_detects_label_changes(tmp_path: Path, monkeypatch):
@@ -136,8 +137,45 @@ def test_write_config_yaml_includes_iteration(tmp_path: Path, monkeypatch):
     )
     text = (work / CONFIG_FILENAME).read_text(encoding="utf-8")
     assert "iteration: 0" in text
-    assert "TrainingFraction: [0.95]" in text
+    assert "TrainingFraction: [0.8]" in text
     assert "engine: pytorch" in text
+
+
+def test_prepare_training_bundle_unique_stems_for_multi_video(tmp_path: Path, monkeypatch):
+    """All project videos are source.mp4 — DLC stems must still be unique per video_id."""
+    monkeypatch.setattr("app_platform.paths.sessions_dir", lambda: tmp_path / "data" / "sessions")
+    n = MIN_LABELED_FRAMES
+    _seed_video_bundle(tmp_path, "sess", "default", "fish_a", n // 2 + 1)
+    _seed_video_bundle(tmp_path, "sess", "default", "fish_b", n // 2 + 1)
+    job_path, stats = prepare_training_bundle("sess", "default", ["fish_a", "fish_b"])
+    assert stats.total_labeled_frames >= n
+    work = job_path.parent
+    assert (work / "labeled-data" / "fish_a").is_dir()
+    assert (work / "labeled-data" / "fish_b").is_dir()
+    assert not (work / "labeled-data" / "source").is_dir()
+    job = json.loads(job_path.read_text(encoding="utf-8"))
+    stems = {Path(p).stem for p in job["video_sources"]}
+    assert stems == {"fish_a", "fish_b"}
+
+
+def test_training_bundle_is_stale_on_source_stem_collision(tmp_path: Path, monkeypatch):
+    from core.pose.training.dlc_bundle import training_bundle_is_stale
+
+    monkeypatch.setattr("app_platform.paths.sessions_dir", lambda: tmp_path / "data" / "sessions")
+    n = MIN_LABELED_FRAMES
+    _seed_video_bundle(tmp_path, "sess", "default", "v0", n // 2 + 1)
+    _seed_video_bundle(tmp_path, "sess", "default", "v1", n // 2 + 1)
+    legacy = {
+        "labeled_frame_count": n + 2,
+        "video_ids": ["v0", "v1"],
+        "bodyparts": default_lab_schema().bodyparts,
+        "video_sources": [
+            str(tmp_path / "a" / "source.mp4"),
+            str(tmp_path / "b" / "source.mp4"),
+        ],
+        "work_dir": str(tmp_path / "work"),
+    }
+    assert training_bundle_is_stale("sess", "default", ["v0", "v1"], legacy)
 
 
 def test_training_bundle_uses_square_crop_when_origin_off_frame():

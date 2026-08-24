@@ -17,6 +17,8 @@ class LabelFrameStrip(QWidget):
     # Match PoseLabelScanProgress in themes.py
     BAR_COLOR = QColor(90, 150, 230)
     BAR_COLOR_LIVE = QColor(120, 190, 255)
+    OUTSIDE_CROP_DOT = QColor(255, 140, 40)
+    OUTLIER_DOT = QColor(255, 152, 50)
 
     _BAR_HIT_PX = 8
     _TIMELINE_HEIGHT = 44
@@ -50,6 +52,10 @@ class LabelFrameStrip(QWidget):
         self._hover_queue_index: int | None = None
         self._thumb_cache: dict[int, QPixmap] = {}
         self._live_build = False
+        self._outside_crop_frames: set[int] = set()
+        self._outlier_frames: set[int] = set()
+        self._review_mode = False
+        self._review_hover_frame: int | None = None
 
         self._hover_popup = QLabel(self, Qt.ToolTip)
         self._hover_popup.setObjectName("LabelFrameHoverPreview")
@@ -81,6 +87,16 @@ class LabelFrameStrip(QWidget):
                 best_i = i
         return best_i
 
+    def _x_to_frame_index(self, x: int) -> int | None:
+        if self._frame_count <= 0:
+            return None
+        margin_x, _y, width, _ = self._timeline_geometry()
+        if width <= 0:
+            return None
+        frac = (x - margin_x) / width
+        frac = max(0.0, min(1.0, frac))
+        return int(round(frac * max(0, self._frame_count - 1)))
+
     def _paint_timeline(self, _event) -> None:
         painter = QPainter(self._timeline)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -93,6 +109,38 @@ class LabelFrameStrip(QWidget):
         baseline_pen = QPen(QColor(120, 130, 150), 2)
         painter.setPen(baseline_pen)
         painter.drawLine(x0, y_mid, x1, y_mid)
+
+        if self._review_mode:
+            if self._outlier_frames:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(self.OUTLIER_DOT)
+                for fi in sorted(self._outlier_frames):
+                    bx = self._frame_to_x(fi, margin_x, width)
+                    painter.drawEllipse(bx - 3, y_mid + 10, 6, 6)
+            if self._outside_crop_frames:
+                painter.setBrush(self.OUTSIDE_CROP_DOT)
+                for fi in sorted(self._outside_crop_frames):
+                    bx = self._frame_to_x(fi, margin_x, width)
+                    painter.drawEllipse(bx - 3, y_mid - 16, 6, 6)
+            cur_fi = self._queue[self._current_index] if self._queue else 0
+            if self._review_hover_frame is not None:
+                hx = self._frame_to_x(self._review_hover_frame, margin_x, width)
+                painter.setBrush(QColor(180, 200, 255))
+                painter.drawRect(hx - 2, y_mid - self._BAR_HEIGHT // 2, 4, self._BAR_HEIGHT)
+            cx = self._frame_to_x(cur_fi, margin_x, width)
+            painter.setBrush(QColor(255, 120, 60))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(cx - 2, y_mid - self._BAR_HEIGHT // 2 - 2, 4, self._BAR_HEIGHT + 4)
+            arrow = QPolygon(
+                [
+                    QPoint(cx, y_mid - self._BAR_HEIGHT // 2 - 12),
+                    QPoint(cx - 6, y_mid - self._BAR_HEIGHT // 2 - 4),
+                    QPoint(cx + 6, y_mid - self._BAR_HEIGHT // 2 - 4),
+                ]
+            )
+            painter.drawPolygon(arrow)
+            painter.end()
+            return
 
         if not self._queue:
             painter.end()
@@ -114,6 +162,10 @@ class LabelFrameStrip(QWidget):
             painter.setPen(Qt.NoPen)
             painter.setBrush(color)
             painter.drawRect(bx - 2, y_mid - bar_h // 2, 4, bar_h)
+            if fi in self._outside_crop_frames:
+                dot_y = y_mid + bar_h // 2 + 5
+                painter.setBrush(self.OUTSIDE_CROP_DOT)
+                painter.drawEllipse(bx - 3, dot_y, 6, 6)
 
         if 0 <= self._current_index < len(self._queue):
             cx = self._frame_to_x(self._queue[self._current_index], margin_x, width)
@@ -148,6 +200,18 @@ class LabelFrameStrip(QWidget):
         self._hover_popup.show()
 
     def _timeline_mouse_move(self, event) -> None:
+        if self._review_mode:
+            fi = self._x_to_frame_index(int(event.pos().x()))
+            if fi != self._review_hover_frame:
+                self._review_hover_frame = fi
+                self._timeline.update()
+            if fi is not None:
+                self._timeline.setToolTip(f"Frame {fi}")
+                self._show_hover_preview(self._timeline.mapToGlobal(event.pos()), fi)
+            else:
+                self._timeline.setToolTip("")
+                self._hover_popup.hide()
+            return
         idx = self._x_to_queue_index(int(event.pos().x()))
         if idx != self._hover_queue_index:
             self._hover_queue_index = idx
@@ -163,6 +227,11 @@ class LabelFrameStrip(QWidget):
     def _timeline_mouse_press(self, event) -> None:
         if event.button() != Qt.LeftButton:
             return
+        if self._review_mode:
+            fi = self._x_to_frame_index(int(event.pos().x()))
+            if fi is not None:
+                self.frame_selected.emit(fi)
+            return
         idx = self._x_to_queue_index(int(event.pos().x()))
         if idx is not None:
             self._current_index = idx
@@ -171,11 +240,29 @@ class LabelFrameStrip(QWidget):
 
     def _timeline_leave(self, _event) -> None:
         self._hover_queue_index = None
+        self._review_hover_frame = None
         self._hover_popup.hide()
+        self._timeline.update()
+
+    def set_review_mode(self, enabled: bool) -> None:
+        """Continuous full-video timeline (no per-queue bars)."""
+        self._review_mode = bool(enabled)
+        self._review_hover_frame = None
+        self._hover_popup.hide()
+        self._timeline.update()
+
+    def set_outlier_frames(self, frame_indices: set[int] | frozenset[int]) -> None:
+        """Orange dots on the review timeline for QC outlier frames."""
+        self._outlier_frames = {int(i) for i in frame_indices}
         self._timeline.update()
 
     def clear_thumbnail_cache(self) -> None:
         self._thumb_cache.clear()
+
+    def set_outside_crop_frames(self, frame_indices: set[int] | frozenset[int]) -> None:
+        """Mark timeline bars whose labeled points fall outside the current crop."""
+        self._outside_crop_frames = {int(i) for i in frame_indices}
+        self._timeline.update()
 
     def set_live_queue(
         self,

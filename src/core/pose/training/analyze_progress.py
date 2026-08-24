@@ -16,6 +16,11 @@ def total_analyze_frames(job: dict) -> int:
     video_sources: list[str] = list(job.get("video_sources") or [])
     total = 0
     for index, video_id in enumerate(video_ids):
+        vdir = pose_video_dir(session_name, project_id, video_id)
+        meta = read_video_meta(vdir)
+        if meta and meta.frame_count > 0:
+            total += int(meta.frame_count)
+            continue
         source = video_sources[index] if index < len(video_sources) else None
         if source:
             path = Path(source)
@@ -32,7 +37,4 @@ def total_analyze_frames(job: dict) -> int:
                             continue
                 except Exception:
                     pass
-        meta = read_video_meta(pose_video_dir(session_name, project_id, video_id))
-        if meta and meta.frame_count > 0:
-            total += int(meta.frame_count)
     return total

@@ -19,6 +19,7 @@ from core.pose.labeling.labels_store import (
 )
 from core.pose.labeling.schema import (
     PoseSchema,
+    apply_canonical_schema,
     edges_for_bodyparts,
     transfer_schema_edges,
 )
@@ -74,6 +75,21 @@ def list_custom_sets(session_name: str, project_id: str, video_id: str) -> list[
     return out
 
 
+def delete_custom_set(
+    session_name: str, project_id: str, video_id: str, slug: str
+) -> None:
+    """Remove a custom label-set directory. Raises ``ValueError`` for protected ids."""
+    import shutil
+
+    cleaned = (slug or "").strip()
+    if not cleaned or cleaned == "human":
+        raise ValueError("Cannot delete the Human label set")
+    target = custom_labelled_dir(session_name, project_id, video_id, cleaned)
+    if not target.is_dir():
+        raise FileNotFoundError(f"Label set not found: {cleaned}")
+    shutil.rmtree(target)
+
+
 def apply_edges_to_dataset(
     dataset: LabelDataset,
     *,
@@ -107,17 +123,29 @@ def load_dataset_from_dir(label_dir: Path) -> LabelDataset:
     """
     Load labels from a dataset directory.
 
-    Prefer ``tracking.csv`` when present (AI / analyze / auto-label output).
-    Fall back to ``labels.json`` for human-style folders.
+    Prefer ``labels.json`` when present (human / edited sets). Fall back to
+    ``tracking.csv`` for AI / analyze / auto-label folders. When both exist,
+    keep the denser set (more frames with any point) so a sparse
+    ``labels.json`` cannot hide a full AI CSV.
     Sidecar ``schema.json`` supplies Label-tab bones for CSV-only folders.
     """
     labels_json = label_dir / "labels.json"
     tracking = label_dir / "tracking.csv"
-    if tracking.is_file():
-        ds, _, _ = import_dlc_csv(tracking)
-        return apply_edges_to_dataset(ds, preferred=load_schema(label_dir))
+    ds_json: LabelDataset | None = None
+    ds_csv: LabelDataset | None = None
     if labels_json.is_file():
-        return load_labels(label_dir)
+        ds_json = load_labels(label_dir)
+    if tracking.is_file():
+        ds_csv, _, _ = import_dlc_csv(tracking)
+        ds_csv = apply_edges_to_dataset(ds_csv, preferred=load_schema(label_dir))
+    if ds_json is not None and ds_csv is not None:
+        if ds_csv.count_frames_with_any_point() > ds_json.count_frames_with_any_point():
+            return apply_canonical_schema(ds_csv)
+        return apply_canonical_schema(ds_json)
+    if ds_json is not None:
+        return apply_canonical_schema(ds_json)
+    if ds_csv is not None:
+        return apply_canonical_schema(ds_csv)
     raise FileNotFoundError(f"No labels in {label_dir}")
 
 

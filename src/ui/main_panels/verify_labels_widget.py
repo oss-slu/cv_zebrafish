@@ -21,9 +21,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from app_platform.paths import human_labelled_dir
 from core.pose.dataset.dataset_catalog import PoseDatasetEntry, list_datasets_for_video
-from core.pose.labeling.labels_store import LabelDataset, labels_path, load_labels
+from core.pose.labeling.labels_store import LabelDataset
 from core.pose.labeling.named_label_sets import (
     apply_edges_to_dataset,
     load_dataset_from_dir,
@@ -130,6 +129,7 @@ class VerifyLabelsWidget(QWidget):
         mid = QSplitter(Qt.Horizontal)
         mid.setChildrenCollapsible(False)
         self._bodypart_list = BodypartLabelList()
+        self._bodypart_list.set_clear_all_visible(True)
         self._canvas = LabelCanvas()
         mid.addWidget(self._bodypart_list)
         mid.addWidget(self._canvas)
@@ -317,21 +317,6 @@ class VerifyLabelsWidget(QWidget):
         except (OSError, ValueError, FileNotFoundError) as exc:
             QMessageBox.warning(self, "Verify Labels", str(exc))
             return
-        # Prefer Label-tab bones from human_labelled when AI/CSV has no schema.
-        if not ds.schema.edges and self._session_name and self._video_id:
-            human_dir = human_labelled_dir(
-                self._session_name,
-                self._project_id,
-                self._video_id,
-            )
-            human = None
-            if labels_path(human_dir).is_file():
-                try:
-                    human = load_labels(human_dir)
-                except (OSError, ValueError, FileNotFoundError, json.JSONDecodeError):
-                    human = None
-            if human is not None and human.schema.edges:
-                apply_edges_to_dataset(ds, preferred=human.schema)
         apply_edges_to_dataset(ds)
         self._active_entry = ent
         self._custom_slug = ent.custom_slug

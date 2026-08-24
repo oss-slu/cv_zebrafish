@@ -25,19 +25,20 @@ from PyQt5.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
+    QToolTip,
 )
 
-_HIT_RADIUS = 12.0
+_HIT_RADIUS = 36.0
 _MIN_ZOOM = 0.5
 _MAX_ZOOM = 8.0
-_MAX_SCENE_RADIUS = 48.0
+_MAX_SCENE_RADIUS = 144.0
 _POINT_BLUE = QColor(90, 150, 230)
 _OUTLIER_ORANGE = QColor(255, 152, 50)
 _GHOST_ALPHA = 72
 _OUTLINE_ALPHA = 48
-_ACTIVE_RADIUS = 6.0
-_INACTIVE_RADIUS = 4.0
-_BONE_WIDTH = 2.0
+_ACTIVE_RADIUS = 24.0
+_INACTIVE_RADIUS = 15.0
+_BONE_WIDTH = 3.0
 _BONE_HIT_WIDTH = 14.0
 _HOVER_POINT_SCALE = 1.35
 _HOVER_LINE_SCALE = 1.6
@@ -56,9 +57,30 @@ _ZOOM_EPS = 1e-6
 _MIN_SCENE_PAD_PX = 200.0
 
 
+def heatmap_to_rgba(hm: np.ndarray) -> np.ndarray:
+    """Map a float32 heatmap (0–1) to an RGBA image for overlay."""
+    arr = np.clip(np.asarray(hm, dtype=np.float32), 0.0, 1.0)
+    peak = float(np.nanmax(arr)) if arr.size else 0.0
+    if peak <= 1e-8:
+        return np.zeros((*arr.shape, 4), dtype=np.uint8)
+    # Normalize for colormap visibility; hover/tooltip still samples raw ``hm``.
+    display = arr / peak
+    scaled = (display * 255.0).astype(np.uint8)
+    colored = cv2.applyColorMap(scaled, cv2.COLORMAP_JET)
+    rgba = cv2.cvtColor(colored, cv2.COLOR_BGR2RGBA)
+    rgba[..., 3] = np.clip(display * 255.0, 0, 255).astype(np.uint8)
+    return rgba
+
+
 def scene_padding_for_image(width: int, height: int) -> float:
     """Empty margin around the image so the view can pan past the crop edges."""
     return max(_MIN_SCENE_PAD_PX, float(max(width, height)))
+
+
+def scene_radius_for_view(base: float, view_scale: float) -> float:
+    """Scene-space radius that keeps ``base`` pixels on screen at ``view_scale``."""
+    z = max(view_scale, 1e-6)
+    return min(base / z, _MAX_SCENE_RADIUS)
 
 
 class _DraggablePoint(QGraphicsEllipseItem):
@@ -146,8 +168,7 @@ class _BoneLineItem(QGraphicsLineItem):
         width = _BONE_WIDTH
         if self._hovered:
             width *= _HOVER_LINE_SCALE
-        z = max(self._canvas._zoom, _MIN_ZOOM)
-        return min(width / z, _MAX_SCENE_RADIUS)
+        return width
 
     def _apply_pen(self) -> None:
         color = _OUTLIER_ORANGE if self._outlier else _POINT_BLUE
@@ -157,7 +178,7 @@ class _BoneLineItem(QGraphicsLineItem):
 
     def shape(self):
         stroker = QPainterPathStroker()
-        z = max(self._canvas._zoom, _MIN_ZOOM)
+        z = max(self._canvas._view_scale, 1e-6)
         stroker.setWidth(min(_BONE_HIT_WIDTH / z, _MAX_SCENE_RADIUS * 2))
         stroker.setCapStyle(Qt.RoundCap)
         path = QPainterPath()
@@ -215,6 +236,12 @@ class LabelCanvas(QGraphicsView):
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
         self._pix_item: QGraphicsPixmapItem | None = None
+        self._heatmap_item: QGraphicsPixmapItem | None = None
+        self._heatmap_data: np.ndarray | None = None
+        self._heatmap_visible = False
+        self._photo_opacity = 1.0
+        self._points_opacity = 1.0
+        self._heatmap_opacity = 0.65
         self._ghost_item: _GhostPoint | None = None
         self._outline_item: QGraphicsPathItem | None = None
         self._crop_w = 1
@@ -228,6 +255,8 @@ class LabelCanvas(QGraphicsView):
         self._draggables: dict[str, _DraggablePoint] = {}
         self._bone_lines: list[_BoneLineItem] = []
         self._zoom = 1.0
+        self._view_scale = 1.0
+        self._auto_fit = True
         self._suppress_geometry_updates = False
         self._wheel_momentum = 1.0
         self._wheel_last_ts = 0.0
@@ -239,6 +268,7 @@ class LabelCanvas(QGraphicsView):
         self._wheel_coalesce.timeout.connect(self._flush_wheel_zoom)
         self._redrawing_bones = False
         self._setting_zoom = False
+        self._pending_fit = False
         self._pan_active = False
         self._pan_last: QPoint | None = None
 
@@ -246,6 +276,16 @@ class LabelCanvas(QGraphicsView):
         self._reset_wheel_state()
         self._end_pan()
         super().hideEvent(event)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if self._pending_fit:
+            QTimer.singleShot(0, self._fit_image_to_view)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if (self._pending_fit or self._auto_fit) and self._viewport_usable():
+            self._fit_image_to_view()
 
     def set_crop_frame(
         self, crop_bgr: np.ndarray | None, *, reset_view: bool = True
@@ -258,7 +298,10 @@ class LabelCanvas(QGraphicsView):
         self._ghost_item = None
         self._outline_item = None
         self._pix_item = None
+        self._heatmap_item = None
+        self._heatmap_data = None
         if crop_bgr is None or crop_bgr.size == 0:
+            self._pending_fit = False
             return
         self._crop_h, self._crop_w = crop_bgr.shape[:2]
         rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
@@ -266,11 +309,92 @@ class LabelCanvas(QGraphicsView):
         qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888).copy()
         self._pix_item = self._scene.addPixmap(QPixmap.fromImage(qimg))
         self._pix_item.setZValue(0)
+        self._apply_photo_opacity()
         pad = scene_padding_for_image(w, h)
         self._scene.setSceneRect(-pad, -pad, w + 2 * pad, h + 2 * pad)
+        self._restore_heatmap_overlay()
         self._redraw_points()
         if reset_view:
+            # When Label is hidden, viewport size is 0 — defer fit until shown.
+            self._pending_fit = True
             self._fit_image_to_view()
+
+    def ensure_view_fitted(self) -> None:
+        """Refit when the Label tab becomes visible after an off-tab crop update."""
+        if self._pix_item is None:
+            return
+        self._pending_fit = True
+        self._fit_image_to_view()
+
+    def set_heatmap_overlay(self, heatmap: np.ndarray | None, *, visible: bool) -> None:
+        """Show or hide a single-bodypart heatmap aligned to the crop image."""
+        self._heatmap_visible = bool(visible) and heatmap is not None
+        self._heatmap_data = None if heatmap is None else np.asarray(heatmap, dtype=np.float32)
+        self._restore_heatmap_overlay()
+
+    def set_layer_opacities(
+        self,
+        *,
+        photo: float | None = None,
+        points: float | None = None,
+        heatmap: float | None = None,
+    ) -> None:
+        if photo is not None:
+            self._photo_opacity = max(0.0, min(1.0, float(photo)))
+            self._apply_photo_opacity()
+        if points is not None:
+            self._points_opacity = max(0.0, min(1.0, float(points)))
+            self._apply_points_opacity()
+        if heatmap is not None:
+            self._heatmap_opacity = max(0.0, min(1.0, float(heatmap)))
+            self._apply_heatmap_opacity()
+
+    def heatmap_value_at(self, x: float, y: float) -> float | None:
+        """Sample the active heatmap at crop coordinates."""
+        if self._heatmap_data is None or not self._heatmap_visible:
+            return None
+        ix = int(round(x))
+        iy = int(round(y))
+        h, w = self._heatmap_data.shape[:2]
+        if ix < 0 or iy < 0 or ix >= w or iy >= h:
+            return None
+        return float(self._heatmap_data[iy, ix])
+
+    def _apply_photo_opacity(self) -> None:
+        if self._pix_item is not None:
+            self._pix_item.setOpacity(self._photo_opacity)
+
+    def _apply_points_opacity(self) -> None:
+        for item in self._draggables.values():
+            item.setOpacity(self._points_opacity)
+        for line in self._bone_lines:
+            line.setOpacity(self._points_opacity)
+        if self._ghost_item is not None:
+            self._ghost_item.setOpacity(self._points_opacity)
+        if self._outline_item is not None:
+            self._outline_item.setOpacity(self._points_opacity)
+
+    def _apply_heatmap_opacity(self) -> None:
+        if self._heatmap_item is not None:
+            self._heatmap_item.setOpacity(self._heatmap_opacity)
+            self._heatmap_item.setVisible(self._heatmap_visible)
+
+    def _restore_heatmap_overlay(self) -> None:
+        if self._heatmap_item is not None:
+            self._scene.removeItem(self._heatmap_item)
+            self._heatmap_item = None
+        if (
+            self._pix_item is None
+            or self._heatmap_data is None
+            or not self._heatmap_visible
+        ):
+            return
+        rgba = heatmap_to_rgba(self._heatmap_data)
+        h, w = rgba.shape[:2]
+        qimg = QImage(rgba.data, w, h, 4 * w, QImage.Format_RGBA8888).copy()
+        self._heatmap_item = self._scene.addPixmap(QPixmap.fromImage(qimg))
+        self._heatmap_item.setZValue(1)
+        self._apply_heatmap_opacity()
 
     def set_fish_outline(self, mask_u8: np.ndarray | None) -> None:
         if self._outline_item is not None:
@@ -352,9 +476,15 @@ class LabelCanvas(QGraphicsView):
         vp = self.viewport().rect()
         return vp.width() >= 2 and vp.height() >= 2
 
+    def _sync_view_scale(self) -> None:
+        m = self.transform().m11()
+        if math.isfinite(m) and m > 0:
+            self._view_scale = abs(m)
+        else:
+            self._view_scale = 1.0
+
     def _scene_radius(self, base: float) -> float:
-        z = max(self._zoom, _MIN_ZOOM)
-        return min(base / z, _MAX_SCENE_RADIUS)
+        return scene_radius_for_view(base, self._view_scale)
 
     def _hit_radius_sq(self) -> float:
         r = self._scene_radius(_HIT_RADIUS)
@@ -376,6 +506,7 @@ class LabelCanvas(QGraphicsView):
         if self._pix_item is None or self._setting_zoom:
             return
         if not self._viewport_usable():
+            self._pending_fit = True
             return
         self._setting_zoom = True
         try:
@@ -384,11 +515,16 @@ class LabelCanvas(QGraphicsView):
             self.fitInView(self._image_rect(), Qt.KeepAspectRatio)
             if not self.transform().isInvertible():
                 self.resetTransform()
+                self._pending_fit = True
                 return
+            self._sync_view_scale()
+            self._auto_fit = True
             self._sync_zoom_graphics()
+            self._pending_fit = False
         except Exception:
             self.resetTransform()
             self._zoom = 1.0
+            self._pending_fit = True
         finally:
             self._setting_zoom = False
 
@@ -436,6 +572,8 @@ class LabelCanvas(QGraphicsView):
                 self._fit_image_to_view()
                 return False
             self._zoom = new_zoom
+            self._auto_fit = False
+            self._sync_view_scale()
             self._sync_zoom_graphics()
             return True
         except Exception:
@@ -496,10 +634,12 @@ class LabelCanvas(QGraphicsView):
                 line = _BoneLineItem(
                     pa[0], pa[1], pb[0], pb[1], self, pair=(a, b), outlier=outlier
                 )
+                line.setOpacity(self._points_opacity)
                 self._scene.addItem(line)
                 self._bone_lines.append(line)
         finally:
             self._redrawing_bones = False
+        self._apply_points_opacity()
 
     def _redraw_points(self) -> None:
         if self._pix_item is None:
@@ -523,6 +663,7 @@ class LabelCanvas(QGraphicsView):
                     outlier=name in self._outlier_bodyparts,
                 )
                 item.setFlag(item.ItemSendsGeometryChanges, True)
+                item.setOpacity(self._points_opacity)
                 self._scene.addItem(item)
                 self._draggables[name] = item
         finally:
@@ -619,6 +760,7 @@ class LabelCanvas(QGraphicsView):
         if self._pix_item is None or self._pan_active:
             super().wheelEvent(event)
             return
+        self._auto_fit = False
         try:
             notches, pixel_source = self._wheel_notches(event)
             if abs(notches) < 1e-6:
@@ -650,6 +792,7 @@ class LabelCanvas(QGraphicsView):
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self._pix_item is not None:
             self._reset_wheel_state()
+            self._auto_fit = True
             self._fit_image_to_view()
             event.accept()
             return
@@ -693,6 +836,10 @@ class LabelCanvas(QGraphicsView):
             self.point_placed.emit(x, y)
         super().mousePressEvent(event)
 
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        QToolTip.hideText()
+        super().leaveEvent(event)
+
     def mouseMoveEvent(self, event) -> None:
         if self._pan_active and self._pan_last is not None:
             delta = event.pos() - self._pan_last
@@ -705,7 +852,27 @@ class LabelCanvas(QGraphicsView):
             )
             event.accept()
             return
+        self._update_heatmap_tooltip(event)
         super().mouseMoveEvent(event)
+
+    def _update_heatmap_tooltip(self, event) -> None:
+        if self._pix_item is None or not self._heatmap_visible or self._heatmap_data is None:
+            QToolTip.hideText()
+            return
+        scene_pos = self.mapToScene(event.pos())
+        x, y = float(scene_pos.x()), float(scene_pos.y())
+        if x < 0 or y < 0 or x >= self._crop_w or y >= self._crop_h:
+            QToolTip.hideText()
+            return
+        value = self.heatmap_value_at(x, y)
+        if value is None:
+            QToolTip.hideText()
+            return
+        QToolTip.showText(
+            event.globalPos(),
+            f"Heatmap: {value:.3f}",
+            self,
+        )
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MiddleButton and self._pan_active:

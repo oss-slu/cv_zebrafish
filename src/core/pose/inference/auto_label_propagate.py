@@ -10,7 +10,7 @@ from typing import Callable, Protocol
 import cv2
 import numpy as np
 
-from core.pose.inference.dlc_heatmap_predictor import _heatmaps_are_usable
+from core.pose.inference.dlc_heatmap_predictor import CropHeatmapResult, _heatmaps_are_usable
 from core.pose.inference.heatmap_store import (
     full_crop_heatmaps,
     heatmaps_dir,
@@ -47,7 +47,7 @@ class HeatmapPredictor(Protocol):
         self,
         crop_bgr: np.ndarray,
         bodyparts: list[str],
-    ) -> dict[str, np.ndarray]: ...
+    ) -> CropHeatmapResult | dict[str, np.ndarray]: ...
 
 
 @dataclass
@@ -165,6 +165,57 @@ def _prev_crop_positions(
     return out
 
 
+def _unwrap_crop_prediction(
+    result: CropHeatmapResult | dict[str, np.ndarray],
+) -> CropHeatmapResult:
+    if isinstance(result, CropHeatmapResult):
+        return result
+    return CropHeatmapResult(heatmaps=result)
+
+
+def _heatmap_write_dir(
+    heatmap_out_dir: Path | None,
+    heatmap_source_dir: Path | None,
+    params: AutoLabelParams,
+) -> Path | None:
+    if heatmap_out_dir is not None:
+        return heatmap_out_dir
+    if heatmap_source_dir is not None and params.finish_incomplete_archive:
+        return heatmap_source_dir
+    return None
+
+
+def _infer_and_save_heatmaps(
+    *,
+    fi: int,
+    crop,
+    bodyparts: list[str],
+    predictor: HeatmapPredictor,
+    write_dir: Path,
+    report: AutoLabelReport,
+) -> dict[str, np.ndarray]:
+    crop_h, crop_w = crop.shape[:2]
+    prediction = _unwrap_crop_prediction(predictor.predict_crop(crop, bodyparts))
+    heatmaps = full_crop_heatmaps(prediction.heatmaps, crop_h, crop_w)
+    if not _heatmaps_are_usable(heatmaps):
+        raise RuntimeError(
+            f"Auto Label aborted at frame {fi}: model returned all-zero heatmaps "
+            "(empty pose prediction). Fix the DLC crop predictor / snapshot before "
+            "re-running — ai_labelled tracking.csv was not overwritten."
+        )
+    save_frame_heatmaps(
+        write_dir,
+        fi,
+        heatmaps,
+        crop_h=crop_h,
+        crop_w=crop_w,
+        peak_locref=prediction.peak_locref,
+    )
+    report.heatmaps_saved += 1
+    report.estimated_heatmap_bytes += sum(hm.nbytes for hm in heatmaps.values())
+    return heatmaps
+
+
 def _decode_and_write_frame(
     *,
     fi: int,
@@ -185,7 +236,12 @@ def _decode_and_write_frame(
     heatmap_out_dir: Path | None,
     heatmap_source_dir: Path | None = None,
 ) -> None:
-    if seed_frame_is_complete(human_labels, fi)[0]:
+    human_complete = seed_frame_is_complete(human_labels, fi)[0]
+    decode_only = (
+        heatmap_source_dir is not None and not params.finish_incomplete_archive
+    )
+    # Re-decode from saved heatmaps: human scaffold frames need no archive entry.
+    if human_complete and decode_only:
         report.frames_processed += 1
         return
 
@@ -219,34 +275,35 @@ def _decode_and_write_frame(
     if heatmaps is None:
         if predictor is None:
             raise ValueError("No heatmap predictor available for auto-label.")
-        raw_heatmaps = predictor.predict_crop(crop, bodyparts)
-        heatmaps = full_crop_heatmaps(raw_heatmaps, crop_h, crop_w)
-        if not _heatmaps_are_usable(heatmaps):
-            raise RuntimeError(
-                f"Auto Label aborted at frame {fi}: model returned all-zero heatmaps "
-                "(empty pose prediction). Fix the DLC crop predictor / snapshot before "
-                "re-running — ai_labelled tracking.csv was not overwritten."
-            )
-        write_dir = heatmap_out_dir
-        if write_dir is None and heatmap_source_dir is not None and params.finish_incomplete_archive:
-            write_dir = heatmap_source_dir
-        # Never persist all-zero maps — they poison "Use saved heatmaps" re-decode.
+        write_dir = _heatmap_write_dir(heatmap_out_dir, heatmap_source_dir, params)
         if write_dir is not None:
-            save_frame_heatmaps(
-                write_dir,
-                fi,
-                heatmaps,
-                crop_h=crop_h,
-                crop_w=crop_w,
+            heatmaps = _infer_and_save_heatmaps(
+                fi=fi,
+                crop=crop,
+                bodyparts=bodyparts,
+                predictor=predictor,
+                write_dir=write_dir,
+                report=report,
             )
-            report.heatmaps_saved += 1
-            report.estimated_heatmap_bytes += sum(hm.nbytes for hm in heatmaps.values())
+        else:
+            prediction = _unwrap_crop_prediction(predictor.predict_crop(crop, bodyparts))
+            heatmaps = full_crop_heatmaps(prediction.heatmaps, crop_h, crop_w)
+            if not _heatmaps_are_usable(heatmaps):
+                raise RuntimeError(
+                    f"Auto Label aborted at frame {fi}: model returned all-zero heatmaps "
+                    "(empty pose prediction). Fix the DLC crop predictor / snapshot before "
+                    "re-running — ai_labelled tracking.csv was not overwritten."
+                )
     elif not _heatmaps_are_usable(heatmaps):
         raise RuntimeError(
             f"Auto Label aborted at frame {fi}: saved heatmaps are all zeros. "
             "Delete that archive and re-run with model inference "
             "(uncheck \"Use saved heatmaps\")."
         )
+
+    if human_complete:
+        report.frames_processed += 1
+        return
 
     prev_full = _prev_full_from_out(out, prev_fi, bodyparts)
     prev_crop = _prev_crop_positions(prev_full, blob, bodyparts)
@@ -361,7 +418,30 @@ def propagate_auto_label(
         progress_cb(completed, total, f"{completed} / {total}")
 
     try:
-        report.frames_processed += 1
+        cap.set(cv2.CAP_PROP_POS_FRAMES, seed)
+        ok_read, seed_frame_img = cap.read()
+        if ok_read and seed_frame_img is not None:
+            _decode_and_write_frame(
+                fi=seed,
+                frame=seed_frame_img,
+                prev_fi=seed,
+                out=out,
+                human_labels=human_labels,
+                bodyparts=bodyparts,
+                edges=edges,
+                arena=arena,
+                blob_params=blob_params,
+                predictor=predictor,
+                params=params,
+                decode_params=decode_params,
+                radii=radii,
+                ref_lengths=ref_lengths,
+                report=report,
+                heatmap_out_dir=heatmap_out_dir,
+                heatmap_source_dir=heatmap_source_dir,
+            )
+        else:
+            report.frames_processed += 1
 
         for fi in range(seed + 1, total):
             completed += 1

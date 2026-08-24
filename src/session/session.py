@@ -134,19 +134,76 @@ class Session(QObject):
         videos = proj.setdefault("videos", {})
         from datetime import datetime, timezone
 
+        prev = videos.get(video_id) or {}
         videos[video_id] = {
             "display_name": display_name,
-            "registered_at": datetime.now(timezone.utc).isoformat(),
+            "registered_at": prev.get("registered_at")
+            or datetime.now(timezone.utc).isoformat(),
             "meta": meta,
+            "missing": False,
         }
         proj["active_video_id"] = video_id
         self.session_updated.emit()
+
+    def mark_pose_video_missing(self, video_id: str) -> None:
+        """Keep the video entry (and labels) but flag source as missing."""
+        pid = self.ensure_default_pose_project()
+        videos = (self.pose_projects.get(pid) or {}).setdefault("videos", {})
+        entry = videos.get(video_id)
+        if not isinstance(entry, dict):
+            return
+        entry["missing"] = True
+        if self.pose_projects[pid].get("active_video_id") == video_id:
+            others = [vid for vid in videos if vid != video_id and not (videos[vid] or {}).get("missing")]
+            self.pose_projects[pid]["active_video_id"] = others[0] if others else video_id
+        self.session_updated.emit()
+
+    def find_pose_video_relink_id(
+        self,
+        *,
+        display_name: str,
+        frame_count: int,
+        width: int,
+        height: int,
+    ) -> str | None:
+        """Match a missing stub for re-upload when name + resolution + frames agree."""
+        pid = self.active_pose_project_id
+        if not pid or pid not in self.pose_projects:
+            return None
+        videos = self.pose_projects[pid].get("videos") or {}
+        name_key = (display_name or "").strip().lower()
+        for vid, entry in videos.items():
+            if not isinstance(entry, dict) or not entry.get("missing"):
+                continue
+            if (entry.get("display_name") or "").strip().lower() != name_key:
+                continue
+            if (entry.get("video_id") or vid) != vid and entry.get("video_id"):
+                continue
+            meta = entry.get("meta") or {}
+            try:
+                if int(meta.get("frame_count", -1)) != int(frame_count):
+                    continue
+                if int(meta.get("width", -1)) != int(width):
+                    continue
+                if int(meta.get("height", -1)) != int(height):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            return str(vid)
+        return None
 
     def get_pose_video_ids(self) -> list[str]:
         pid = self.active_pose_project_id
         if not pid or pid not in self.pose_projects:
             return []
         return list((self.pose_projects[pid].get("videos") or {}).keys())
+
+    def get_pose_video_entry(self, video_id: str) -> dict | None:
+        pid = self.active_pose_project_id
+        if not pid or pid not in self.pose_projects:
+            return None
+        entry = (self.pose_projects[pid].get("videos") or {}).get(video_id)
+        return entry if isinstance(entry, dict) else None
 
     def get_active_pose_video_id(self) -> str | None:
         pid = self.active_pose_project_id

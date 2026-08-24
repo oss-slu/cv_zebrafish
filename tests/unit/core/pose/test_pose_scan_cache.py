@@ -35,6 +35,8 @@ def test_pose_scan_cache_roundtrip(tmp_path: Path):
     for i in range(0, n, 15):
         fps[i] = _unit_vec(i // 15)
     queue = build_diverse_label_frame_queue(n, 12, fps, target=12)
+    ranks: dict[int, int] = {}
+    build_diverse_label_frame_queue(n, 12, fps, target=12, ranks=ranks)
 
     save_pose_scan_cache(
         video_dir,
@@ -47,6 +49,7 @@ def test_pose_scan_cache_roundtrip(tmp_path: Path):
         queue=queue,
         gap=12,
         frames_to_analyze=12,
+        queue_ranks=ranks,
     )
 
     loaded = load_pose_scan_cache(
@@ -61,8 +64,49 @@ def test_pose_scan_cache_roundtrip(tmp_path: Path):
     assert loaded.queues_by_target[12] == queue
     assert loaded.last_frames_to_analyze == 12
     assert loaded.last_queue == queue
+    assert loaded.queue_ranks == ranks
     assert loaded.fingerprints[0] is not None
     assert loaded.fingerprints[1] is None
+
+
+def test_pose_scan_cache_queue_ranks_roundtrip(tmp_path: Path):
+    video_dir = tmp_path / "video"
+    video_dir.mkdir()
+    video_path = video_dir / "source.mp4"
+    video_path.write_bytes(b"fake-video")
+
+    arena = ArenaConfig()
+    blob = BlobParams()
+    n = 50
+    fps: list[np.ndarray | None] = [None] * n
+    for i in range(0, n, 5):
+        fps[i] = _unit_vec(i // 5)
+    ranks: dict[int, int] = {}
+    queue = build_diverse_label_frame_queue(n, 5, fps, target=8, ranks=ranks)
+
+    save_pose_scan_cache(
+        video_dir,
+        frame_count=n,
+        video_path=video_path,
+        arena=arena,
+        blob_params=blob,
+        fingerprints=fps,
+        coarse_stride=5,
+        queue=queue,
+        frames_to_analyze=8,
+        queue_ranks=ranks,
+    )
+
+    loaded = load_pose_scan_cache(
+        video_dir,
+        frame_count=n,
+        video_path=video_path,
+        arena=arena,
+        blob_params=blob,
+    )
+    assert loaded is not None
+    assert set(loaded.queue_ranks.keys()) == set(queue)
+    assert loaded.queue_ranks == ranks
 
 
 def test_pose_scan_cache_invalidates_on_settings_change(tmp_path: Path):
@@ -94,3 +138,12 @@ def test_pose_scan_cache_invalidates_on_settings_change(tmp_path: Path):
         )
         is None
     )
+
+
+def test_scan_settings_hash_ignores_confirmed_flag():
+    blob = BlobParams()
+    a = ArenaConfig(confirmed=False)
+    b = ArenaConfig(confirmed=True)
+    assert scan_settings_hash(a, blob) == scan_settings_hash(b, blob)
+    b.rect_w = 0.5
+    assert scan_settings_hash(a, blob) != scan_settings_hash(b, blob)

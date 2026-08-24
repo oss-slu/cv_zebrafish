@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from core.pose.labeling.schema import PoseSchema, default_lab_schema
+from core.pose.labeling.schema import (
+    PoseSchema,
+    apply_canonical_schema,
+    canonical_lab_schema,
+    default_lab_schema,
+)
 
 LABELS_FILENAME = "labels.json"
 SCHEMA_FILENAME = "schema.json"
@@ -147,10 +152,11 @@ def save_schema(label_dir: Path, schema: PoseSchema) -> None:
 def load_labels(label_dir: Path) -> LabelDataset:
     p = labels_path(label_dir)
     if not p.is_file():
-        ds = LabelDataset()
+        ds = LabelDataset(schema=canonical_lab_schema())
         save_labels(label_dir, ds)
         return ds
-    return LabelDataset.from_dict(json.loads(p.read_text(encoding="utf-8")))
+    ds = LabelDataset.from_dict(json.loads(p.read_text(encoding="utf-8")))
+    return apply_canonical_schema(ds)
 
 
 def save_labels(label_dir: Path, dataset: LabelDataset) -> None:

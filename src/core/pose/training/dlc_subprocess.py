@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -366,18 +367,80 @@ def load_training_loss_history(work_dir: Path) -> list[tuple[int, float]]:
     return load_learning_stats_history(path)
 
 
-def snapshot_keep_count(total_epochs: int) -> int:
-    """How many interval snapshots DLC should retain (every ``SNAPSHOT_SAVE_EPOCHS``)."""
+def snapshot_keep_count(total_epochs: int, *, save_every_n: int | None = None) -> int:
+    """How many interval snapshots DLC should retain (every ``save_every_n`` epochs)."""
+    interval = max(1, int(save_every_n if save_every_n is not None else SNAPSHOT_SAVE_EPOCHS))
     epochs = max(1, int(total_epochs))
-    return max(1, (epochs + SNAPSHOT_SAVE_EPOCHS - 1) // SNAPSHOT_SAVE_EPOCHS)
+    return max(1, (epochs + interval - 1) // interval)
+
+
+def read_config_training_fraction(work_dir: Path) -> float | None:
+    """Return ``TrainingFraction`` from ``config.yaml``, if present."""
+    config_path = Path(work_dir) / "config.yaml"
+    if not config_path.is_file():
+        return None
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"TrainingFraction:\s*\[\s*([0-9]*\.?[0-9]+)\s*\]", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def has_shuffle_for_fraction(work_dir: Path, fraction: float, *, tol: float = 1e-4) -> bool:
+    """True when metadata or a model folder exists for ``fraction`` (e.g. 0.8 → trainset80)."""
+    pct = int(round(float(fraction) * 100))
+    pattern = f"dlc-models-pytorch/**/*trainset{pct}shuffle*/train/pytorch_config.yaml"
+    if list(Path(work_dir).glob(pattern)):
+        return True
+    for meta_path in Path(work_dir).glob("training-datasets/**/metadata.yaml"):
+        try:
+            text = meta_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(text) or {}
+            shuffles = data.get("shuffles") or {}
+            if isinstance(shuffles, dict):
+                for entry in shuffles.values():
+                    if not isinstance(entry, dict):
+                        continue
+                    frac = entry.get("train_fraction")
+                    if frac is None:
+                        continue
+                    if abs(float(frac) - float(fraction)) <= tol:
+                        return True
+        except Exception:
+            for match in re.finditer(
+                r"train_fraction:\s*([0-9]*\.?[0-9]+)", text
+            ):
+                try:
+                    if abs(float(match.group(1)) - float(fraction)) <= tol:
+                        return True
+                except ValueError:
+                    continue
+    return False
 
 
 def has_training_dataset(work_dir: Path) -> bool:
     """True when DLC training artifacts exist under ``dlc_work``."""
     if list(work_dir.glob("dlc-models-pytorch/**/train/pytorch_config.yaml")):
         return True
-    if list(work_dir.glob("training-datasets/**")):
-        return True
+    for meta_path in work_dir.glob("training-datasets/**/metadata.yaml"):
+        try:
+            text = meta_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        compact = "".join(text.split())
+        if "shuffles:" in compact and "shuffles:{}" not in compact:
+            return True
     return False
 
 
@@ -387,11 +450,24 @@ def should_skip_create_training_dataset(work_dir: Path) -> bool:
 
     Re-running label conversion before every train caused long hangs on re-run
     (e.g. stuck at the last logged epoch while DLC rebuilt the dataset).
+
+    Never skip when ``config.yaml`` asks for a train fraction that has no shuffle
+    yet (e.g. after changing 95/5 → 80/20).
     """
     if not has_training_dataset(work_dir):
         return False
+    frac = read_config_training_fraction(work_dir)
+    if frac is not None and not has_shuffle_for_fraction(work_dir, frac):
+        return False
     prior = read_training_progress(work_dir)
     return prior is not None and prior[0] > 0
+
+
+def clear_training_datasets(work_dir: Path) -> None:
+    """Remove ``training-datasets/`` so DLC can rebuild shuffles for the current fraction."""
+    target = Path(work_dir) / "training-datasets"
+    if target.is_dir():
+        remove_tree_resilient(target)
 
 
 def read_training_progress(work_dir: Path) -> tuple[int, float] | None:

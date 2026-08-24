@@ -34,12 +34,26 @@ class PoseDatasetEntry:
     custom_slug: str | None = None
     custom_display: str | None = None
 
+    def source_key(self) -> str:
+        """Stable merge/catalog key (``human``, ``ai``, ``custom:<slug>``, …)."""
+        if self.source == "custom" and self.custom_slug:
+            return f"custom:{self.custom_slug}"
+        return self.source
+
+    def source_label(self) -> str:
+        """Short label for UI lists (dataset type / custom name)."""
+        if self.custom_display:
+            return self.custom_display
+        if self.source == "custom" and self.custom_slug:
+            return self.custom_slug
+        return self.source
+
     def summary(self) -> str:
         bp = ", ".join(self.bodyparts[:4])
         if len(self.bodyparts) > 4:
             bp += "…"
-        src = self.source
-        if self.custom_display:
+        src = self.source_label()
+        if self.source == "custom" and self.custom_display:
             src = f"custom: {self.custom_display}"
         return (
             f"{self.display_name} — {src} — "
@@ -172,7 +186,7 @@ def list_pose_datasets(
     project_id: str,
     video_meta: dict[str, str] | None = None,
 ) -> list[PoseDatasetEntry]:
-    """Return human / AI / final dataset entries for all videos in a pose project."""
+    """Return all label datasets (built-in + custom) for every video in a pose project."""
     proj = pose_project_dir(session_name, project_id)
     if not proj.is_dir():
         return []
@@ -188,16 +202,7 @@ def list_pose_datasets(
             continue
         video_id = vdir.name
         display = video_meta.get(video_id, video_id)
-        frame_count = _read_frame_count(vdir)
-
-        for source, resolver in (
-            ("human", lambda: human_labelled_dir(session_name, project_id, video_id)),
-            ("ai", lambda: ai_labelled_dir(session_name, project_id, video_id)),
-            ("external", lambda: external_labelled_dir(session_name, project_id, video_id)),
-            ("final", lambda: final_labelled_dir(session_name, project_id, video_id)),
-        ):
-            label_dir = resolver()
-            ent = _entry_from_dir(video_id, source, label_dir, frame_count, display)
-            if ent is not None:
-                entries.append(ent)
+        entries.extend(
+            list_datasets_for_video(session_name, project_id, video_id, display)
+        )
     return entries

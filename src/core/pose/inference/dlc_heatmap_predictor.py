@@ -3,10 +3,27 @@
 from __future__ import annotations
 
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+
+@dataclass(frozen=True)
+class RunnerScoremaps:
+    """Raw DLC scoremaps at model resolution plus peak locref offsets."""
+
+    scoremaps: dict[str, np.ndarray]
+    peak_locref: dict[str, np.ndarray]
+
+
+@dataclass(frozen=True)
+class CropHeatmapResult:
+    """Per-crop heatmaps for decode / persistence."""
+
+    heatmaps: dict[str, np.ndarray]
+    peak_locref: dict[str, np.ndarray] | None = None
 
 
 def _find_pytorch_config(work_dir: Path, snapshot_path: Path | None = None) -> Path | None:
@@ -66,6 +83,34 @@ def _heatmaps_are_usable(heatmaps: dict[str, np.ndarray]) -> bool:
         if arr.size > 0 and float(np.nanmax(arr)) > 1e-8:
             return True
     return False
+
+
+def _peak_locref_at_argmax(
+    maps: np.ndarray,
+    locref: np.ndarray,
+    names: list[str],
+) -> dict[str, np.ndarray]:
+    """Extract (dx, dy) from locref fields at each bodypart heatmap argmax."""
+    lr = np.asarray(locref, dtype=np.float32)
+    if lr.ndim == 4 and lr.shape[0] == 1:
+        lr = lr[0]
+    k = len(names)
+    out: dict[str, np.ndarray] = {}
+    for i, name in enumerate(names):
+        hm = np.asarray(maps[i], dtype=np.float32)
+        if hm.size == 0:
+            out[name] = np.zeros(2, dtype=np.float32)
+            continue
+        iy, ix = np.unravel_index(int(np.argmax(hm)), hm.shape)
+        dx, dy = 0.0, 0.0
+        if lr.ndim == 3 and lr.shape[0] == 2 * k:
+            dx = float(lr[2 * i, iy, ix])
+            dy = float(lr[2 * i + 1, iy, ix])
+        elif lr.ndim == 3 and lr.shape[0] == k and lr.shape[1] == 2:
+            dx = float(lr[i, 0, iy, ix])
+            dy = float(lr[i, 1, iy, ix])
+        out[name] = np.array([dx, dy], dtype=np.float32)
+    return out
 
 
 def poses_array_to_coords(
@@ -164,7 +209,7 @@ class SyntheticHeatmapPredictor:
         self,
         crop_bgr: np.ndarray,
         bodyparts: list[str],
-    ) -> dict[str, np.ndarray]:
+    ) -> CropHeatmapResult:
         h, w = crop_bgr.shape[:2]
         coords: dict[str, tuple[float, float] | None] = {}
         for bp in bodyparts:
@@ -176,16 +221,16 @@ class SyntheticHeatmapPredictor:
                 coords[bp] = (prev[0] + float(jitter[0]), prev[1] + float(jitter[1]))
         heatmaps = gaussian_heatmaps_from_coords(h, w, coords)
         self._last = {k: v for k, v in coords.items() if v is not None}
-        return heatmaps
+        return CropHeatmapResult(heatmaps=heatmaps)
 
 
 class DlcCropHeatmapPredictor:
     """
     Run DLC 3 PyTorch on each crop and return per-bodypart scoremaps.
 
-    Prefers runner pose coordinates → Gaussian heatmaps (reliable for constrained
-    decode). Optionally uses raw scoremaps when the runner preprocessor + model
-    produce usable peaks.
+    Prefers raw scoremaps from the runner preprocessor + model (with peak locref).
+    Falls back to Gaussian heatmaps from parsed pose coordinates when scoremaps are
+    missing or all-zero.
     """
 
     def __init__(
@@ -255,8 +300,8 @@ class DlcCropHeatmapPredictor:
     def _scoremaps_from_runner(
         self,
         crop_bgr: np.ndarray,
-    ) -> dict[str, np.ndarray] | None:
-        """Obtain raw scoremaps via the runner preprocessor + model (DLC path)."""
+    ) -> RunnerScoremaps | None:
+        """Obtain raw scoremaps and peak locref via the runner preprocessor + model."""
         if self._runner is None:
             return None
         try:
@@ -270,7 +315,7 @@ class DlcCropHeatmapPredictor:
 
             rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
             if preprocessor is not None:
-                prepared, _context = preprocessor(rgb)
+                prepared, _context = preprocessor(rgb, {})
                 if isinstance(prepared, np.ndarray):
                     tensor = torch.from_numpy(prepared)
                 else:
@@ -289,20 +334,26 @@ class DlcCropHeatmapPredictor:
                 raw = model(tensor)
 
             maps = None
+            locref_maps = None
             apply_sigmoid = False
             if isinstance(raw, dict):
                 head = raw.get("bodypart") or raw.get("bodyparts") or next(iter(raw.values()), None)
-                if isinstance(head, dict) and "heatmap" in head:
-                    maps = head["heatmap"]
-                    apply_sigmoid = True
+                if isinstance(head, dict):
+                    if "heatmap" in head:
+                        maps = head["heatmap"]
+                        apply_sigmoid = True
+                    if "locref" in head:
+                        locref_maps = head["locref"]
                 elif "heatmap" in raw:
                     maps = raw["heatmap"]
                     apply_sigmoid = True
+                    locref_maps = raw.get("locref")
             elif isinstance(raw, (list, tuple)):
                 raw0 = raw[0]
                 if isinstance(raw0, dict) and "heatmap" in raw0:
                     maps = raw0["heatmap"]
                     apply_sigmoid = True
+                    locref_maps = raw0.get("locref")
                 elif hasattr(raw0, "shape") and getattr(raw0, "ndim", 0) == 4:
                     maps = raw0
             elif hasattr(raw, "shape") and raw.ndim == 4:
@@ -322,7 +373,19 @@ class DlcCropHeatmapPredictor:
             names = self._bodyparts or []
             if maps.ndim != 3 or maps.shape[0] != len(names):
                 return None
-            return {names[i]: np.asarray(maps[i], dtype=np.float32) for i in range(len(names))}
+            scoremaps = {names[i]: np.asarray(maps[i], dtype=np.float32) for i in range(len(names))}
+
+            peak_locref: dict[str, np.ndarray] = {}
+            if locref_maps is not None:
+                if isinstance(locref_maps, torch.Tensor):
+                    locref_maps = locref_maps[0].detach().cpu().numpy()
+                else:
+                    locref_maps = np.asarray(locref_maps)
+                    if locref_maps.ndim == 4:
+                        locref_maps = locref_maps[0]
+                peak_locref = _peak_locref_at_argmax(maps, locref_maps, names)
+
+            return RunnerScoremaps(scoremaps=scoremaps, peak_locref=peak_locref)
         except Exception:
             return None
 
@@ -330,25 +393,35 @@ class DlcCropHeatmapPredictor:
         self,
         crop_bgr: np.ndarray,
         bodyparts: list[str],
-    ) -> dict[str, np.ndarray]:
+    ) -> CropHeatmapResult:
         h, w = crop_bgr.shape[:2]
+        from core.pose.inference.heatmap_store import full_crop_heatmaps
 
-        # Prefer real pose coordinates → Gaussians (matches analyze_videos quality path).
+        runner_out = self._scoremaps_from_runner(crop_bgr)
+        if runner_out is not None:
+            subset = {bp: runner_out.scoremaps[bp] for bp in bodyparts if bp in runner_out.scoremaps}
+            if _heatmaps_are_usable(subset):
+                peak_locref = {
+                    bp: runner_out.peak_locref[bp]
+                    for bp in bodyparts
+                    if bp in runner_out.peak_locref
+                }
+                return CropHeatmapResult(
+                    heatmaps=full_crop_heatmaps(subset, h, w),
+                    peak_locref=peak_locref or None,
+                )
+
+        # Fallback: pose coordinates → Gaussians when raw scoremaps are unavailable.
         coords = self._coords_from_runner(crop_bgr, bodyparts)
         if any(xy is not None for xy in coords.values()):
-            return gaussian_heatmaps_from_coords(h, w, coords)
-
-        # Optional: raw scoremaps through DLC preprocessor when pose parsing fails.
-        scoremaps = self._scoremaps_from_runner(crop_bgr)
-        if scoremaps:
-            subset = {bp: scoremaps[bp] for bp in bodyparts if bp in scoremaps}
-            if _heatmaps_are_usable(subset):
-                from core.pose.inference.heatmap_store import full_crop_heatmaps
-
-                return full_crop_heatmaps(subset, h, w)
+            return CropHeatmapResult(
+                heatmaps=gaussian_heatmaps_from_coords(h, w, coords),
+            )
 
         # Explicit empty maps — caller must treat as failure (do not pretend peaks exist).
-        return {bp: np.zeros((h, w), dtype=np.float64) for bp in bodyparts}
+        return CropHeatmapResult(
+            heatmaps={bp: np.zeros((h, w), dtype=np.float64) for bp in bodyparts},
+        )
 
 
 def build_heatmap_predictor(job: dict) -> DlcCropHeatmapPredictor | SyntheticHeatmapPredictor:

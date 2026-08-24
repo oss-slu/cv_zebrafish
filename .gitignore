@@ -72,3 +72,8 @@ data/backups/
 # results
 results/
 source/
+
+# Large model weights (keep assets/models/*/manifest.json + README)
+*.pt
+!assets/models/**/manifest.json
+

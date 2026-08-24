@@ -83,11 +83,98 @@ class PlaybackBlobEntry:
         )
 
 
+@dataclass
+class PlaybackCacheBuffers:
+    """Pre-allocated arrays filled while scanning a video (full preview masks)."""
+
+    found: np.ndarray
+    fish_x0: np.ndarray
+    fish_y0: np.ndarray
+    fish_x1: np.ndarray
+    fish_y1: np.ndarray
+    crop_x0: np.ndarray
+    crop_y0: np.ndarray
+    crop_side: np.ndarray
+    masks: np.ndarray
+
+    @classmethod
+    def allocate(cls, frame_count: int, mask_h: int, mask_w: int) -> "PlaybackCacheBuffers":
+        n = max(1, int(frame_count))
+        return cls(
+            found=np.zeros(n, dtype=bool),
+            fish_x0=np.zeros(n, dtype=np.int32),
+            fish_y0=np.zeros(n, dtype=np.int32),
+            fish_x1=np.zeros(n, dtype=np.int32),
+            fish_y1=np.zeros(n, dtype=np.int32),
+            crop_x0=np.zeros(n, dtype=np.int32),
+            crop_y0=np.zeros(n, dtype=np.int32),
+            crop_side=np.zeros(n, dtype=np.int32),
+            masks=np.zeros((n, mask_h, mask_w), dtype=np.uint8),
+        )
+
+    def write_blob(self, index: int, blob: BlobResult) -> None:
+        if not blob.found or blob.mask.size == 0:
+            return
+        ys, xs = np.where(blob.mask)
+        if xs.size == 0:
+            return
+        self.found[index] = True
+        self.fish_x0[index] = int(xs.min())
+        self.fish_y0[index] = int(ys.min())
+        self.fish_x1[index] = int(xs.max()) + 1
+        self.fish_y1[index] = int(ys.max()) + 1
+        self.crop_x0[index] = int(blob.x0)
+        self.crop_y0[index] = int(blob.y0)
+        self.crop_side[index] = int(blob.side)
+        if self.masks.size > 0:
+            self.masks[index] = blob.mask.astype(np.uint8, copy=False)
+
+    def to_entries(self) -> list[PlaybackBlobEntry]:
+        entries: list[PlaybackBlobEntry] = []
+        n = int(self.found.shape[0])
+        for i in range(n):
+            if not bool(self.found[i]):
+                entries.append(PlaybackBlobEntry.empty())
+                continue
+            mask = (
+                self.masks[i].astype(bool)
+                if self.masks.size > 0
+                else np.zeros((0, 0), dtype=bool)
+            )
+            entries.append(
+                PlaybackBlobEntry(
+                    True,
+                    int(self.fish_x0[i]),
+                    int(self.fish_y0[i]),
+                    int(self.fish_x1[i]),
+                    int(self.fish_y1[i]),
+                    int(self.crop_x0[i]),
+                    int(self.crop_y0[i]),
+                    int(self.crop_side[i]),
+                    mask,
+                )
+            )
+        return entries
+
+    def to_arrays(self) -> dict[str, np.ndarray]:
+        return {
+            "found": self.found,
+            "fish_x0": self.fish_x0,
+            "fish_y0": self.fish_y0,
+            "fish_x1": self.fish_x1,
+            "fish_y1": self.fish_y1,
+            "crop_x0": self.crop_x0,
+            "crop_y0": self.crop_y0,
+            "crop_side": self.crop_side,
+            "masks": self.masks,
+        }
+
+
 def playback_blob_cache_key(arena: ArenaConfig, params: BlobParams) -> str:
     payload = {
         "arena": arena.to_dict(),
         "blob": params.to_dict(),
-        "cache_version": 2,
+        "cache_version": 3,
     }
     raw = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -215,8 +302,54 @@ def save_playback_overlay_cache(
     preview_max_edge: int,
 ) -> None:
     """Persist playback overlays beside the video for reuse across sessions."""
+    _, _, arrays = _entries_to_arrays(entries)
+    _write_playback_overlay_cache(
+        video_dir,
+        arrays,
+        frame_count=frame_count,
+        video_path=video_path,
+        arena=arena,
+        blob_params=blob_params,
+        preview_max_edge=preview_max_edge,
+    )
+
+
+def save_playback_overlay_buffers(
+    video_dir: Path,
+    buffers: PlaybackCacheBuffers,
+    *,
+    frame_count: int,
+    video_path: Path,
+    arena: ArenaConfig,
+    blob_params: BlobParams,
+    preview_max_edge: int,
+) -> None:
+    """Persist pre-allocated playback buffers (same on-disk format as entry list)."""
+    _write_playback_overlay_cache(
+        video_dir,
+        buffers.to_arrays(),
+        frame_count=frame_count,
+        video_path=video_path,
+        arena=arena,
+        blob_params=blob_params,
+        preview_max_edge=preview_max_edge,
+    )
+
+
+def _write_playback_overlay_cache(
+    video_dir: Path,
+    arrays: dict[str, np.ndarray],
+    *,
+    frame_count: int,
+    video_path: Path,
+    arena: ArenaConfig,
+    blob_params: BlobParams,
+    preview_max_edge: int,
+) -> None:
     video_dir.mkdir(parents=True, exist_ok=True)
-    mask_h, mask_w, arrays = _entries_to_arrays(entries)
+    masks = arrays.get("masks")
+    mask_h = int(masks.shape[1]) if masks is not None and masks.size > 0 else 0
+    mask_w = int(masks.shape[2]) if masks is not None and masks.size > 0 else 0
     np.savez_compressed(video_dir / PLAYBACK_OVERLAY_DATA, **arrays)
     meta = {
         "version": PLAYBACK_OVERLAY_VERSION,

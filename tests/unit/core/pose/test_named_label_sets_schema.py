@@ -10,7 +10,7 @@ from core.pose.labeling.named_label_sets import apply_edges_to_dataset, load_dat
 from core.pose.labeling.schema import PoseSchema
 
 
-def test_load_dataset_from_dir_uses_schema_sidecar(tmp_path: Path) -> None:
+def test_load_dataset_from_dir_uses_canonical_schema(tmp_path: Path) -> None:
     ds = LabelDataset(
         schema=PoseSchema(
             bodyparts=["Head", "BF", "LF1", "RF1"],
@@ -30,10 +30,25 @@ def test_load_dataset_from_dir_uses_schema_sidecar(tmp_path: Path) -> None:
         ),
     )
     loaded = load_dataset_from_dir(tmp_path)
+    assert loaded.bodyparts() == [
+        "Head",
+        "BF",
+        "LF1",
+        "LF2",
+        "RF1",
+        "RF2",
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+    ]
     names = loaded.bodyparts()
     named = {(names[a], names[b]) for a, b in loaded.schema.edges}
     assert ("BF", "LF1") in named
     assert ("BF", "RF1") in named
+    assert loaded.get_point(0, "Head") == (1.0, 2.0)
+    assert loaded.get_point(0, "LF1") == (5.0, 6.0)
 
 
 def test_apply_edges_prefers_human_schema() -> None:

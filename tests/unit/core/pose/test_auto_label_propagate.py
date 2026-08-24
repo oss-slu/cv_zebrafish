@@ -150,7 +150,7 @@ def test_propagate_aborts_early_on_all_zero_heatmaps(tmp_path):
     params = AutoLabelParams(seed_frame=0, search_radius_px=30.0, min_likelihood=0.1)
     import pytest
 
-    with pytest.raises(RuntimeError, match="aborted at frame 1"):
+    with pytest.raises(RuntimeError, match="aborted at frame 0"):
         propagate_auto_label(
             video_path=video_path,
             frame_count=5,
@@ -160,8 +160,55 @@ def test_propagate_aborts_early_on_all_zero_heatmaps(tmp_path):
             predictor=predictor,
             params=params,
         )
-    # First non-seed inference attempt only — do not grind through the whole video.
+    # First inference attempt is the human-complete seed frame (heatmap-only path).
     assert predictor.calls == 1
+
+
+def test_human_complete_frames_save_heatmaps(tmp_path):
+    import cv2
+
+    from core.pose.inference.heatmap_store import heatmap_frame_path
+
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    _synthetic_video(frames_dir, 3)
+    video_path = tmp_path / "test.avi"
+    writer = cv2.VideoWriter(
+        str(video_path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        10.0,
+        (160, 120),
+    )
+    for i in range(3):
+        img = cv2.imread(str(frames_dir / f"f{i:03d}.png"))
+        writer.write(img)
+    writer.release()
+
+    ds = LabelDataset(schema=PoseSchema(bodyparts=["Head", "Tail"], edges=[(0, 1)]))
+    ds.set_point(0, "Head", 60.0, 60.0)
+    ds.set_point(0, "Tail", 75.0, 60.0)
+    ds.set_point(2, "Head", 62.0, 60.0)
+    ds.set_point(2, "Tail", 77.0, 60.0)
+
+    hm_dir = tmp_path / "heatmaps"
+    predictor = SyntheticHeatmapPredictor(noise_px=0.5)
+    params = AutoLabelParams(seed_frame=0, search_radius_px=30.0, min_likelihood=0.1)
+    out, report = propagate_auto_label(
+        video_path=video_path,
+        frame_count=3,
+        arena=ArenaConfig(),
+        blob_params=BlobParams(brightness_min=100),
+        human_labels=ds,
+        predictor=predictor,
+        params=params,
+        heatmap_out_dir=hm_dir,
+    )
+    assert out.get_point(0, "Head") == (60.0, 60.0)
+    assert out.get_point(2, "Head") == (62.0, 60.0)
+    assert heatmap_frame_path(hm_dir, 0).is_file()
+    assert heatmap_frame_path(hm_dir, 1).is_file()
+    assert heatmap_frame_path(hm_dir, 2).is_file()
+    assert report.heatmaps_saved == 3
 
 
 def test_finish_incomplete_archive_uses_saved_and_infers_missing(tmp_path):

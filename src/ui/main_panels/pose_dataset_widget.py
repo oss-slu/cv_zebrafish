@@ -40,14 +40,6 @@ class PoseDatasetWidget(QWidget):
         self._project_id = "default"
 
         root = QVBoxLayout(self)
-        intro = QLabel(
-            "View human, AI, external, and merged tracking datasets per video. "
-            "Combine layers external → AI → human (later wins on conflicts). "
-            "Import external DLC CSVs from other tools into this project."
-        )
-        intro.setWordWrap(True)
-        intro.setObjectName("SettingsHintLabel")
-        root.addWidget(intro)
 
         self._list = QListWidget()
         self._list.setMinimumHeight(120)

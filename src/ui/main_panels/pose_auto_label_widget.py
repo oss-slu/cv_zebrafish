@@ -76,14 +76,6 @@ class PoseAutoLabelWidget(QWidget):
         self._cuda_available = False
 
         root = QVBoxLayout(self)
-        intro = QLabel(
-            "Auto Label decodes heatmap peaks inside each frame's blob mask with temporal "
-            "search from neighboring frames. Run the model to generate heatmaps, or re-decode "
-            "from saved heatmaps with different seed / radius / likelihood settings."
-        )
-        intro.setWordWrap(True)
-        intro.setObjectName("SettingsHintLabel")
-        root.addWidget(intro)
 
         self._status_lbl = QLabel("Open a session and select a video.")
         self._status_lbl.setObjectName("SettingsHintLabel")
@@ -99,10 +91,10 @@ class PoseAutoLabelWidget(QWidget):
         mrow.addWidget(self._checkpoint_combo, stretch=1)
         ml.addLayout(mrow)
         self._gpu = QCheckBox("Use GPU (NVIDIA CUDA)")
-        self._gpu_status = QLabel("")
-        self._gpu_status.setObjectName("SettingsHintLabel")
+        self._gpu.setToolTip(
+            "Requires an NVIDIA GPU with CUDA-enabled PyTorch in the DLC conda env"
+        )
         ml.addWidget(self._gpu)
-        ml.addWidget(self._gpu_status)
         root.addWidget(model_box)
 
         heatmap_box = QGroupBox("Saved heatmaps")
@@ -126,10 +118,6 @@ class PoseAutoLabelWidget(QWidget):
         self._heatmap_combo.setToolTip("Folder of per-frame heatmap .npz archives under ai_labelled/.")
         self._heatmap_combo.currentIndexChanged.connect(self._on_heatmap_archive_changed)
         hf.addRow("Archive", self._heatmap_combo)
-        self._heatmap_hint = QLabel("No saved heatmaps for this video yet.")
-        self._heatmap_hint.setObjectName("SettingsHintLabel")
-        self._heatmap_hint.setWordWrap(True)
-        hf.addRow("", self._heatmap_hint)
         self._heatmap_file_list = ArtifactFileList()
         self._heatmap_file_list.delete_requested.connect(self._on_delete_heatmap_archive)
         hf.addRow("", self._heatmap_file_list)
@@ -302,17 +290,16 @@ class PoseAutoLabelWidget(QWidget):
         has_archives = bool(self._heatmap_archives)
         self._use_saved_heatmaps_cb.setEnabled(has_archives)
         self._heatmap_combo.setEnabled(has_archives and self._using_saved_heatmaps())
-        if has_archives:
-            self._heatmap_hint.setText(
-                "Select a saved heatmap archive to re-decode with different settings "
-                "without re-running the model."
-            )
-        else:
-            self._heatmap_hint.setText(
-                "No saved heatmaps for this video yet. Run Auto Label once with "
+        if not has_archives:
+            self._use_saved_heatmaps_cb.setChecked(False)
+            self._heatmap_combo.setToolTip(
+                "No saved heatmaps for this video yet. Run Auto Label with "
                 "\"Save full crop heatmaps\" enabled to create an archive."
             )
-            self._use_saved_heatmaps_cb.setChecked(False)
+        else:
+            self._heatmap_combo.setToolTip(
+                "Folder of per-frame heatmap .npz archives under ai_labelled/."
+            )
         self._heatmap_combo.blockSignals(False)
         self._refresh_heatmap_file_list()
         self._sync_finish_labeling_state()
@@ -344,14 +331,13 @@ class PoseAutoLabelWidget(QWidget):
             )
         self._finish_labeling_cb.blockSignals(False)
         if archive is not None and missing > 0 and self._using_saved_heatmaps():
-            self._heatmap_hint.setText(
+            self._heatmap_combo.setToolTip(
                 f"Archive has {archive.frame_count:,} / {self._frame_count():,} frames. "
-                "Enable Finish labeling to infer the rest, or pick a complete archive for re-decode."
+                "Enable Finish labeling to infer the rest."
             )
         elif archive is not None and missing == 0 and self._frame_count() > 0:
-            self._heatmap_hint.setText(
-                "Archive is complete for this video. Use saved heatmaps to re-decode with "
-                "different settings without re-running the model."
+            self._heatmap_combo.setToolTip(
+                "Archive is complete for this video — re-decode without re-running the model."
             )
 
     def _on_heatmap_archive_changed(self, _index: int) -> None:
@@ -498,7 +484,7 @@ class PoseAutoLabelWidget(QWidget):
         python_exe = self._dlc_python or sys.executable
         if self._gpu_probe_worker is not None and self._gpu_probe_worker.isRunning():
             return
-        self._gpu_status.setText("Checking GPU availability…")
+        self._gpu.setToolTip("Checking GPU availability…")
         self._gpu_probe_worker = GpuProbeWorker(python_exe, self)
         self._gpu_probe_worker.finished_ok.connect(self._on_gpu_probe_done)
         self._gpu_probe_worker.finished.connect(self._on_gpu_probe_finished)
@@ -510,7 +496,10 @@ class PoseAutoLabelWidget(QWidget):
     def _on_gpu_probe_done(self, status) -> None:
         self._cuda_available = status.cuda_available
         self._gpu.setEnabled(self._cuda_available and (not self._using_saved_heatmaps() or self._finishing_archive()))
-        self._gpu_status.setText(status.summary)
+        tip = (status.summary or "").strip() or (
+            "Requires an NVIDIA GPU with CUDA-enabled PyTorch in the DLC conda env"
+        )
+        self._gpu.setToolTip(tip)
         if not status.cuda_available:
             self._gpu.setChecked(False)
         self._sync_inference_controls()
@@ -569,7 +558,7 @@ class PoseAutoLabelWidget(QWidget):
                 self,
                 title,
                 "CUDA GPU is not available in the DLC Python environment.\n\n"
-                f"{self._gpu_status.text()}",
+                f"{self._gpu.toolTip()}",
             )
             return False
         return True

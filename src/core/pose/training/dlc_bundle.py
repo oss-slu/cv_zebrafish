@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,9 +33,50 @@ def collected_data_filename(scorer: str = DEFAULT_SCORER) -> str:
     return f"CollectedData_{scorer}.csv"
 
 
-def _label_set_folder_name(video_source: Path) -> str:
-    """DLC expects ``labeled-data/<video_stem>/`` (e.g. ``source`` for ``source.mp4``)."""
-    return video_source.stem
+def dlc_label_set_stem(video_id: str, video_source: Path | None = None) -> str:
+    """
+    Unique ``labeled-data/<stem>/`` name for a project video.
+
+    Project videos are stored as ``source.mp4`` in every folder, so the file stem
+    alone collides when training on multiple videos. Prefer the project ``video_id``.
+    """
+    raw = (video_id or "").strip() or (video_source.stem if video_source else "video")
+    safe = re.sub(r"[^\w\-]+", "_", raw).strip("_")
+    return safe or "video"
+
+
+def _label_set_folder_name(video_source: Path, *, video_id: str | None = None) -> str:
+    """DLC expects ``labeled-data/<video_stem>/`` matching the video_sets path stem."""
+    return dlc_label_set_stem(video_id or "", video_source)
+
+
+def _ensure_unique_video_path(work_dir: Path, video_id: str, src: Path) -> Path:
+    """
+    Point DLC ``video_sets`` at ``work_dir/videos/<unique_stem>.mp4``.
+
+    Prefer symlink, then hardlink, then a tiny stub file (training uses crop images
+    under labeled-data; the path stem only needs to be unique for DLC).
+    """
+    stem = dlc_label_set_stem(video_id, src)
+    videos_dir = work_dir / "videos"
+    videos_dir.mkdir(parents=True, exist_ok=True)
+    dest = videos_dir / f"{stem}.mp4"
+    if dest.exists() or dest.is_symlink():
+        dest.unlink()
+    src_res = src.resolve()
+    try:
+        dest.symlink_to(src_res)
+        return dest
+    except OSError:
+        pass
+    try:
+        os.link(src_res, dest)
+        return dest
+    except OSError:
+        pass
+    # Last resort: empty placeholder so the unique stem exists for DLC matching.
+    dest.write_bytes(b"")
+    return dest
 
 
 @dataclass
@@ -81,6 +125,25 @@ def training_bundle_is_stale(
         return True
     if stats.bodyparts != list(job.get("bodyparts") or []):
         return True
+    # Legacy bundles pointed video_sets at raw ``…/source.mp4`` paths — DLC then
+    # collapsed every video into labeled-data/source and produced empty shuffles.
+    sources = [str(p) for p in (job.get("video_sources") or [])]
+    if len(sources) >= 2:
+        stems = {Path(p).stem.lower() for p in sources}
+        if stems == {"source"} or len(stems) < len(sources):
+            return True
+    work = str(job.get("work_dir") or "")
+    if work:
+        labeled = Path(work) / "labeled-data"
+        if labeled.is_dir():
+            expected = {
+                dlc_label_set_stem(vid)
+                for vid in video_ids
+                if stats.per_video.get(vid, 0) > 0
+            }
+            present = {p.name for p in labeled.iterdir() if p.is_dir()}
+            if expected and not expected.issubset(present):
+                return True
     return False
 
 
@@ -152,7 +215,7 @@ def _write_config_yaml(
             "alphavalue: 0.7",
             "colormap: rainbow",
             "",
-            "TrainingFraction: [0.95]",
+            "TrainingFraction: [0.8]",
             "iteration: 0",
             "default_net_type: resnet_50",
             "default_augmenter: albumentations",
@@ -227,6 +290,9 @@ def prepare_training_bundle(
 
     work_dir = pose_models_dir(session_name, project_id) / DLC_WORK_DIRNAME
     labeled_dir = work_dir / "labeled-data"
+    # Rebuild labeled-data cleanly so old ``source`` collisions cannot linger.
+    if labeled_dir.is_dir():
+        shutil.rmtree(labeled_dir, ignore_errors=True)
     labeled_dir.mkdir(parents=True, exist_ok=True)
 
     collected_rows: list[tuple[str, dict[str, tuple[float, float] | None]]] = []
@@ -242,8 +308,9 @@ def prepare_training_bundle(
         if src is None:
             continue
         src = src.resolve()
-        video_sources.append(str(src))
-        label_set = _label_set_folder_name(src)
+        unique_src = _ensure_unique_video_path(work_dir, vid, src)
+        video_sources.append(str(unique_src.resolve()))
+        label_set = _label_set_folder_name(src, video_id=vid)
         arena = load_arena(vdir / "arena.json")
         blob_params = load_blob_params(vdir / "blob_params.json")
         ds = load_labels(human_labelled_dir(session_name, project_id, vid))
@@ -301,6 +368,11 @@ def prepare_training_bundle(
         video_paths=video_sources,
         scorer=scorer,
     )
+
+    # Stale empty shuffle metadata must not block a fresh create_training_dataset.
+    td = work_dir / "training-datasets"
+    if td.is_dir():
+        shutil.rmtree(td, ignore_errors=True)
 
     job = {
         "version": 1,

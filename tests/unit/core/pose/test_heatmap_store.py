@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from core.pose.inference.heatmap_store import (
     archive_is_complete,
@@ -10,6 +11,7 @@ from core.pose.inference.heatmap_store import (
     estimate_heatmap_archive_bytes,
     list_heatmap_frame_indices,
     load_frame_heatmaps,
+    load_frame_peak_locref,
     save_frame_heatmaps,
     upsample_heatmap_to_crop,
 )
@@ -23,11 +25,25 @@ def test_upsample_and_roundtrip(tmp_path):
     assert big[15, 15] > 0.5
 
     maps = {"Head": small, "BF": small * 0.5}
-    path = save_frame_heatmaps(tmp_path, 12, maps, crop_h=30, crop_w=30)
+    locref = {
+        "Head": np.array([0.1, -0.2], dtype=np.float32),
+        "BF": np.array([0.3, 0.4], dtype=np.float32),
+    }
+    path = save_frame_heatmaps(
+        tmp_path, 12, maps, crop_h=30, crop_w=30, peak_locref=locref
+    )
     fi, loaded = load_frame_heatmaps(path)
     assert fi == 12
     assert loaded["Head"].shape == (30, 30)
     assert loaded["BF"].shape == (30, 30)
+    assert "Head_locref" not in loaded
+    peak_lr = load_frame_peak_locref(path)
+    assert peak_lr["Head"][0] == pytest.approx(0.1, rel=1e-2)
+    assert peak_lr["BF"][1] == pytest.approx(0.4, rel=1e-2)
+
+    with np.load(path) as data:
+        assert int(data["crop_h"]) == 30
+        assert int(data["crop_w"]) == 30
 
 
 def test_list_heatmap_archives(tmp_path, monkeypatch):

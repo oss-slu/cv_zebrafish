@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.pose.labeling.labels_store import LabelDataset
 
 # Head + BF + 2 per fin (center, tip — not body attachment) + 5 tail (T1–T5).
 LAB_BODYPARTS: list[str] = [
@@ -76,10 +81,32 @@ def edges_for_bodyparts(names: list[str]) -> list[tuple[int, int]]:
     return edges
 
 
-def default_lab_schema() -> PoseSchema:
-    """11-point lab preset: head, BF, fin center+tip pairs, five tail segments."""
+def canonical_lab_schema() -> PoseSchema:
+    """Session2_3 reference: 11-point lab preset + skeleton edges."""
     names = list(LAB_BODYPARTS)
     return PoseSchema(bodyparts=names, edges=edges_for_bodyparts(names))
+
+
+def default_lab_schema() -> PoseSchema:
+    """Alias for :func:`canonical_lab_schema`."""
+    return canonical_lab_schema()
+
+
+def apply_canonical_schema(dataset: "LabelDataset") -> "LabelDataset":
+    """
+    Force Session2_3 bodyparts and bones on ``dataset``.
+
+    Keeps labeled coordinates for bodyparts that exist in the canonical schema;
+    drops extras (custom points, alternate tail sets, etc.).
+    """
+    canonical = canonical_lab_schema()
+    allowed = frozenset(canonical.bodyparts)
+    for frame in dataset.frames.values():
+        frame.points = {
+            name: xy for name, xy in frame.points.items() if name in allowed
+        }
+    dataset.schema = deepcopy(canonical)
+    return dataset
 
 
 def normalize_edge(a: int, b: int) -> tuple[int, int]:

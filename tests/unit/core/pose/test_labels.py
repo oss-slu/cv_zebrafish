@@ -14,6 +14,8 @@ from core.pose.labeling.frame_sampler import (
     build_label_frame_queue,
     coarse_stride_for_gap,
     gap_from_frames_to_analyze,
+    rank_queue_by_uniqueness,
+    reduce_queue_using_ranks,
     shape_scan_coarse_stride,
     shape_distance,
     target_label_frame_count,
@@ -154,6 +156,70 @@ def test_build_diverse_queue_target_size():
     assert len(queue) == 10
     assert queue[0] == 0
     assert queue == sorted(queue)
+
+
+def test_reduce_queue_by_uniqueness():
+    from core.pose.labeling.frame_sampler import reduce_queue_by_uniqueness
+
+    n = 20
+    fps: list[np.ndarray | None] = [None] * n
+    for i in (0, 5, 10, 15):
+        fps[i] = _unit_vec(i)
+    out = reduce_queue_by_uniqueness(fps, [0, 5, 10, 15, 1, 2], 3)
+    assert len(out) == 3
+    assert out == sorted(out)
+    assert set(out).issubset({0, 5, 10, 15, 1, 2})
+
+
+def test_rank_queue_by_uniqueness_covers_full_queue():
+    n = 90
+    fps: list[np.ndarray | None] = [None] * n
+    for i in range(0, 30):
+        fps[i] = _unit_vec(0)
+    for i in range(30, 60):
+        fps[i] = _unit_vec(1)
+    for i in range(60, 90):
+        fps[i] = _unit_vec(2)
+    queue = build_diverse_label_frame_queue(n, 10, fps, target=9)
+    ranks = rank_queue_by_uniqueness(fps, queue)
+    assert set(ranks.keys()) == set(queue)
+    assert len(set(ranks.values())) == len(queue)
+    reduced = reduce_queue_using_ranks(queue, ranks, 3, fingerprints=fps)
+    assert len(reduced) == 3
+    assert set(reduced).issubset(set(queue))
+
+
+def test_build_diverse_queue_assigns_ranks_for_every_member():
+    n = 100
+    fps: list[np.ndarray | None] = [None] * n
+    for i in range(0, n, 10):
+        fps[i] = _unit_vec(i // 10)
+    ranks: dict[int, int] = {}
+    queue = build_diverse_label_frame_queue(n, 10, fps, target=10, ranks=ranks)
+    assert len(queue) == 10
+    assert set(ranks.keys()) == set(queue)
+    assert len(set(ranks.values())) == len(queue)
+
+
+def test_reduce_queue_using_ranks_prefers_high_rank():
+    queue = [0, 10, 20, 30, 40]
+    ranks = {0: 1, 10: 5, 20: 3, 30: 4, 40: 2}
+    out = reduce_queue_using_ranks(queue, ranks, 3)
+    assert out == [10, 20, 30]
+    assert set(out) == {10, 30, 20}
+
+
+def test_reduce_queue_using_ranks_fallback_for_missing():
+    n = 20
+    fps: list[np.ndarray | None] = [None] * n
+    for i in (0, 5, 10, 15):
+        fps[i] = _unit_vec(i)
+    queue = [0, 5, 10, 15, 1, 2]
+    ranks = {0: 10, 5: 9}
+    out = reduce_queue_using_ranks(queue, ranks, 3, fingerprints=fps)
+    assert len(out) == 3
+    assert 0 in out and 5 in out
+    assert out == sorted(out)
 
 
 def test_shape_distance():
