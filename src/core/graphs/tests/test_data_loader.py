@@ -90,6 +90,9 @@ def minimal_enriched_csv_data() -> pd.DataFrame:
         "timeRangeEnd_0": [30.0] + [""] * (n_frames - 1),
         "timeRangeStart_1": [50.0] + [""] * (n_frames - 1),
         "timeRangeEnd_1": [70.0] + [""] * (n_frames - 1),
+        # Fin peak indices are serialized in row 0 of enriched CSV exports.
+        "LeftFin_Peaks": [json.dumps([12, 25, 55])] + [""] * (n_frames - 1),
+        "RightFin_Peaks": ["15,60"] + [""] * (n_frames - 1),
     }
     
     # Add spine columns
@@ -176,11 +179,10 @@ def test_get_bouts(temp_csv_and_config):
     bouts = loader.get_bouts()
     assert len(bouts) == 2
     assert isinstance(bouts[0], BoutRange)
-    assert bouts[0].start == 10
-    assert bouts[0].end == 30
-    assert bouts[0].idx == 0
-    assert bouts[1].start == 50
-    assert bouts[1].end == 70
+    assert bouts == [
+        BoutRange(start_frame=10, end_frame=30, duration=20, n_frames=21),
+        BoutRange(start_frame=50, end_frame=70, duration=20, n_frames=21),
+    ]
 
 
 def test_iter_frames_all(temp_csv_and_config):
@@ -216,9 +218,10 @@ def test_get_fin_peaks(temp_csv_and_config):
     left_peaks = loader.get_fin_peaks("left")
     right_peaks = loader.get_fin_peaks("right")
     
-    assert isinstance(left_peaks, list)
-    assert isinstance(right_peaks, list)
-    # Peaks should be frame indices
+    assert left_peaks == [12, 25, 55]
+    assert right_peaks == [15, 60]
+    assert loader.get_fin_peaks("left", loader.get_bouts()[0]) == [12, 25]
+    assert loader.get_fin_peaks("right", loader.get_bouts()[1]) == [60]
     assert all(isinstance(p, (int, np.integer)) for p in left_peaks)
     assert all(isinstance(p, (int, np.integer)) for p in right_peaks)
 
