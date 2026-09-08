@@ -203,8 +203,9 @@ def test_human_complete_frames_save_heatmaps(tmp_path):
         params=params,
         heatmap_out_dir=hm_dir,
     )
-    assert out.get_point(0, "Head") == (60.0, 60.0)
-    assert out.get_point(2, "Head") == (62.0, 60.0)
+    assert out.get_point(0, "Head") is not None
+    assert out.get_point(2, "Head") is not None
+    assert out.get_point(2, "Head") != (62.0, 60.0)
     assert heatmap_frame_path(hm_dir, 0).is_file()
     assert heatmap_frame_path(hm_dir, 1).is_file()
     assert heatmap_frame_path(hm_dir, 2).is_file()
@@ -264,3 +265,120 @@ def test_finish_incomplete_archive_uses_saved_and_infers_missing(tmp_path):
     assert report.heatmaps_saved == 2
     assert (archive / "frame000001.npz").is_file()
     assert (archive / "frame000002.npz").is_file()
+
+
+def test_human_labeled_frames_get_ai_predictions_not_copies(tmp_path):
+    import cv2
+
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    _synthetic_video(frames_dir, 3)
+    video_path = tmp_path / "test.avi"
+    writer = cv2.VideoWriter(
+        str(video_path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        10.0,
+        (160, 120),
+    )
+    for i in range(3):
+        img = cv2.imread(str(frames_dir / f"f{i:03d}.png"))
+        writer.write(img)
+    writer.release()
+
+    ds = LabelDataset(schema=PoseSchema(bodyparts=["Head", "Tail"], edges=[(0, 1)]))
+    ds.set_point(0, "Head", 60.0, 60.0)
+    ds.set_point(0, "Tail", 75.0, 60.0)
+    ds.set_point(2, "Head", 99.0, 99.0)
+    ds.set_point(2, "Tail", 88.0, 88.0)
+
+    predictor = SyntheticHeatmapPredictor(noise_px=0.5)
+    params = AutoLabelParams(seed_frame=0, search_radius_px=30.0, min_likelihood=0.1)
+    out, _report = propagate_auto_label(
+        video_path=video_path,
+        frame_count=3,
+        arena=ArenaConfig(),
+        blob_params=BlobParams(brightness_min=100),
+        human_labels=ds,
+        predictor=predictor,
+        params=params,
+    )
+    assert out.get_point(2, "Head") is not None
+    assert out.get_point(2, "Head") != (99.0, 99.0)
+    assert out.get_point(2, "Tail") != (88.0, 88.0)
+
+
+def test_run_auto_label_for_video_updates_labels_json(tmp_path, monkeypatch):
+    import json
+
+    import cv2
+
+    from core.pose.inference.auto_label_propagate import AutoLabelParams, run_auto_label_for_video
+    from core.pose.labeling.labels_store import save_labels
+    from core.pose.labeling.named_label_sets import load_dataset_from_dir
+    from core.pose.labeling.schema import canonical_lab_schema
+
+    session, project, vid = "sess", "default", "v0"
+    vdir = tmp_path / "videos" / vid
+    vdir.mkdir(parents=True)
+    (vdir / "meta.json").write_text(
+        json.dumps({"fps": 10.0, "frame_count": 3, "width": 160, "height": 120}),
+        encoding="utf-8",
+    )
+    video_path = vdir / "source.mp4"
+    writer = cv2.VideoWriter(
+        str(video_path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        10.0,
+        (160, 120),
+    )
+    for i in range(3):
+        frame = np.zeros((120, 160, 3), dtype=np.uint8)
+        x0 = 50 + i * 3
+        frame[50:70, x0 : x0 + 20] = 220
+        writer.write(frame)
+    writer.release()
+
+    human_dir = tmp_path / "human" / vid
+    human_dir.mkdir(parents=True)
+    schema = canonical_lab_schema()
+    human = LabelDataset(schema=schema)
+    for i, bp in enumerate(schema.bodyparts):
+        human.set_point(0, bp, 60.0 + i, 60.0)
+    save_labels(human_dir, human)
+
+    ai_dir = tmp_path / "ai" / vid
+    ai_dir.mkdir(parents=True)
+    stale = LabelDataset(schema=schema)
+    for i, bp in enumerate(schema.bodyparts):
+        stale.set_point(0, bp, 60.0 + i, 60.0)
+    for fi in (1, 2):
+        for bp in schema.bodyparts:
+            stale.set_point(fi, bp, 999.0, 999.0)
+    save_labels(ai_dir, stale)
+
+    monkeypatch.setattr(
+        "core.pose.inference.auto_label_propagate.pose_video_dir",
+        lambda _s, _p, _v: vdir,
+    )
+    monkeypatch.setattr(
+        "core.pose.inference.auto_label_propagate.human_labelled_dir",
+        lambda _s, _p, _v: human_dir,
+    )
+    monkeypatch.setattr(
+        "core.pose.inference.auto_label_propagate.ai_labelled_dir",
+        lambda _s, _p, _v: ai_dir,
+    )
+
+    run_auto_label_for_video(
+        session_name=session,
+        project_id=project,
+        video_id=vid,
+        predictor=SyntheticHeatmapPredictor(noise_px=0.5),
+        params=AutoLabelParams(seed_frame=0, search_radius_px=30.0, min_likelihood=0.1),
+    )
+
+    loaded = load_dataset_from_dir(ai_dir)
+    assert loaded.get_point(1, "Head") != (999.0, 999.0)
+    assert (ai_dir / "labels.json").is_file()
+    assert (ai_dir / "tracking.csv").is_file()
+    assert loaded.count_frames_with_any_point() == 3

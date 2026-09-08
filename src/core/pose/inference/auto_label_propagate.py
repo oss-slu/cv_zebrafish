@@ -21,7 +21,7 @@ from core.pose.inference.heatmap_store import (
 from app_platform.paths import ai_labelled_dir, human_labelled_dir, pose_video_dir
 from core.pose.dataset.export_dlc import export_dlc_csv
 from core.pose.dataset.import_dlc_csv import import_dlc_csv
-from core.pose.labeling.labels_store import save_schema
+from core.pose.labeling.labels_store import save_labels
 from core.pose.detection.arena import ArenaConfig, load_arena
 from core.pose.detection.blob import BlobParams, detect_blob_square_crop, load_blob_params
 from core.pose.detection.crop import crop_to_full_frame, extract_square_crop, fish_mask_in_crop, full_frame_to_crop
@@ -130,24 +130,32 @@ def _search_radii(bodyparts: list[str], radius_px: float) -> dict[str, float]:
     return {bp: radius_px for bp in bodyparts}
 
 
-def _copy_human_labels(
-    human_labels: LabelDataset,
-    out: LabelDataset,
-    bodyparts: list[str],
-) -> None:
-    for fi in sorted(human_labels.frames.keys()):
-        for bp in bodyparts:
-            xy = human_labels.get_point(fi, bp)
-            if xy is not None:
-                out.set_point(fi, bp, xy[0], xy[1])
-
-
 def _prev_full_from_out(
     out: LabelDataset,
     prev_fi: int,
     bodyparts: list[str],
 ) -> dict[str, tuple[float, float] | None]:
     return {bp: out.get_point(prev_fi, bp) for bp in bodyparts}
+
+
+def _prev_full_for_decode(
+    out: LabelDataset,
+    human_labels: LabelDataset,
+    prev_fi: int,
+    seed_frame: int,
+    bodyparts: list[str],
+) -> dict[str, tuple[float, float] | None]:
+    """Temporal prior for constrained decode; seed frame falls back to human labels."""
+    prev_full = _prev_full_from_out(out, prev_fi, bodyparts)
+    if prev_fi != seed_frame:
+        return prev_full
+    merged: dict[str, tuple[float, float] | None] = {}
+    for bp in bodyparts:
+        xy = prev_full.get(bp)
+        if xy is None:
+            xy = human_labels.get_point(seed_frame, bp)
+        merged[bp] = xy
+    return merged
 
 
 def _prev_crop_positions(
@@ -235,22 +243,13 @@ def _decode_and_write_frame(
     report: AutoLabelReport,
     heatmap_out_dir: Path | None,
     heatmap_source_dir: Path | None = None,
+    seed_frame: int = 0,
 ) -> None:
-    human_complete = seed_frame_is_complete(human_labels, fi)[0]
-    decode_only = (
-        heatmap_source_dir is not None and not params.finish_incomplete_archive
-    )
-    # Re-decode from saved heatmaps: human scaffold frames need no archive entry.
-    if human_complete and decode_only:
-        report.frames_processed += 1
-        return
-
     blob = detect_blob_square_crop(frame, arena, blob_params)
     if not blob.found:
         report.frames_blob_missing += 1
         for bp in bodyparts:
-            if human_labels.get_point(fi, bp) is None:
-                out.skip_point(fi, bp)
+            out.skip_point(fi, bp)
         report.frames_processed += 1
         return
 
@@ -301,11 +300,9 @@ def _decode_and_write_frame(
             "(uncheck \"Use saved heatmaps\")."
         )
 
-    if human_complete:
-        report.frames_processed += 1
-        return
-
-    prev_full = _prev_full_from_out(out, prev_fi, bodyparts)
+    prev_full = _prev_full_for_decode(
+        out, human_labels, prev_fi, seed_frame, bodyparts
+    )
     prev_crop = _prev_crop_positions(prev_full, blob, bodyparts)
     decoded = decode_frame_constrained(
         heatmaps,
@@ -319,10 +316,6 @@ def _decode_and_write_frame(
 
     frame_full: dict[str, tuple[float, float] | None] = {}
     for bp in bodyparts:
-        human_xy = human_labels.get_point(fi, bp)
-        if human_xy is not None:
-            frame_full[bp] = human_xy
-            continue
         xy_crop = decoded.positions.get(bp)
         if xy_crop is None:
             out.skip_point(fi, bp)
@@ -364,8 +357,9 @@ def propagate_auto_label(
     """
     Propagate labels forward and backward from a human seed frame.
 
-    Human-labeled points are never overwritten. Bone-length limits use the
-    median across every manually labeled frame.
+    Human labels on the seed frame anchor temporal propagation; bone-length
+    limits use the median across every manually labeled frame. The returned
+    dataset contains model predictions for every frame (not copied human edits).
     """
     bodyparts = human_labels.bodyparts()
     if not bodyparts:
@@ -387,7 +381,6 @@ def propagate_auto_label(
     edges = human_labels.schema.edges
 
     out = LabelDataset(schema=PoseSchema(bodyparts=list(bodyparts), edges=list(edges)))
-    _copy_human_labels(human_labels, out, bodyparts)
 
     report = AutoLabelReport(seed_frame=params.seed_frame)
     heatmap_source_dir: Path | None = None
@@ -439,6 +432,7 @@ def propagate_auto_label(
                 report=report,
                 heatmap_out_dir=heatmap_out_dir,
                 heatmap_source_dir=heatmap_source_dir,
+                seed_frame=seed,
             )
         else:
             report.frames_processed += 1
@@ -469,6 +463,7 @@ def propagate_auto_label(
                 report=report,
                 heatmap_out_dir=heatmap_out_dir,
                 heatmap_source_dir=heatmap_source_dir,
+                seed_frame=seed,
             )
 
         for fi in range(seed - 1, -1, -1):
@@ -497,6 +492,7 @@ def propagate_auto_label(
                 report=report,
                 heatmap_out_dir=heatmap_out_dir,
                 heatmap_source_dir=heatmap_source_dir,
+                seed_frame=seed,
             )
     finally:
         cap.release()
@@ -586,8 +582,9 @@ def run_auto_label_for_video(
             backup = out_dir / "tracking_prev_dense.csv"
             out_csv.replace(backup)
     export_dlc_csv(dataset, frame_count, out_csv, scorer=scorer)
-    # Persist Label-tab bones beside CSV (CSV itself has no schema).
-    save_schema(out_dir, dataset.schema)
+    # Keep labels.json in sync so Label → AI shows the latest run (not a stale sidecar).
+    dataset.frames_to_analyze = frame_count
+    save_labels(out_dir, dataset)
     report_path = out_dir / "auto_label_report.json"
     report_path.write_text(json.dumps(report.to_dict(), indent=2), encoding="utf-8")
     marker = out_dir / "analyze_mode.txt"
