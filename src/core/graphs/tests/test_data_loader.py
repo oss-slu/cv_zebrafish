@@ -90,6 +90,9 @@ def minimal_enriched_csv_data() -> pd.DataFrame:
         "timeRangeEnd_0": [30.0] + [""] * (n_frames - 1),
         "timeRangeStart_1": [50.0] + [""] * (n_frames - 1),
         "timeRangeEnd_1": [70.0] + [""] * (n_frames - 1),
+        # Fin peaks in row 0
+        "LeftFin_Peaks": ["[10, 25, 40]"] + [""] * (n_frames - 1),
+        "RightFin_Peaks": ["[15, 30, 45]"] + [""] * (n_frames - 1),
     }
     
     # Add spine columns
