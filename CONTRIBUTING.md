@@ -28,7 +28,8 @@ cd cv_zebrafish
 
 ```bash
 conda env create -f environment.yml
-conda activate cvzebrafish
+conda activate cv-zebrafish
+pip install -e .
 ```
 
 3. Run the app to confirm setup:
