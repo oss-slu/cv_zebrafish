@@ -90,6 +90,9 @@ def minimal_enriched_csv_data() -> pd.DataFrame:
         "timeRangeEnd_0": [30.0] + [""] * (n_frames - 1),
         "timeRangeStart_1": [50.0] + [""] * (n_frames - 1),
         "timeRangeEnd_1": [70.0] + [""] * (n_frames - 1),
+        # Fin peaks in row 0
+        "LeftFin_Peaks": ["[10, 25, 40]"] + [""] * (n_frames - 1),
+        "RightFin_Peaks": ["[15, 30, 45]"] + [""] * (n_frames - 1),
     }
     
     # Add spine columns
@@ -176,11 +179,10 @@ def test_get_bouts(temp_csv_and_config):
     bouts = loader.get_bouts()
     assert len(bouts) == 2
     assert isinstance(bouts[0], BoutRange)
-    assert bouts[0].start == 10
-    assert bouts[0].end == 30
-    assert bouts[0].idx == 0
-    assert bouts[1].start == 50
-    assert bouts[1].end == 70
+    assert bouts[0].start_frame == 10
+    assert bouts[0].end_frame == 30
+    assert bouts[1].start_frame == 50
+    assert bouts[1].end_frame == 70
 
 
 def test_iter_frames_all(temp_csv_and_config):
