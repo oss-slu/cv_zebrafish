@@ -1,5 +1,7 @@
 # CV Zebrafish
 
+[![Tests](https://github.com/oss-slu/cv_zebrafish/actions/workflows/tests.yml/badge.svg)](https://github.com/oss-slu/cv_zebrafish/actions/workflows/tests.yml)
+
 Desktop toolkit for validating DeepLabCut zebrafish CSVs, generating JSON configs, running kinematic calculations, and rendering Plotly graphs through a PyQt UI.
 
 
@@ -435,7 +437,6 @@ The `data/samples/` directory contains example DLC CSVs and config JSONs you can
 
 ## Known Gaps / Next Steps
 - No dependency lockfile; add `requirements.txt`/`conda-lock` for fully reproducible installs
-- No CI pipeline:  add GitHub Actions to run `pytest` automatically on push/PR
 - No lint or type tooling: consider adding `ruff` (linting) and `mypy` (type checking)
 
 
