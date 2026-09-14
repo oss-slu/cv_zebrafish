@@ -8,6 +8,7 @@ dependencies:
   - pandas
   - scipy
   - pyqt=5
+  - pyqtwebengine
   - plotly
   - python-kaleido  # Plotly static image export used in the UI
   - opencv
