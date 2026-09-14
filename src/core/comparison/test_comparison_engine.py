@@ -321,7 +321,7 @@ class TestComparisonEngine:
 
 def test_module_imports():
     """Test that all public functions can be imported."""
-    from comparison_engine import (
+    from .comparison_engine import (
         compare_datasets,
         generate_comparison_report,
         compare_two_fish,
