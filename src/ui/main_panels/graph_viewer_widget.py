@@ -10,13 +10,16 @@ from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -38,6 +41,12 @@ from src.core.graphs.plots.crosscorr_plot import render_crosscorr_plot
 
 from src.ui.components.InteractiveGraph import InteractiveGraph
 from src.core.calculations.cancelled import CalculationAborted
+from src.core.calculations.export_selected_range import (
+    InvalidRangeError,
+    default_export_filename,
+    export_range_to_csv,
+    validate_range,
+)
 from src.session import session
 from src.app_platform.paths import images_dir, sessions_dir
 
@@ -262,6 +271,34 @@ class GraphViewerScene(QWidget):
         ##CHANGED HERE FOR INTERACTIVE GRAPH
         right_graph = QVBoxLayout()
         right_graph.addWidget(self.interactive_graph, stretch=1)
+
+        # Range export controls (issue #115): choose a frame range, save only those rows.
+        self.range_start_spin = QSpinBox()
+        self.range_start_spin.setObjectName("GraphViewerRangeStartSpin")
+        self.range_end_spin = QSpinBox()
+        self.range_end_spin.setObjectName("GraphViewerRangeEndSpin")
+
+        self.export_range_btn = QPushButton("Export Range CSV…")
+        self.export_range_btn.setObjectName("GraphViewerExportRangeButton")
+        self.export_range_btn.setMinimumHeight(scaled_px(36))
+        self.export_range_btn.setToolTip(
+            "Save only the rows from the start frame to the end frame (inclusive) as a CSV file."
+        )
+        self.export_range_btn.clicked.connect(self._on_export_range_clicked)
+
+        range_row = QHBoxLayout()
+        range_row.setContentsMargins(0, 0, 0, 0)
+        range_row.setSpacing(8)
+        range_row.addWidget(QLabel("Start frame:"))
+        range_row.addWidget(self.range_start_spin)
+        range_row.addWidget(QLabel("End frame:"))
+        range_row.addWidget(self.range_end_spin)
+        range_row.addStretch()
+        range_row.addWidget(self.export_range_btn)
+        right_graph.addLayout(range_row)
+
+        # Disabled until a results DataFrame is available.
+        self._set_range_controls_enabled(False)
 
         graph_layout.addLayout(left_graph)
         graph_layout.addLayout(right_graph, stretch=1)
@@ -724,6 +761,7 @@ class GraphViewerScene(QWidget):
             self._last_single_run_df = None
             self._clear_crosscorr_state()
         self._sync_compare_pane()
+        self._refresh_range_controls()
 
     def set_graphs_by_csv(
         self,
@@ -855,6 +893,87 @@ class GraphViewerScene(QWidget):
         if self._results_by_csv:
             self._apply_crosscorr_for_current_folder_csv()
         self._sync_compare_pane()
+        self._refresh_range_controls()
+
+    # ------------------------------------------------------------------
+    # Range export (issue #115)
+    # ------------------------------------------------------------------
+
+    def _active_results_df(self) -> Optional[pd.DataFrame]:
+        """Results DataFrame for the dataset currently shown, or None if unavailable.
+
+        Folder runs keep one DataFrame per CSV; single runs keep one DataFrame.
+        Sessions restored from saved PNGs have no DataFrame, so this returns None.
+        """
+        if self._results_by_csv:
+            df = self._results_by_csv.get(str(self.csv_combo.currentData()))
+        else:
+            df = self._last_single_run_df
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            return df
+        return None
+
+    def _set_range_controls_enabled(self, enabled: bool) -> None:
+        for widget in (self.range_start_spin, self.range_end_spin, self.export_range_btn):
+            widget.setEnabled(enabled)
+
+    def _refresh_range_controls(self) -> None:
+        """Sync the range controls with the current dataset (disable if there is none)."""
+        df = self._active_results_df()
+        if df is None:
+            self._set_range_controls_enabled(False)
+            return
+        last_row = len(df) - 1
+        for spin in (self.range_start_spin, self.range_end_spin):
+            spin.setRange(0, last_row)
+        self.range_start_spin.setValue(0)
+        self.range_end_spin.setValue(last_row)
+        self._set_range_controls_enabled(True)
+
+    def _default_export_dir(self) -> Path:
+        """Folder the save dialog opens in: next to the source CSV, else the home folder."""
+        source = self._context_selected_csv
+        if source:
+            path = Path(str(source))
+            if path.is_dir():
+                return path
+            if path.parent.is_dir():
+                return path.parent
+        return Path.home()
+
+    def _on_export_range_clicked(self) -> None:
+        """Validate the chosen range, ask where to save, and write only those rows."""
+        df = self._active_results_df()
+        start = self.range_start_spin.value()
+        end = self.range_end_spin.value()
+
+        try:
+            validate_range(df, start, end)
+        except InvalidRangeError as exc:
+            QMessageBox.warning(self, "Invalid range", str(exc))
+            return
+
+        default_name = default_export_filename(self._context_selected_csv, start, end)
+        default_path = str(self._default_export_dir() / default_name)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export selected range", default_path, "CSV files (*.csv)"
+        )
+        if not path:
+            return  # user cancelled
+
+        try:
+            written = export_range_to_csv(df, start, end, path)
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "Export failed", f"Could not save the selected range:\n{exc}"
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Export complete",
+            f"Saved frames {start}–{end} ({end - start + 1} rows) to:\n{written}",
+        )
 
     def save_folder_graphs(
         self,
@@ -1152,6 +1271,7 @@ class GraphViewerScene(QWidget):
         self._set_message(text)
         self.list.setEnabled(False)
         self.interactive_graph.clear()
+        self._set_range_controls_enabled(False)
 
     #CHANGED FOR INTERACTIVE GRAPHS
     def resizeEvent(self, event):
@@ -1193,6 +1313,7 @@ class GraphViewerScene(QWidget):
         self._show_empty_state("No graphs available.")
         self.set_context(None, None, None)
         self._clear_crosscorr_state()
+        self._refresh_range_controls()
         try:
             self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
             self._compare_pix_a = None
