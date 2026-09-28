@@ -1240,6 +1240,7 @@ class GraphViewerScene(QWidget):
             # Use interactive web view (zoom, pan, hover tooltips)
             self.interactive_graph.set_figure(source)
             self.list.setEnabled(True)
+            self._set_range_controls_enabled(self._active_results_df() is not None)
             return
 
         # Fallback: PNG file path saved to disk
@@ -1256,6 +1257,7 @@ class GraphViewerScene(QWidget):
         self._update_scaled_pixmap()
         self.image_label.setText("")
         self.list.setEnabled(True)
+        self._set_range_controls_enabled(self._active_results_df() is not None)
 
 
     def _set_message(self, text: str):

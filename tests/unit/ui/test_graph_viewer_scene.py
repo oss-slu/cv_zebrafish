@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import plotly.graph_objects as go
 import pytest
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
@@ -81,6 +82,7 @@ def test_set_data_generates_requested_dot_plots(qt_app, monkeypatch):
     assert len(scene._graphs) == 2
     assert "Tail Distance vs Left Fin Angle" in scene._graphs
     assert "Tail Distance vs Left Fin Angle (Moving)" in scene._graphs
+
 
 def test_range_controls_disabled_without_results_df(qt_app):
     """No DataFrame (e.g. PNG-only session) means the export controls stay disabled."""
@@ -165,3 +167,18 @@ def test_export_invalid_range_warns_without_crashing(qt_app, monkeypatch, tmp_pa
     assert len(message_boxes["warning"]) == 1
     assert dialog_calls == []  # never got as far as asking where to save
     assert list(tmp_path.iterdir()) == []
+    
+
+def test_range_controls_reenabled_after_broken_graph(qt_app, monkeypatch):
+    """A missing graph disables the controls; selecting a working graph re-enables them."""
+    scene = _scene_with_results(_make_results_df(50))
+    monkeypatch.setattr(scene.interactive_graph, "set_figure", lambda fig: None)
+    scene._graphs["Working graph"] = go.Figure()
+    scene.range_start_spin.setValue(5)
+
+    scene._show_graph("Not a real graph")
+    assert not scene.export_range_btn.isEnabled()
+
+    scene._show_graph("Working graph")
+    assert scene.export_range_btn.isEnabled()
+    assert scene.range_start_spin.value() == 5  # range not reset by clicking a graph
