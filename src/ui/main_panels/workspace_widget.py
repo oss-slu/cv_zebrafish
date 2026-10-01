@@ -2,20 +2,26 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from ui.main_panels.empty_session_panel import EmptySessionPanel
+from ui.main_panels.mouse_placeholder_panel import MousePlaceholderPanel
 from ui.main_panels.select_run_panel import SelectRunPanel
+from ui.main_panels.species_select_panel import SpeciesSelectPanel
 from ui.main_panels.verify_panel import VerifyPanel
 from ui.main_panels.view_output_panel import ViewOutputPanel
 
 
 class WorkspaceWidget(QWidget):
     """
-    Hosts main-panel views. Indices: 0 empty session, 1 verify, 2 select/run, 3 view output.
+    Hosts main-panel views.
+    Indices: 0 species select, 1 empty session, 2 verify, 3 select/run,
+    4 view output, 5 mouse placeholder.
     """
 
-    IDX_EMPTY = 0
-    IDX_VERIFY = 1
-    IDX_SELECT_RUN = 2
-    IDX_VIEW_OUTPUT = 3
+    IDX_SPECIES = 0
+    IDX_EMPTY = 1
+    IDX_VERIFY = 2
+    IDX_SELECT_RUN = 3
+    IDX_VIEW_OUTPUT = 4
+    IDX_MOUSE = 5
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -28,6 +34,9 @@ class WorkspaceWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self._stack)
 
+        self.species_panel = SpeciesSelectPanel()
+        self._stack.addWidget(self.species_panel)
+
         self.empty_panel = EmptySessionPanel()
         self._stack.addWidget(self.empty_panel)
 
@@ -37,6 +46,12 @@ class WorkspaceWidget(QWidget):
         self._stack.addWidget(self.select_run_panel)
         self.view_output_panel = ViewOutputPanel()
         self._stack.addWidget(self.view_output_panel)
+
+        self.mouse_panel = MousePlaceholderPanel()
+        self._stack.addWidget(self.mouse_panel)
+
+    def show_species(self) -> None:
+        self._stack.setCurrentIndex(self.IDX_SPECIES)
 
     def show_empty(self) -> None:
         self._stack.setCurrentIndex(self.IDX_EMPTY)
@@ -49,3 +64,6 @@ class WorkspaceWidget(QWidget):
 
     def show_view_output(self) -> None:
         self._stack.setCurrentIndex(self.IDX_VIEW_OUTPUT)
+
+    def show_mouse_placeholder(self) -> None:
+        self._stack.setCurrentIndex(self.IDX_MOUSE)
