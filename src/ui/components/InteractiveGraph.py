@@ -2,10 +2,12 @@
 InteractiveGraph.py
 -------------------
 A PyQt5 widget that renders a Plotly figure as an interactive HTML page
-using QWebEngineView (zoom, pan, hover tooltips built-in via Plotly.js).
+using QWebEngineView (zoom, pan, hover tooltips built-in via Plotly.js),
+paired with an integrated RangeStatisticsWidget to compute and display
+basic statistics (min, max, positions, mean) for user-selected ranges.
 
 Falls back gracefully to a plain QLabel with an error message if
-QtWebEngineWidgets is unavailable.
+QtWebEngineWidgets is unavailable, while keeping range statistics fully functional.
 
 Usage
 -----
@@ -27,8 +29,10 @@ import plotly
 import plotly.graph_objs as go
 import plotly.io as pio
 
-from PyQt5.QtCore import QTimer, Qt, QUrl
+from PyQt5.QtCore import QTimer, Qt, QUrl, pyqtSignal
 from PyQt5.QtWidgets import QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
+
+from src.ui.components.range_statistics_widget import RangeStatisticsWidget
 
 # ---------------------------------------------------------------------------
 # Optional QtWebEngine import
@@ -59,12 +63,19 @@ _PLOTLY_QWEBENGINE_PATCHES: tuple[tuple[bytes, bytes], ...] = (
 class InteractiveGraph(QWidget):
     """
     Displays a Plotly figure interactively (zoom / pan / hover) when
-    PyQtWebEngine is available, or falls back to a static error label.
+    PyQtWebEngine is available, and provides interactive range statistics
+    calculation (min, max, frame positions, mean) for the current graph.
 
-    Parameters
-    ----------
-    parent : QWidget, optional
+    Signals:
+    --------
+    rangeSelected(float, float):
+        Emitted when a range is selected or zoomed in the interactive Plotly view.
+    rangeReset():
+        Emitted when the interactive view's zoom is reset to default autorange.
     """
+
+    rangeSelected = pyqtSignal(float, float)
+    rangeReset = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -79,12 +90,15 @@ class InteractiveGraph(QWidget):
     # ------------------------------------------------------------------
 
     def set_figure(self, fig: go.Figure) -> None:
-        """Render *fig* as an interactive Plotly chart inside the widget."""
+        """Render *fig* as an interactive Plotly chart and load range statistics."""
         if not isinstance(fig, go.Figure):
             self.clear()
             return
 
         self._figure = fig
+        self._range_stats_widget.set_figure(fig)
+        self._range_stats_widget.setVisible(True)
+
         html = self._figure_to_html(fig)
         self._html_cache = html
 
@@ -109,6 +123,8 @@ class InteractiveGraph(QWidget):
         """Reset the widget to its empty / placeholder state."""
         self._figure = None
         self._html_cache = None
+        self._range_stats_widget.clear()
+
         if _WEBENGINE_AVAILABLE:
             self._web_view.setUrl(QUrl("about:blank"))
             self._stack.setCurrentWidget(self._web_view)
@@ -121,6 +137,41 @@ class InteractiveGraph(QWidget):
         """Return the currently displayed Plotly figure (or None)."""
         return self._figure
 
+    @property
+    def range_stats_widget(self) -> RangeStatisticsWidget:
+        """Return the embedded range statistics widget."""
+        return self._range_stats_widget
+
+    def set_x_range(self, x0: float, x1: float) -> None:
+        """Update the x-axis range in the interactive Plotly view."""
+        if not _WEBENGINE_AVAILABLE or self._web_view is None:
+            return
+        js = (
+            f"(() => {{ try {{ "
+            f"var gd = document.querySelector('.plotly-graph-div') "
+            f"|| document.querySelector('.js-plotly-plot'); "
+            f"if (window.Plotly && gd) {{ "
+            f"  Plotly.relayout(gd, {{ 'xaxis.range': [{x0}, {x1}] }}); "
+            f"}} "
+            f"}} catch (e) {{}} }})();"
+        )
+        self._web_view.page().runJavaScript(js)
+
+    def reset_zoom(self) -> None:
+        """Reset the zoom/range in the interactive Plotly view to default autorange."""
+        if not _WEBENGINE_AVAILABLE or self._web_view is None:
+            return
+        js = (
+            "(() => { try { "
+            "var gd = document.querySelector('.plotly-graph-div') "
+            "|| document.querySelector('.js-plotly-plot'); "
+            "if (window.Plotly && gd) { "
+            "  Plotly.relayout(gd, { 'xaxis.autorange': true }); "
+            "} "
+            "} catch (e) {} })();"
+        )
+        self._web_view.page().runJavaScript(js)
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -128,10 +179,10 @@ class InteractiveGraph(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(6)
 
         self._stack = QStackedWidget()
-        layout.addWidget(self._stack)
+        layout.addWidget(self._stack, stretch=1)
 
         if _WEBENGINE_AVAILABLE:
             self._web_view = QWebEngineView()
@@ -143,6 +194,7 @@ class InteractiveGraph(QWidget):
             ws.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
             ws.setAttribute(QWebEngineSettings.ErrorPageEnabled, True)
             self._web_view.loadFinished.connect(self._on_preview_load_finished)
+            self._web_view.titleChanged.connect(self._on_title_changed)
             self._stack.addWidget(self._web_view)
         else:
             # Placeholder so the stack always has at least one widget
@@ -162,6 +214,16 @@ class InteractiveGraph(QWidget):
         else:
             self._stack.setCurrentWidget(self._fallback_label)
 
+        # Integrated Range Statistics panel
+        self._range_stats_widget = RangeStatisticsWidget(self)
+        layout.addWidget(self._range_stats_widget)
+
+        # Connect range events between graph and statistics widget
+        self.rangeSelected.connect(self._range_stats_widget.set_range)
+        self.rangeReset.connect(self._range_stats_widget.reset_to_full_range)
+        self._range_stats_widget.zoomRequested.connect(self.set_x_range)
+        self._range_stats_widget.resetRequested.connect(self.reset_zoom)
+
     def resizeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         super().resizeEvent(event)
         if _WEBENGINE_AVAILABLE:
@@ -179,6 +241,51 @@ class InteractiveGraph(QWidget):
     def _on_preview_load_finished(self, ok: bool) -> None:
         if ok:
             self._resize_plotly_in_view()
+            self._attach_plotly_listeners()
+
+    def _on_title_changed(self, title: str) -> None:
+        if not title:
+            return
+        if title.startswith("RANGE:"):
+            parts = title.split(":")
+            if len(parts) >= 3:
+                try:
+                    x0 = float(parts[1])
+                    x1 = float(parts[2])
+                    self.rangeSelected.emit(min(x0, x1), max(x0, x1))
+                except ValueError:
+                    pass
+        elif title.startswith("AUTORANGE:"):
+            self.rangeReset.emit()
+
+    def _attach_plotly_listeners(self) -> None:
+        if not _WEBENGINE_AVAILABLE or self._web_view is None:
+            return
+        js = (
+            "(() => { try { "
+            "var gd = document.querySelector('.plotly-graph-div') "
+            "|| document.querySelector('.js-plotly-plot'); "
+            "if (gd && !gd._cv_listeners_attached) { "
+            "  gd._cv_listeners_attached = true; "
+            "  gd.on('plotly_selected', function(eventData) { "
+            "    if (eventData && eventData.range && eventData.range.x) { "
+            "      document.title = 'RANGE:' + eventData.range.x[0] + ':' + eventData.range.x[1] + ':' + Date.now(); "
+            "    } "
+            "  }); "
+            "  gd.on('plotly_relayout', function(eventData) { "
+            "    if (!eventData) return; "
+            "    if (eventData['xaxis.range[0]'] !== undefined && eventData['xaxis.range[1]'] !== undefined) { "
+            "      document.title = 'RANGE:' + eventData['xaxis.range[0]'] + ':' + eventData['xaxis.range[1]'] + ':' + Date.now(); "
+            "    } else if (eventData['xaxis.range'] && Array.isArray(eventData['xaxis.range'])) { "
+            "      document.title = 'RANGE:' + eventData['xaxis.range'][0] + ':' + eventData['xaxis.range'][1] + ':' + Date.now(); "
+            "    } else if (eventData['xaxis.autorange']) { "
+            "      document.title = 'AUTORANGE:' + Date.now(); "
+            "    } "
+            "  }); "
+            "} "
+            "} catch (e) {} })();"
+        )
+        self._web_view.page().runJavaScript(js)
 
     def _resize_plotly_in_view(self) -> None:
         if not _WEBENGINE_AVAILABLE or self._web_view is None:
@@ -222,15 +329,13 @@ class InteractiveGraph(QWidget):
             view.update_layout(height=560, autosize=True)
         return pio.to_html(
             view,
-            # External patched script (file://): inline bundle still trips old Chromium
-            # on :focus-visible in insertRule; patched copy matches the Python plotly
-            # version and loads next to the preview HTML.
             include_plotlyjs=InteractiveGraph._patched_plotly_js_uri(),
             full_html=True,
             config={
                 "scrollZoom": True,       # mouse-wheel zoom
                 "displayModeBar": True,   # show the toolbar (zoom/pan/reset/save)
                 "modeBarButtonsToAdd": [
+                    "select2d",           # box select tool for range selection
                     "drawline",
                     "drawopenpath",
                     "eraseshape",

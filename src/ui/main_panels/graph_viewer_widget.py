@@ -201,6 +201,7 @@ class GraphViewerScene(QWidget):
         # Interactive graph area (zoom/pan/hover via QWebEngineView)
         self.interactive_graph = InteractiveGraph()
         self.interactive_graph.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.range_stats_widget = self.interactive_graph.range_stats_widget
 
         # Keep these for fallback PNG path (cross-corr and kaleido-only mode)
         self.image_label = QLabel("Select a graph on the left")
