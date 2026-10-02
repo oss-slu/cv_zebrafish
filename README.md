@@ -1,5 +1,7 @@
 # CV Zebrafish
 
+[![Tests](https://github.com/oss-slu/cv_zebrafish/actions/workflows/tests.yml/badge.svg)](https://github.com/oss-slu/cv_zebrafish/actions/workflows/tests.yml)
+
 Desktop toolkit for validating DeepLabCut zebrafish CSVs, generating JSON configs, running kinematic calculations, and rendering Plotly graphs through a PyQt UI.
 
 
@@ -13,17 +15,21 @@ Desktop toolkit for validating DeepLabCut zebrafish CSVs, generating JSON config
 
 
 ### Setup
+
 ### Conda (recommended)
+
 ```bash
 conda env create -f environment.yml
-conda activate cvzebrafish
+conda activate cv-zebrafish
+pip install -e .
 ```
 > `environment.yml` declares Python 3.10 and all app/test dependencies; prefer this over ad-hoc pip installs.
-### pip (alternative)
-```bash
-pip install -r requirements.txt
 ```
+### Plotly/Kaleido image export
 
+The application uses Plotly and Kaleido to export graphs as PNG images. Kaleido may require Google Chrome or Chromium to be installed for image export.
+
+If PNG export reports that Chrome is missing, install Google Chrome or Chromium and restart the application.
 
 ### Run the UI
 ```bash
@@ -77,8 +83,11 @@ src/
 ├── data/                      # DB ingestion helpers
 ├── session/                   # Session persistence for the UI
 └── ui/
-   ├── components/            # Shared widgets: sliders, checkboxes, ProgressIndicator, etc.
-   └── scenes/                # Landing, Verify, Config Generator, Calculation, Graph Viewer (Graphs / Compare / Cross-Correlation tabs)
+    ├── components/            # Shared widgets: sliders, checkboxes, ProgressIndicator, etc.
+    ├── main_panels/           # Main workflow panels
+    ├── popup_panels/          # Dialogs and popup panels
+    ├── main_window_shell.py   # Main window shell
+    └── workers/               # Background calculation workers
 tests/
 └── unit/                      # Core + UI unit tests (pytest)
 ```
@@ -401,7 +410,8 @@ CV Zebrafish is a local desktop application — there is no server or cloud depl
 2. Create the environment:
   ```bash
   conda env create -f environment.yml
-  conda activate cvzebrafish
+  conda activate cv-zebrafish
+  pip install -e .
   ```
 3. Launch the app:
   ```bash
@@ -427,7 +437,6 @@ The `data/samples/` directory contains example DLC CSVs and config JSONs you can
 
 ## Known Gaps / Next Steps
 - No dependency lockfile; add `requirements.txt`/`conda-lock` for fully reproducible installs
-- No CI pipeline:  add GitHub Actions to run `pytest` automatically on push/PR
 - No lint or type tooling: consider adding `ruff` (linting) and `mypy` (type checking)
 
 
