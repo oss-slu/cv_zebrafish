@@ -1,7 +1,7 @@
 """
 Pure helpers extracted from the legacy plotting module.
 
-The goal is to keep these functions free of I/O or plotting concerns so they are
+The goal is to keep these functions free of input/output or plotting concerns so they are
 easy to unit test.
 """
 
