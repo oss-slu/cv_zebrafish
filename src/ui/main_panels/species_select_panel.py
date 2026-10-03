@@ -44,6 +44,14 @@ class SpeciesSelectPanel(QWidget):
             self.species_combo.addItem(species.display_name, species)
         self.species_combo.setCurrentIndex(0)  # Zebrafish default (issue requirement)
 
+        # Size the closed box to fit the longest option ("Zebrafish"), not whichever
+        # item happens to be current. AdjustToContentsOnFirstShow can otherwise pick
+        # a narrower width and clip text when switching selections.
+        self.species_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.species_combo.setMinimumContentsLength(
+            max(len(s.display_name) for s in self._OPTIONS)
+        )
+        
         combo_row = QHBoxLayout()
         combo_row.addStretch(1)
         combo_row.addWidget(self.species_combo)
