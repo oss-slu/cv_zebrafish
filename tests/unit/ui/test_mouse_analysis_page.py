@@ -4,6 +4,8 @@ import ast
 from pathlib import Path
 
 import pytest
+from PyQt5.QtCore import Qt
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QFileDialog, QGroupBox
 
 from mouse import DLC_FILE_FILTER, MouseAnalysisPage
@@ -40,58 +42,98 @@ def _matches(module: str, prefix: str) -> bool:
     return module == prefix or module.startswith(prefix + ".")
 
 
-def test_page_has_placeholder_sections(qt_app):
+def _fake_dialog(monkeypatch, path, seen=None):
+    def fake(parent, caption, directory, filter_):
+        if seen is not None:
+            seen["filter"] = filter_
+        return str(path), filter_
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", fake)
+
+
+def _left_click(widget):
+    QTest.mouseClick(widget, Qt.LeftButton, pos=widget.rect().center())
+
+
+def test_page_starts_on_load_step_with_mouse_logo(qt_app):
+    page = MouseAnalysisPage()
+    assert page.current_step() == MouseAnalysisPage.IDX_LOAD
+    assert page.dlc_path is None
+    logo = page.load_panel.logo.pixmap()
+    assert logo is not None and not logo.isNull()
+    # A loaded logo keeps its transparent background; the missing-file fallback is solid gray.
+    assert logo.hasAlphaChannel()
+
+
+def test_analysis_step_has_placeholder_sections(qt_app):
     page = MouseAnalysisPage()
     titles = {g.title() for g in page.findChildren(QGroupBox)}
     assert "Parameters (coming soon)" in titles
     assert page.results_placeholder.text() == "Results will appear here"
-    logo = page.results_logo.pixmap()
-    assert logo is not None and not logo.isNull()
-    # A loaded logo keeps its transparent background; the missing-file fallback is solid gray.
-    assert logo.hasAlphaChannel()
-    assert page.dlc_path is None
-    assert page.dlc_path_field.text() == ""
 
 
-def test_back_button_emits_back_requested(qt_app):
-    page = MouseAnalysisPage()
-    calls = []
-    page.back_requested.connect(lambda: calls.append(True))
-    page.back_button.click()
-    assert calls == [True]
-
-
-def test_file_picker_filters_to_h5_and_csv(qt_app, monkeypatch, tmp_path):
+def test_clicking_load_panel_picks_file_and_shows_analysis(qt_app, monkeypatch, tmp_path):
     seen = {}
     picked = tmp_path / "mouse1DLC_resnet50.h5"
-
-    def fake_dialog(parent, caption, directory, filter_):
-        seen["filter"] = filter_
-        return str(picked), filter_
-
-    monkeypatch.setattr(QFileDialog, "getOpenFileName", fake_dialog)
+    _fake_dialog(monkeypatch, picked, seen)
     page = MouseAnalysisPage()
     emitted = []
     page.dlc_file_selected.connect(emitted.append)
 
-    page.dlc_button.click()
+    _left_click(page.load_panel)
 
     assert seen["filter"] == DLC_FILE_FILTER
     assert "*.h5" in DLC_FILE_FILTER and "*.csv" in DLC_FILE_FILTER
+    assert page.current_step() == MouseAnalysisPage.IDX_ANALYSIS
     assert page.dlc_path_field.text() == "mouse1DLC_resnet50.h5"
     assert page.dlc_path_field.toolTip() == str(picked)
     assert page.dlc_path == picked
     assert emitted == [str(picked)]
 
 
-def test_cancelled_file_picker_keeps_previous_selection(qt_app, monkeypatch):
+def test_cancelled_picker_on_load_step_stays_on_load_step(qt_app, monkeypatch):
     page = MouseAnalysisPage()
-    page.set_dlc_file("/data/first.csv")
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: ("", ""))
 
-    page.select_dlc_file()
+    _left_click(page.load_panel)
 
+    assert page.current_step() == MouseAnalysisPage.IDX_LOAD
+    assert page.dlc_path is None
+
+
+def test_upload_button_replaces_file_and_cancel_keeps_it(qt_app, monkeypatch):
+    page = MouseAnalysisPage()
+    page.set_dlc_file("/data/first.csv")
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: ("", ""))
+    page.dlc_button.click()
     assert page.dlc_path_field.text() == "first.csv"
+
+    _fake_dialog(monkeypatch, Path("/data/second.h5"))
+    page.dlc_button.click()
+    assert page.dlc_path_field.text() == "second.h5"
+    assert page.current_step() == MouseAnalysisPage.IDX_ANALYSIS
+
+
+@pytest.mark.parametrize("step", ["load", "analysis"])
+def test_back_emits_back_requested_and_resets(qt_app, monkeypatch, step):
+    # Back must not also open the file picker on the clickable load panel.
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", lambda *a, **k: pytest.fail("picker opened")
+    )
+    page = MouseAnalysisPage()
+    if step == "analysis":
+        page.set_dlc_file("/data/first.csv")
+    calls = []
+    page.back_requested.connect(lambda: calls.append(True))
+
+    button = page.load_panel.back_button if step == "load" else page.back_button
+    _left_click(button)
+
+    assert calls == [True]
+    assert page.current_step() == MouseAnalysisPage.IDX_LOAD
+    assert page.dlc_path is None
+    assert page.dlc_path_field.text() == ""
 
 
 def test_workspace_routes_mouse_and_back_to_species(qt_app):
