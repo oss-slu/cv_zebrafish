@@ -144,33 +144,15 @@ class InteractiveGraph(QWidget):
 
     def set_x_range(self, x0: float, x1: float) -> None:
         """Update the x-axis range in the interactive Plotly view."""
-        if not _WEBENGINE_AVAILABLE or self._web_view is None:
-            return
-        js = (
-            f"(() => {{ try {{ "
-            f"var gd = document.querySelector('.plotly-graph-div') "
-            f"|| document.querySelector('.js-plotly-plot'); "
-            f"if (window.Plotly && gd) {{ "
-            f"  Plotly.relayout(gd, {{ 'xaxis.range': [{x0}, {x1}] }}); "
-            f"}} "
-            f"}} catch (e) {{}} }})();"
+        self._run_plotly_js(
+            f"if (window.Plotly) {{ Plotly.relayout(gd, {{ 'xaxis.range': [{x0}, {x1}] }}); }}"
         )
-        self._web_view.page().runJavaScript(js)
 
     def reset_zoom(self) -> None:
         """Reset the zoom/range in the interactive Plotly view to default autorange."""
-        if not _WEBENGINE_AVAILABLE or self._web_view is None:
-            return
-        js = (
-            "(() => { try { "
-            "var gd = document.querySelector('.plotly-graph-div') "
-            "|| document.querySelector('.js-plotly-plot'); "
-            "if (window.Plotly && gd) { "
-            "  Plotly.relayout(gd, { 'xaxis.autorange': true }); "
-            "} "
-            "} catch (e) {} })();"
+        self._run_plotly_js(
+            "if (window.Plotly) { Plotly.relayout(gd, { 'xaxis.autorange': true }); }"
         )
-        self._web_view.page().runJavaScript(js)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -243,7 +225,36 @@ class InteractiveGraph(QWidget):
             self._resize_plotly_in_view()
             self._attach_plotly_listeners()
 
+    def _run_plotly_js(self, body: str) -> None:
+        """
+        Execute JavaScript within the WebEngine view where `gd` is the Plotly graph element.
+
+        Wraps the given script body inside a safe IIFE that resolves the Plotly container
+        element (`gd`), guarding against missing elements or runtime exceptions.
+        """
+        if not _WEBENGINE_AVAILABLE or self._web_view is None:
+            return
+        js = (
+            "(() => { try { "
+            "var gd = document.querySelector('.plotly-graph-div') "
+            "|| document.querySelector('.js-plotly-plot'); "
+            f"if (gd) {{ {body} }} "
+            "} catch (e) {} })();"
+        )
+        self._web_view.page().runJavaScript(js)
+
     def _on_title_changed(self, title: str) -> None:
+        """
+        Handle title change notifications emitted by the embedded WebEngine view.
+
+        Note:
+        `document.title` mutations + `QWebEngineView.titleChanged` serve as a lightweight,
+        zero-dependency IPC channel between Plotly.js in the web view and Python.
+        Unlike QWebChannel, this does not require injecting external scripts or registering
+        extra QObjects, and works reliably with local HTML previews. A timestamp suffix
+        (`:Date.now()`) ensures subsequent selections with identical bounds still trigger
+        the signal.
+        """
         if not title:
             return
         if title.startswith("RANGE:"):
@@ -259,13 +270,8 @@ class InteractiveGraph(QWidget):
             self.rangeReset.emit()
 
     def _attach_plotly_listeners(self) -> None:
-        if not _WEBENGINE_AVAILABLE or self._web_view is None:
-            return
-        js = (
-            "(() => { try { "
-            "var gd = document.querySelector('.plotly-graph-div') "
-            "|| document.querySelector('.js-plotly-plot'); "
-            "if (gd && !gd._cv_listeners_attached) { "
+        self._run_plotly_js(
+            "if (!gd._cv_listeners_attached) { "
             "  gd._cv_listeners_attached = true; "
             "  gd.on('plotly_selected', function(eventData) { "
             "    if (eventData && eventData.range && eventData.range.x) { "
@@ -282,22 +288,13 @@ class InteractiveGraph(QWidget):
             "      document.title = 'AUTORANGE:' + Date.now(); "
             "    } "
             "  }); "
-            "} "
-            "} catch (e) {} })();"
+            "}"
         )
-        self._web_view.page().runJavaScript(js)
 
     def _resize_plotly_in_view(self) -> None:
-        if not _WEBENGINE_AVAILABLE or self._web_view is None:
-            return
-        js = (
-            "(() => { try { "
-            "var gd = document.querySelector('.plotly-graph-div') "
-            "|| document.querySelector('.js-plotly-plot'); "
-            "if (window.Plotly && Plotly.Plots && gd) { Plotly.Plots.resize(gd); } "
-            "} catch (e) {} })();"
+        self._run_plotly_js(
+            "if (window.Plotly && Plotly.Plots) { Plotly.Plots.resize(gd); }"
         )
-        self._web_view.page().runJavaScript(js)
 
     @staticmethod
     def _patched_plotly_js_uri() -> str:

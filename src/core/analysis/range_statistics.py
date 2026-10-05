@@ -31,6 +31,37 @@ class RangeStatisticsResult:
     end_x: Optional[float] = None
 
 
+def clean_numeric_pairs(
+    x_values: Sequence[Any],
+    y_values: Sequence[Any],
+) -> Tuple[List[float], List[float]]:
+    """
+    Filter paired sequences to valid, finite numeric floats.
+
+    Skips pairs where either x or y is None, non-numeric, NaN, or infinite.
+    Ensures x and y stay strictly aligned.
+    """
+    cleaned_x: List[float] = []
+    cleaned_y: List[float] = []
+
+    for xi, yi in zip(x_values, y_values):
+        if xi is None or yi is None:
+            continue
+        try:
+            xf = float(xi)
+            yf = float(yi)
+        except (ValueError, TypeError):
+            continue
+
+        if math.isnan(xf) or math.isnan(yf) or math.isinf(xf) or math.isinf(yf):
+            continue
+
+        cleaned_x.append(xf)
+        cleaned_y.append(yf)
+
+    return cleaned_x, cleaned_y
+
+
 def compute_range_statistics(
     x_values: Optional[Sequence[Any]],
     y_values: Optional[Sequence[Any]],
@@ -90,22 +121,12 @@ def compute_range_statistics(
             end_x=e_x,
         )
 
-    # Filter pairs to valid numeric points within range
+    # Clean numeric pairs and filter to [start_x, end_x]
+    cleaned_x, cleaned_y = clean_numeric_pairs(x_values, y_values)
     filtered_x: List[float] = []
     filtered_y: List[float] = []
 
-    for xi, yi in zip(x_values, y_values):
-        if xi is None or yi is None:
-            continue
-        try:
-            xf = float(xi)
-            yf = float(yi)
-        except (ValueError, TypeError):
-            continue
-
-        if math.isnan(xf) or math.isnan(yf) or math.isinf(xf) or math.isinf(yf):
-            continue
-
+    for xf, yf in zip(cleaned_x, cleaned_y):
         if s_x <= xf <= e_x:
             filtered_x.append(xf)
             filtered_y.append(yf)
@@ -164,22 +185,8 @@ def extract_traces_from_figure(
         if x_data is None or len(x_data) == 0:
             x_data = list(range(len(y_data)))
 
-        # Clean into floats, preserving structure
-        cleaned_x: List[float] = []
-        cleaned_y: List[float] = []
-        for x_val, y_val in zip(x_data, y_data):
-            if x_val is None or y_val is None:
-                continue
-            try:
-                xf = float(x_val)
-                yf = float(y_val)
-            except (ValueError, TypeError):
-                continue
-            if math.isnan(xf) or math.isnan(yf) or math.isinf(xf) or math.isinf(yf):
-                continue
-            cleaned_x.append(xf)
-            cleaned_y.append(yf)
-
+        # Clean into finite floats
+        cleaned_x, cleaned_y = clean_numeric_pairs(x_data, y_data)
         if not cleaned_y:
             continue
 
