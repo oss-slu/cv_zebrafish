@@ -182,6 +182,57 @@ class TestRangeStatisticsWidget:
         assert len(emitted) == 1
         assert emitted[0] == (20.0, 80.0)
 
+    def test_set_series_with_nans_preserves_coordinate_alignment(self, qt_app):
+        """Ensure NaNs in Y or X filter paired elements without shifting frames."""
+        widget = RangeStatisticsWidget()
+        x_vals = [0, 1, 2, 3, 4]
+        y_vals = [10.0, float("nan"), 20.0, float("nan"), 30.0]
+
+        widget.set_series(x_vals, y_vals, name="NaN Test")
+        stats = widget.get_current_statistics()
+        assert stats is not None
+        assert stats.is_valid is True
+        assert stats.count == 3
+        # Should retain paired x positions: 0 -> 10.0, 2 -> 20.0, 4 -> 30.0
+        assert stats.min_value == 10.0
+        assert stats.min_x == 0.0
+        assert stats.max_value == 30.0
+        assert stats.max_x == 4.0
+
+        # Query subrange [1, 3] which only includes x=2 (y=20.0)
+        widget.set_range(1, 3)
+        sub_stats = widget.get_current_statistics()
+        assert sub_stats.count == 1
+        assert sub_stats.min_value == 20.0
+        assert sub_stats.min_x == 2.0
+
+    def test_reset_to_full_range_emits_reset_requested(self, qt_app):
+        widget = RangeStatisticsWidget()
+        widget.set_series([10, 20, 30], [1.0, 2.0, 3.0])
+        widget.set_range(15, 25)
+
+        resets = []
+        widget.resetRequested.connect(lambda: resets.append(True))
+
+        widget.reset_to_full_range()
+        assert len(resets) == 1
+        assert widget.start_spin.value() == 10.0
+        assert widget.end_spin.value() == 30.0
+
+    def test_sync_to_full_range_does_not_emit_reset_requested(self, qt_app):
+        """Graph-originated autorange calls sync_to_full_range to prevent feedback loop."""
+        widget = RangeStatisticsWidget()
+        widget.set_series([10, 20, 30], [1.0, 2.0, 3.0])
+        widget.set_range(15, 25)
+
+        resets = []
+        widget.resetRequested.connect(lambda: resets.append(True))
+
+        widget.sync_to_full_range()
+        assert len(resets) == 0
+        assert widget.start_spin.value() == 10.0
+        assert widget.end_spin.value() == 30.0
+
 
 class TestInteractiveGraphIntegration:
     """Tests for InteractiveGraph embedding RangeStatisticsWidget."""
@@ -224,3 +275,26 @@ class TestInteractiveGraphIntegration:
         assert stats.count == 3
         assert stats.min_value == 15.0
         assert stats.max_value == 35.0
+
+    def test_interactive_graph_range_reset_does_not_retrigger_reset_zoom(self, qt_app):
+        """Ensure rangeReset from graph syncs stats without re-emitting resetRequested."""
+        graph = InteractiveGraph()
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=[0, 10, 20], y=[1, 2, 3]))
+        graph.set_figure(fig)
+
+        # Zoom into [5, 15]
+        graph.rangeSelected.emit(5.0, 15.0)
+        assert graph.range_stats_widget.start_spin.value() == 5.0
+        assert graph.range_stats_widget.end_spin.value() == 15.0
+
+        # Simulate graph firing rangeReset (autorange)
+        reset_calls = []
+        graph.range_stats_widget.resetRequested.connect(lambda: reset_calls.append(True))
+        graph.rangeReset.emit()
+
+        # Inputs are restored to full range [0, 20]
+        assert graph.range_stats_widget.start_spin.value() == 0.0
+        assert graph.range_stats_widget.end_spin.value() == 20.0
+        # But resetRequested was NOT emitted (loop prevented!)
+        assert len(reset_calls) == 0

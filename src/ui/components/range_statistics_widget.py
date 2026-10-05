@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
 
 from src.core.analysis.range_statistics import (
     RangeStatisticsResult,
+    clean_numeric_pairs,
     compute_range_statistics,
     extract_traces_from_figure,
 )
@@ -262,10 +263,8 @@ class RangeStatisticsWidget(QWidget):
         name: str = "Series",
     ) -> None:
         """Set a single dataset directly (useful for programmatic or non-figure usage)."""
-        clean_x = [float(x) for x in x_values if x is not None and not math.isnan(x)]
-        clean_y = [float(y) for y in y_values if y is not None and not math.isnan(y)]
-        min_len = min(len(clean_x), len(clean_y))
-        self._traces = {name: (clean_x[:min_len], clean_y[:min_len])}
+        clean_x, clean_y = clean_numeric_pairs(x_values, y_values)
+        self._traces = {name: (clean_x, clean_y)}
         self._populate_traces()
 
     def set_range(self, start_x: float, end_x: float) -> None:
@@ -285,12 +284,12 @@ class RangeStatisticsWidget(QWidget):
 
         self.calculate_statistics()
 
-    def reset_to_full_range(self) -> None:
-        """Reset the range inputs to the minimum and maximum X of the current trace."""
+    def _apply_full_range(self) -> bool:
+        """Set start and end spinboxes to the full range of the active trace. Returns True if successful."""
         trace_data = self._get_active_trace_data()
         if not trace_data:
             self.clear_stats()
-            return
+            return False
 
         x_vals, _ = trace_data
         min_x = min(x_vals)
@@ -303,8 +302,22 @@ class RangeStatisticsWidget(QWidget):
         finally:
             self._updating_inputs = False
 
-        self.resetRequested.emit()
         self.calculate_statistics()
+        return True
+
+    def reset_to_full_range(self) -> None:
+        """Reset the range inputs to the full dataset and emit resetRequested to reset graph zoom."""
+        if self._apply_full_range():
+            self.resetRequested.emit()
+
+    def sync_to_full_range(self) -> None:
+        """
+        Update range inputs and stats to full range without emitting resetRequested.
+
+        Used when the graph itself resets zoom (e.g. autorange or double click)
+        to prevent a recursive feedback loop back to the graph.
+        """
+        self._apply_full_range()
 
     def calculate_statistics(self) -> None:
         """Calculate statistics for the currently specified range and update UI."""

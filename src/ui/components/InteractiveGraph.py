@@ -202,7 +202,7 @@ class InteractiveGraph(QWidget):
 
         # Connect range events between graph and statistics widget
         self.rangeSelected.connect(self._range_stats_widget.set_range)
-        self.rangeReset.connect(self._range_stats_widget.reset_to_full_range)
+        self.rangeReset.connect(self._range_stats_widget.sync_to_full_range)
         self._range_stats_widget.zoomRequested.connect(self.set_x_range)
         self._range_stats_widget.resetRequested.connect(self.reset_zoom)
 
@@ -326,6 +326,9 @@ class InteractiveGraph(QWidget):
             view.update_layout(height=560, autosize=True)
         return pio.to_html(
             view,
+            # External patched script (file://): inline bundle still trips old Chromium
+            # on :focus-visible in insertRule; patched copy matches the Python plotly
+            # version and loads next to the preview HTML.
             include_plotlyjs=InteractiveGraph._patched_plotly_js_uri(),
             full_html=True,
             config={
