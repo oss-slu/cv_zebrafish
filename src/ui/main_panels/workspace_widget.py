@@ -1,8 +1,8 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
+from mouse import MouseAnalysisPage
 from ui.main_panels.empty_session_panel import EmptySessionPanel
-from ui.main_panels.mouse_placeholder_panel import MousePlaceholderPanel
 from ui.main_panels.select_run_panel import SelectRunPanel
 from ui.main_panels.species_select_panel import SpeciesSelectPanel
 from ui.main_panels.verify_panel import VerifyPanel
@@ -13,7 +13,7 @@ class WorkspaceWidget(QWidget):
     """
     Hosts main-panel views.
     Indices: 0 species select, 1 empty session, 2 verify, 3 select/run,
-    4 view output, 5 mouse placeholder.
+    4 view output, 5 mouse analysis.
     """
 
     IDX_SPECIES = 0
@@ -47,7 +47,7 @@ class WorkspaceWidget(QWidget):
         self.view_output_panel = ViewOutputPanel()
         self._stack.addWidget(self.view_output_panel)
 
-        self.mouse_panel = MousePlaceholderPanel()
+        self.mouse_panel = MouseAnalysisPage()
         self._stack.addWidget(self.mouse_panel)
 
     def show_species(self) -> None:
@@ -65,5 +65,5 @@ class WorkspaceWidget(QWidget):
     def show_view_output(self) -> None:
         self._stack.setCurrentIndex(self.IDX_VIEW_OUTPUT)
 
-    def show_mouse_placeholder(self) -> None:
+    def show_mouse(self) -> None:
         self._stack.setCurrentIndex(self.IDX_MOUSE)
