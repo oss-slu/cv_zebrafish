@@ -126,6 +126,7 @@ class MainShellWindow(QMainWindow):
         apply_theme(self, THEMES[self.current_theme])
 
         self._species_chosen = False
+        self._species: Species | None = None
         self._has_session = False
         self.current_session = None
         self._verify_last_csv_path = None
@@ -327,6 +328,7 @@ class MainShellWindow(QMainWindow):
 
     def _on_species_selected(self, species: Species) -> None:
         self._species_chosen = True
+        self._species = species
         if species is Species.ZEBRAFISH:
             self.workspace.show_empty()
         else:
@@ -334,6 +336,7 @@ class MainShellWindow(QMainWindow):
 
     def _on_species_back(self) -> None:
         self._species_chosen = False
+        self._species = None
         self.workspace.show_species()
 
     def _refresh_sidebar_capabilities(self) -> None:
