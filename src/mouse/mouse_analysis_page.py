@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 
 from app_platform.paths import images_dir
 from styles.ui_scale import scaled_px
+from ui.components.branding import mouse_pixmap
 from ui.components.scene_help import create_scene_help_button
 
 UPLOAD_ICON = images_dir() / "upload-button.png"
@@ -144,10 +145,17 @@ class MouseAnalysisPage(QWidget):
         # TODO(#118-followup): replace this label with measurement tables and
         # graphs. Reuse shared graph widgets (ui.components) rather than the
         # zebrafish GraphViewerScene.
+        layout.addStretch(1)
+        self.results_logo = QLabel()
+        self.results_logo.setObjectName("MouseResultsLogo")
+        self.results_logo.setPixmap(mouse_pixmap(scaled_px(120)))
+        self.results_logo.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.results_logo)
         self.results_placeholder = QLabel("Results will appear here")
         self.results_placeholder.setObjectName("MouseResultsPlaceholder")
         self.results_placeholder.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.results_placeholder)
+        layout.addStretch(1)
         group.setMinimumHeight(scaled_px(240))
         return group
 

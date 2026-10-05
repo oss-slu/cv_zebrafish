@@ -45,6 +45,10 @@ def test_page_has_placeholder_sections(qt_app):
     titles = {g.title() for g in page.findChildren(QGroupBox)}
     assert "Parameters (coming soon)" in titles
     assert page.results_placeholder.text() == "Results will appear here"
+    logo = page.results_logo.pixmap()
+    assert logo is not None and not logo.isNull()
+    # A loaded logo keeps its transparent background; the missing-file fallback is solid gray.
+    assert logo.hasAlphaChannel()
     assert page.dlc_path is None
     assert page.dlc_path_field.text() == ""
 
