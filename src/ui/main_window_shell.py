@@ -11,6 +11,7 @@ from datetime import datetime
 
 import pandas as pd
 
+from src.app_platform.species import Species
 from src.core.calculations.cancelled import CalculationAborted
 from PyQt5.QtCore import QEvent, QPoint, QTimer, QSize, Qt, QThread
 from PyQt5.QtGui import QKeySequence
@@ -124,6 +125,8 @@ class MainShellWindow(QMainWindow):
         self.current_theme = th if th in THEMES else "dark"
         apply_theme(self, THEMES[self.current_theme])
 
+        self._species_chosen = False
+        self._species: Species | None = None
         self._has_session = False
         self.current_session = None
         self._verify_last_csv_path = None
@@ -194,6 +197,8 @@ class MainShellWindow(QMainWindow):
         self.sidebar.tool_triggered.connect(self._on_sidebar_tool)
         self.sidebar.settings_requested.connect(self._open_settings)
         self.workspace.empty_panel.open_session_requested.connect(self._on_open_session)
+        self.workspace.species_panel.species_selected.connect(self._on_species_selected)
+        self.workspace.mouse_panel.back_requested.connect(self.workspace.show_species)
 
         v = self.workspace.verify_panel.verify
         v.csv_selected.connect(self._on_verify_csv_selected)
@@ -312,11 +317,22 @@ class MainShellWindow(QMainWindow):
 
     def _apply_session_state(self) -> None:
         if not self._has_session:
+            if not self._species_chosen:
+                # Stay on the species landing panel until the user picks one.
+                return
             self.workspace.show_empty()
             self.sidebar.apply_session_capabilities(False, False, view_output_enabled=False)
             self.sidebar.set_active_tool(None)
         else:
             self._refresh_sidebar_capabilities()
+
+    def _on_species_selected(self, species: Species) -> None:
+        self._species_chosen = True
+        self._species = species
+        if species is Species.ZEBRAFISH:
+            self.workspace.show_empty()
+        else:
+            self.workspace.show_mouse_placeholder()
 
     def _refresh_sidebar_capabilities(self) -> None:
         if not self._has_session or self.current_session is None:
