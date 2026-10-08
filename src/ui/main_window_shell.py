@@ -198,7 +198,7 @@ class MainShellWindow(QMainWindow):
         self.sidebar.settings_requested.connect(self._open_settings)
         self.workspace.empty_panel.open_session_requested.connect(self._on_open_session)
         self.workspace.species_panel.species_selected.connect(self._on_species_selected)
-        self.workspace.mouse_panel.back_requested.connect(self.workspace.show_species)
+        self.workspace.mouse_panel.back_requested.connect(self._on_species_back)
 
         v = self.workspace.verify_panel.verify
         v.csv_selected.connect(self._on_verify_csv_selected)
@@ -332,7 +332,12 @@ class MainShellWindow(QMainWindow):
         if species is Species.ZEBRAFISH:
             self.workspace.show_empty()
         else:
-            self.workspace.show_mouse_placeholder()
+            self.workspace.show_mouse()
+
+    def _on_species_back(self) -> None:
+        self._species_chosen = False
+        self._species = None
+        self.workspace.show_species()
 
     def _refresh_sidebar_capabilities(self) -> None:
         if not self._has_session or self.current_session is None:

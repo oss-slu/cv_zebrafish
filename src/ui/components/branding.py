@@ -1,4 +1,4 @@
-"""Shared app logo loading (assets/images/fish1.png)."""
+"""Shared app logo loading (assets/images/fish1.png, assets/images/mouse.png)."""
 
 from __future__ import annotations
 
@@ -30,15 +30,24 @@ def view_output_tool_icon(theme_name: str, *, active: bool = True) -> Optional[Q
     return None
 
 
-def fish_pixmap(square_size: int) -> QPixmap:
-    """Scaled square pixmap of the zebrafish logo, or a gray fallback."""
-    path = images_dir() / "fish1.png"
+def _logo_pixmap(filename: str, square_size: int) -> QPixmap:
+    path = images_dir() / filename
     pm = QPixmap(str(path))
     if pm.isNull():
         pm = QPixmap(square_size, square_size)
         pm.fill(Qt.gray)
         return pm
     return pm.scaled(square_size, square_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+
+def fish_pixmap(square_size: int) -> QPixmap:
+    """Scaled square pixmap of the zebrafish logo, or a gray fallback."""
+    return _logo_pixmap("fish1.png", square_size)
+
+
+def mouse_pixmap(square_size: int) -> QPixmap:
+    """Scaled square pixmap of the mouse logo, or a gray fallback."""
+    return _logo_pixmap("mouse.png", square_size)
 
 
 def title_bar_logo_label(size: int = 28) -> QLabel:
