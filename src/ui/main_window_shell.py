@@ -339,6 +339,28 @@ class MainShellWindow(QMainWindow):
         self._species = None
         self.workspace.show_species()
 
+    @property
+    def species(self) -> Species | None:
+        """Species chosen on the landing page, or None until one is chosen."""
+        return self._species
+
+    def _session_blocked_message(self) -> str | None:
+        """Sessions hold the zebrafish workflow, so they only open once Zebrafish is chosen."""
+        if self._species is None:
+            return "Choose a species first."
+        if self._species is not Species.ZEBRAFISH:
+            # TODO(#118-followup): route to mouse sessions once the mouse workflow has them.
+            return f"Sessions aren't available for {self._species.display_name} yet."
+        return None
+
+    def _session_allowed(self) -> bool:
+        blocked = self._session_blocked_message()
+        if blocked is not None:
+            self._warn_sidebar_blocked()
+            self._show_error_toast("Session", blocked)
+            return False
+        return True
+
     def _refresh_sidebar_capabilities(self) -> None:
         if not self._has_session or self.current_session is None:
             self.sidebar.apply_session_capabilities(False, False, view_output_enabled=False)
@@ -356,12 +378,16 @@ class MainShellWindow(QMainWindow):
         )
 
     def _on_open_session(self) -> None:
+        if not self._session_allowed():
+            return
         dlg = SessionSelectDialog(self)
         if dlg.exec_() != QDialog.Accepted or not dlg.selected_path:
             return
         self._load_session_from_path(dlg.selected_path)
 
     def _load_session_from_path(self, json_path: str) -> None:
+        if not self._session_allowed():
+            return
         try:
             self.current_session = load_session_from_json(json_path)
         except ValueError as e:
