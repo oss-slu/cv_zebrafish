@@ -8,6 +8,7 @@ for interactive graph data.
 
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import plotly.graph_objs as go
