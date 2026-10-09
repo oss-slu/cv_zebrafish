@@ -8,7 +8,6 @@ for interactive graph data.
 
 from __future__ import annotations
 
-import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import plotly.graph_objs as go
@@ -85,6 +84,7 @@ class RangeStatisticsWidget(QWidget):
         self._traces: Dict[str, Tuple[List[float], List[float]]] = {}
         self._current_stats: Optional[RangeStatisticsResult] = None
         self._updating_inputs: bool = False
+        self._x_title: Optional[str] = None
 
         self._build_ui()
         self.clear()
@@ -253,6 +253,16 @@ class RangeStatisticsWidget(QWidget):
 
     def set_figure(self, fig: Optional[go.Figure]) -> None:
         """Load data traces from a Plotly figure and calculate full range statistics."""
+        self._x_title = None
+        if fig is not None and getattr(fig, "layout", None) is not None:
+            layout_xaxis = getattr(fig.layout, "xaxis", None)
+            if layout_xaxis is not None:
+                title = getattr(layout_xaxis, "title", None)
+                if isinstance(title, str) and title.strip():
+                    self._x_title = title.strip()
+                elif hasattr(title, "text") and title.text and str(title.text).strip():
+                    self._x_title = str(title.text).strip()
+
         self._traces = extract_traces_from_figure(fig)
         self._populate_traces()
 
@@ -263,6 +273,7 @@ class RangeStatisticsWidget(QWidget):
         name: str = "Series",
     ) -> None:
         """Set a single dataset directly (useful for programmatic or non-figure usage)."""
+        self._x_title = None
         clean_x, clean_y = clean_numeric_pairs(x_values, y_values)
         self._traces = {name: (clean_x, clean_y)}
         self._populate_traces()
@@ -271,9 +282,46 @@ class RangeStatisticsWidget(QWidget):
         """
         Update the range spinboxes and calculate statistics for [start_x, end_x].
         Ensures start_x <= end_x.
+
+        When the active trace uses integer frames, fractional ranges are snapped inward:
+        start -> math.ceil(start_x)
+        end -> math.floor(end_x)
+        If start > end (a sub-frame selection containing no whole frames), displays
+        an empty-range notification rather than outward rounding or crashing.
         """
         s = min(float(start_x), float(end_x))
         e = max(float(start_x), float(end_x))
+
+        if self._is_integer_trace():
+            # Apply tolerance to guard against floating-point inaccuracies from Plotly
+            if abs(s - round(s)) < 1e-5:
+                s = round(s)
+            s_snapped = float(math.ceil(s))
+
+            if abs(e - round(e)) < 1e-5:
+                e = round(e)
+            e_snapped = float(math.floor(e))
+
+            if s_snapped > e_snapped:
+                self._updating_inputs = True
+                try:
+                    self.start_spin.setValue(s_snapped)
+                    self.end_spin.setValue(e_snapped)
+                finally:
+                    self._updating_inputs = False
+
+                self._current_stats = RangeStatisticsResult(
+                    is_valid=False,
+                    error_message=f"No data points in selected range [{s:g}, {e:g}].",
+                    start_x=s_snapped,
+                    end_x=e_snapped,
+                    count=0,
+                )
+                self.clear_stats(self._current_stats.error_message)
+                return
+
+            s = s_snapped
+            e = e_snapped
 
         self._updating_inputs = True
         try:
@@ -345,6 +393,7 @@ class RangeStatisticsWidget(QWidget):
         """Reset widget to empty placeholder state."""
         self._traces.clear()
         self._current_stats = None
+        self._x_title = None
         self.trace_combo.blockSignals(True)
         self.trace_combo.clear()
         self.trace_combo.blockSignals(False)
@@ -359,12 +408,19 @@ class RangeStatisticsWidget(QWidget):
         self.clear_stats()
         self.setEnabled(False)
 
+    def _get_x_unit_label(self) -> str:
+        """Return the appropriate x-axis unit name ('frame', 'x', or figure x-axis title)."""
+        if self._x_title:
+            return self._x_title
+        return "frame" if self._is_integer_trace() else "x"
+
     def clear_stats(self, message: Optional[str] = None) -> None:
         """Reset display values to placeholders."""
+        unit = self._get_x_unit_label()
         self.lbl_min_val.setText("—")
-        self.lbl_min_pos.setText("(at frame: —)")
+        self.lbl_min_pos.setText(f"(at {unit}: —)")
         self.lbl_max_val.setText("—")
-        self.lbl_max_pos.setText("(at frame: —)")
+        self.lbl_max_pos.setText(f"(at {unit}: —)")
         self.lbl_mean_val.setText("—")
         self.lbl_count_val.setText("—")
 
@@ -378,6 +434,16 @@ class RangeStatisticsWidget(QWidget):
     # ------------------------------------------------------------------
     # Internal Handlers
     # ------------------------------------------------------------------
+
+    def _is_integer_trace(self) -> bool:
+        """Check if the active trace uses integer x-values (e.g. frame numbers)."""
+        trace_data = self._get_active_trace_data()
+        if not trace_data:
+            return False
+        x_vals, _ = trace_data
+        if not x_vals:
+            return False
+        return all(abs(x - round(x)) < 1e-5 for x in x_vals[:100])
 
     def _populate_traces(self) -> None:
         self.trace_combo.blockSignals(True)
@@ -404,14 +470,7 @@ class RangeStatisticsWidget(QWidget):
         self.reset_to_full_range()
 
     def _adjust_spinbox_precision(self) -> None:
-        trace_data = self._get_active_trace_data()
-        if not trace_data:
-            return
-
-        x_vals, _ = trace_data
-        # If all x-values are integers (e.g. frame numbers), use step 1
-        all_int = all(abs(x - round(x)) < 1e-5 for x in x_vals[:100])
-        if all_int:
+        if self._is_integer_trace():
             self.start_spin.setDecimals(0)
             self.end_spin.setDecimals(0)
             self.start_spin.setSingleStep(1.0)
@@ -432,7 +491,7 @@ class RangeStatisticsWidget(QWidget):
 
     def _on_trace_changed(self, _idx: int) -> None:
         self._adjust_spinbox_precision()
-        self.reset_to_full_range()
+        self.calculate_statistics()
 
     def _on_input_changed(self) -> None:
         if self._updating_inputs:
@@ -452,11 +511,12 @@ class RangeStatisticsWidget(QWidget):
         self.status_label.setVisible(False)
         self.status_label.setText("")
 
+        unit = self._get_x_unit_label()
         self.lbl_min_val.setText(_format_val(res.min_value))
-        self.lbl_min_pos.setText(f"(at frame: {_format_pos(res.min_x)})")
+        self.lbl_min_pos.setText(f"(at {unit}: {_format_pos(res.min_x)})")
 
         self.lbl_max_val.setText(_format_val(res.max_value))
-        self.lbl_max_pos.setText(f"(at frame: {_format_pos(res.max_x)})")
+        self.lbl_max_pos.setText(f"(at {unit}: {_format_pos(res.max_x)})")
 
         self.lbl_mean_val.setText(_format_val(res.mean_value))
         self.lbl_count_val.setText(f"{res.count} pts")
