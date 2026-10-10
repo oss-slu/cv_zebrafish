@@ -50,6 +50,10 @@ class WorkspaceWidget(QWidget):
         self.mouse_panel = MouseAnalysisPage()
         self._stack.addWidget(self.mouse_panel)
 
+    def current_panel(self) -> QWidget:
+        """The panel currently shown (compare with e.g. ``species_panel``)."""
+        return self._stack.currentWidget()
+
     def show_species(self) -> None:
         self._stack.setCurrentIndex(self.IDX_SPECIES)
 
