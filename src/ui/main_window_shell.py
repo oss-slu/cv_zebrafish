@@ -356,7 +356,7 @@ class MainShellWindow(QMainWindow):
     def _session_allowed(self) -> bool:
         blocked = self._session_blocked_message()
         if blocked is not None:
-            self._warn_sidebar_blocked()
+            self._warn_blocked()
             self._show_error_toast("Session", blocked)
             return False
         return True
@@ -953,8 +953,8 @@ class MainShellWindow(QMainWindow):
     def _on_verify_generate_json_requested(self) -> None:
         self._open_generate_config_dialog()
 
-    def _warn_sidebar_blocked(self) -> None:
-        """System attention sound when a sidebar tool is not available yet."""
+    def _warn_blocked(self) -> None:
+        """System attention sound when an action is blocked (e.g. a sidebar tool or session not available yet)."""
         try:
             if sys.platform == "win32":
                 ctypes.windll.user32.MessageBeep(0x00000030)  # MB_ICONWARNING
@@ -985,7 +985,7 @@ class MainShellWindow(QMainWindow):
     def _on_sidebar_tool(self, key: str) -> None:
         blocked = self._sidebar_blocked_message(key)
         if blocked is not None:
-            self._warn_sidebar_blocked()
+            self._warn_blocked()
             self._show_error_toast("Sidebar", blocked)
             return
         if key == "verify":

@@ -45,7 +45,7 @@ def shell(qt_app, monkeypatch):
     w = MainShellWindow(ui_prefs=UiPreferences())
     toasts = []
     monkeypatch.setattr(w, "_show_error_toast", lambda title, msg: toasts.append((title, msg)))
-    monkeypatch.setattr(w, "_warn_sidebar_blocked", lambda: None)
+    monkeypatch.setattr(w, "_warn_blocked", lambda: None)
     w.toasts = toasts
     w.loaded = loaded
     yield w
@@ -77,14 +77,14 @@ def test_back_from_mouse_clears_species(shell):
 def test_open_session_blocked_before_species_chosen(shell):
     shell._on_open_session()  # _FakeDialog would raise if the dialog opened
     assert shell.toasts == [("Session", "Choose a species first.")]
-    assert shell.workspace._stack.currentIndex() == shell.workspace.IDX_SPECIES
+    assert shell.workspace.current_panel() is shell.workspace.species_panel
 
 
 def test_open_session_blocked_on_mouse_path(shell):
     _choose(shell, Species.MOUSE)
     shell._on_open_session()
     assert shell.toasts == [("Session", "Sessions aren't available for Mouse yet.")]
-    assert shell.workspace._stack.currentIndex() == shell.workspace.IDX_MOUSE
+    assert shell.workspace.current_panel() is shell.workspace.mouse_panel
 
 
 def test_open_session_allowed_after_zebrafish(shell):
@@ -100,7 +100,7 @@ def test_load_session_from_path_is_gated(shell, species):
         _choose(shell, species)
     shell._load_session_from_path("/tmp/some_session.json")
     assert shell.loaded == []
-    assert shell._has_session is False
+    assert shell.current_session is None
     assert len(shell.toasts) == 1
 
 
