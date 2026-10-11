@@ -35,7 +35,7 @@ If PNG export reports that Chrome is missing, install Google Chrome or Chromium 
 ```bash
 python app.py
 ```
-This opens the main windown and starts the step-by-step workflow. The progress indicator shows which scene you're in: the flow walks through CSV/JSON selection, validation, config generation calculations, and graph viewing.
+This opens the main window and starts the step-by-step workflow. The progress indicator shows which scene you're in: the flow walks through CSV/JSON selection, validation, config generation calculations, and graph viewing.
 
 
 ### Run tests
@@ -103,10 +103,10 @@ tests/
 - **Compare tab:** Side-by-side graph comparison; pick dataset(s) and a graph type for each side (same or different files).
 - **Progress Indicator:** Horizontal step bar (green = done, blue = current, gray = upcoming); implemented in `ProgressIndicator.py`
 - **Session save/load:** Save the full session (file paths, config, results) at any point; reload to resume exactly where you left off
-- **Verify scence:** Single CSV upload, multi-CSV/folder upload, JSON upload, or Generate JSON flow; results shown in console
+- **Verify scene:** Single CSV upload, multi-CSV/folder upload, JSON upload, or Generate JSON flow; results shown in console
 - **Custom angle calc:** User-defined angle calculations beyond the default fin/tail metrics
 - **New CSV format support:** Accepts enriched output CSVs (`Spine_Head_x`, `LeftFin_LF1_x`) alongside raw DLC format
-- **Front Size Improvements** Enlarged and standardized UI text for readability across screen sizes
+- **Font Size Improvements:** Enlarged and standardized UI text for readability across screen sizes
 - **UI polish:** Multi-scene PyQt flow  with consistent layout, spacing, and widget sizing across all scenes
 - **Dynamic Body Part Detection:** Auto-detects and groups body parts from any DLC CSV file, supporting variable tracking configurations across different labs without hardcoded assumptions.
 - **Dataset Comparison:** Backend comparison engine for analyzing differences across multiple zebrafish datasets, supporting pairwise metric comparison and extensible summary statistics.
@@ -424,13 +424,25 @@ The `data/samples/` directory contains example DLC CSVs and config JSONs you can
 
 ---
 
+## New Contributor? Start Here
+
+If you just joined the team (or found the project on GitHub), this is the shortest path to your first pull request:
+
+1. **Get it running.** Follow [Quickstart](#quickstart) above. Confirm `python app.py` opens the window and `pytest` passes locally. CI runs the same tests on every PR, so a green local run means a green check on GitHub.
+2. **Run the sample workflow once.** Use the files in `data/samples/` to click through all six steps in [User Workflow](#user-workflow). You'll understand the codebase much faster after using the app the way a lab researcher does.
+3. **Read the two must-read docs.** [CONTRIBUTING.md](CONTRIBUTING.md) explains branching, PR review and team norms, and its *Known Architecture Notes* section covers the shell/panel UI, sessions and background workers, the parts that most often confuse newcomers. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) covers expected behaviour.
+4. **Pick a starter issue.** Browse issues labelled [`good first issue`](https://github.com/oss-slu/cv_zebrafish/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Comment on the issue before you start so nobody else duplicates the work.
+5. **Ask early.** Use [GitHub Discussions](https://github.com/oss-slu/cv_zebrafish/discussions) or your team Slack channel. If something in this README was wrong or confusing while you set up, fixing it is a welcome first PR.
+
+---
+
 ## Value Delivered
 - **Time reduction** Analysis compressed from 2–3 hours down to ~5 minutes per dataset
 - **Accessibility** Non-technical lab members can run full analyses independently —> no coding required
 
 
 ## Future Roadmap
-- **1. Broader animal support** — Generalize naming conventions, defaults, and metrics so labs can reuse the pipeline for species beyond zebrafish.
+- **1. Broader animal support** *(in progress, Fall 2026)*: generalize naming conventions, defaults and metrics so labs can reuse the pipeline for species beyond zebrafish. A species selection dropdown (#122) and a scaffolded mouse analysis page (#124) are the first steps.
 - **2. Richer / custom analysis** — Add more built-in metrics and let users define extra analyses (custom columns, rules, or small plug-ins) via the config file (no source code changes needed).
 - **3. Labeling in the pipeline** — Build a frame-by-frame video labeling step for any animal directly inside the app, replacing the separate DLC pre-processing step and consolidating the entire workflow in one place
 
@@ -450,7 +462,18 @@ The team follows an agile-style workflow:
 
 
 ## Contributors
-- Madhuritha Alle **Tech Lead** 
-- Sahana Gujja - Developer
-- Kwabena Gyimah - Developer
-- Bruce Miller - Developer
+
+CV Zebrafish is built by students in Saint Louis University's [Open Source with SLU](https://oss-slu.github.io/) program, in collaboration with Dr. Mohini Sengupta's lab.
+
+**Fall 2026 team**
+- Sanjana Siddani: Tech Lead
+- Bruce Miller: Developer
+- Isabelle Cox: Developer
+- Kyle Giricz: Developer
+- Yeeon Ryu: Developer
+
+**Spring 2026 team**
+- Madhuritha Alle: Tech Lead
+- Sahana Gujja, Kwabena Gyimah, Bruce Miller: Developers
+
+The full list of everyone who has contributed across semesters, with GitHub profiles, is in [CONTRIBUTORS.md](CONTRIBUTORS.md). If you have contributed and are missing, please add yourself.
