@@ -233,6 +233,142 @@ class TestRangeStatisticsWidget:
         assert widget.start_spin.value() == 10.0
         assert widget.end_spin.value() == 30.0
 
+    def test_integer_frames_snap_inward(self, qt_app):
+        """Graph range of 10.4–20.6 should snap inward to 11–20 when x-values are integer frames."""
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(range(31)), y=[float(i * 2) for i in range(31)], name="Frames"))
+
+        widget = RangeStatisticsWidget()
+        widget.set_figure(fig)
+
+        widget.set_range(10.4, 20.6)
+
+        assert widget.start_spin.value() == 11.0
+        assert widget.end_spin.value() == 20.0
+
+        stats = widget.get_current_statistics()
+        assert stats is not None
+        assert stats.is_valid is True
+        assert stats.count == 10  # frames 11 through 20
+        assert stats.min_x == 11.0
+        assert stats.max_x == 20.0
+        assert stats.min_value == 22.0
+        assert stats.max_value == 40.0
+
+    def test_integer_frames_exact_boundary(self, qt_app):
+        """Exact integer bounds 10.0–20.0 should remain 10–20 without unintended truncation."""
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(range(31)), y=[float(i) for i in range(31)], name="Frames"))
+
+        widget = RangeStatisticsWidget()
+        widget.set_figure(fig)
+
+        widget.set_range(10.0, 20.0)
+
+        assert widget.start_spin.value() == 10.0
+        assert widget.end_spin.value() == 20.0
+        assert widget.get_current_statistics().count == 11
+
+    def test_integer_frames_reverse_selection(self, qt_app):
+        """Inverted selection range 20.6–10.4 should snap inward correctly to 11–20."""
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(range(31)), y=[float(i) for i in range(31)], name="Frames"))
+
+        widget = RangeStatisticsWidget()
+        widget.set_figure(fig)
+
+        widget.set_range(20.6, 10.4)
+
+        assert widget.start_spin.value() == 11.0
+        assert widget.end_spin.value() == 20.0
+        assert widget.get_current_statistics().count == 10
+
+    def test_integer_frames_sub_frame_empty_range(self, qt_app):
+        """Selection between two frames (10.2–10.8) should show empty-range feedback without crashing or rounding outward."""
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(range(31)), y=[float(i) for i in range(31)], name="Frames"))
+
+        widget = RangeStatisticsWidget()
+        widget.set_figure(fig)
+
+        widget.set_range(10.2, 10.8)
+
+        assert widget.start_spin.value() == 11.0
+        assert widget.end_spin.value() == 10.0
+
+        stats = widget.get_current_statistics()
+        assert stats is not None
+        assert stats.is_valid is False
+        assert stats.count == 0
+        assert "No data points in selected range" in widget.status_label.text()
+        assert widget.lbl_min_val.text() == "—"
+        assert widget.lbl_max_val.text() == "—"
+
+    def test_float_series_preserves_decimals(self, qt_app):
+        """Float x-data should preserve 3 decimal precision and not snap inward to whole integers."""
+        x_vals = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25]
+        y_vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+        widget = RangeStatisticsWidget()
+        widget.set_series(x_vals, y_vals, name="Float Series")
+
+        assert widget.start_spin.decimals() == 3
+        assert widget.end_spin.decimals() == 3
+
+        widget.set_range(0.24, 0.76)
+
+        assert widget.start_spin.value() == pytest.approx(0.24)
+        assert widget.end_spin.value() == pytest.approx(0.76)
+
+        stats = widget.get_current_statistics()
+        assert stats.is_valid is True
+        assert stats.count == 3  # points at 0.25, 0.5, 0.75
+
+    def test_trace_change_preserves_zoom_and_recomputes(self, qt_app):
+        """Switching the Signal dropdown should preserve the current range and not reset graph zoom."""
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(range(10)), y=[float(i) for i in range(10)], name="Trace A"))
+        fig.add_trace(go.Scatter(x=list(range(10)), y=[float(i * 10) for i in range(10)], name="Trace B"))
+
+        widget = RangeStatisticsWidget()
+        widget.set_figure(fig)
+
+        widget.set_range(2, 6)
+        assert widget.get_current_statistics().max_value == 6.0
+
+        resets = []
+        widget.resetRequested.connect(lambda: resets.append(True))
+
+        # Switch to Trace B
+        widget.trace_combo.setCurrentIndex(1)
+
+        # Zoom was NOT reset
+        assert len(resets) == 0
+        assert widget.start_spin.value() == 2.0
+        assert widget.end_spin.value() == 6.0
+        # Statistics updated for Trace B
+        assert widget.get_current_statistics().max_value == 60.0
+
+    def test_position_label_custom_axis_title(self, qt_app):
+        """Position labels should incorporate the figure's x-axis title if specified."""
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=[1.0, 2.0, 3.0], y=[10.0, 20.0, 30.0], name="Speed"))
+        fig.update_layout(xaxis_title="Time (s)")
+
+        widget = RangeStatisticsWidget()
+        widget.set_figure(fig)
+
+        assert "(at Time (s): 1)" in widget.lbl_min_pos.text()
+        assert "(at Time (s): 3)" in widget.lbl_max_pos.text()
+
+    def test_position_label_float_trace_neutral_x(self, qt_app):
+        """Position labels for float series without axis title should use neutral '(at x: ...)'."""
+        widget = RangeStatisticsWidget()
+        widget.set_series([0.5, 1.5, 2.5], [10.0, 20.0, 30.0], name="Series")
+
+        assert "(at x: 0.5)" in widget.lbl_min_pos.text()
+        assert "(at x: 2.5)" in widget.lbl_max_pos.text()
+
 
 class TestInteractiveGraphIntegration:
     """Tests for InteractiveGraph embedding RangeStatisticsWidget."""
@@ -298,3 +434,21 @@ class TestInteractiveGraphIntegration:
         assert graph.range_stats_widget.end_spin.value() == 20.0
         # But resetRequested was NOT emitted (loop prevented!)
         assert len(reset_calls) == 0
+
+    def test_interactive_graph_range_selected_snaps_integer_frames(self, qt_app):
+        """rangeSelected with fractional values snaps inward on integer frames in InteractiveGraph."""
+        graph = InteractiveGraph()
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=list(range(50)), y=[float(i) for i in range(50)]))
+        graph.set_figure(fig)
+
+        # Simulate Plotly fractional zoom event: 10.4 to 20.6
+        graph.rangeSelected.emit(10.4, 20.6)
+
+        assert graph.range_stats_widget.start_spin.value() == 11.0
+        assert graph.range_stats_widget.end_spin.value() == 20.0
+        stats = graph.range_stats_widget.get_current_statistics()
+        assert stats is not None
+        assert stats.count == 10
+        assert stats.min_x == 11.0
+        assert stats.max_x == 20.0
