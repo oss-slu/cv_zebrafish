@@ -42,6 +42,14 @@ ACCENT = "#90CAF9"
 
 SPECIES = ("Zebrafish", "Mouse")
 
+# stlite (the browser-only / GitHub Pages build) runs Python as WebAssembly in the browser.
+IN_BROWSER = sys.platform == "emscripten"
+PROTOTYPE_NOTE = (
+    "Prototype for issue #136 · covers one zebrafish analysis · "
+    + ("files you upload stay in your browser" if IN_BROWSER
+       else "files are processed by the computer running this app and not stored")
+)
+
 # Pages: species → zebrafish_load → zebrafish_results, or species → mouse_load → mouse_analysis.
 STEPS = {
     "species": "Species",
@@ -147,6 +155,7 @@ def page_species() -> None:
             st.session_state.species = choice
             _go("zebrafish_load" if choice == "Zebrafish" else "mouse_load")
             st.rerun()
+    st.markdown(f'<div class="cvz-center cvz-note">{PROTOTYPE_NOTE}</div>', unsafe_allow_html=True)
 
 
 def page_zebrafish_load() -> None:
