@@ -70,6 +70,10 @@ class ErrorToast(QWidget):
         self._btn_close.setToolTip("Dismiss")
         self._btn_close.clicked.connect(self.hide)
         row.addWidget(self._btn_close)
+        # macOS style spaces buttons by a smaller native-bezel rect, but the QSS boxes fill the
+        # whole widget, so the two buttons overlap (#128). Lay them out by their real size.
+        for btn in (self._btn_console, self._btn_close):
+            btn.setAttribute(Qt.WA_LayoutUsesWidgetRect, True)
         outer.addLayout(row)
 
         self._timer = QTimer(self)
