@@ -18,6 +18,8 @@ from .summary_statistics import (
     clean_numeric_series,
     compute_series_summary_stats,
     compute_summary_statistics_df,
+    export_summary_statistics_to_csv,
+    export_summary_statistics_to_excel,
     get_parameter_units,
 )
 
@@ -32,6 +34,8 @@ __all__ = [
     "clean_numeric_series",
     "compute_series_summary_stats",
     "compute_summary_statistics_df",
+    "export_summary_statistics_to_csv",
+    "export_summary_statistics_to_excel",
     "get_parameter_units",
 ]
 

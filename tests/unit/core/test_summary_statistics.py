@@ -1,12 +1,13 @@
 """
 Unit tests for summary statistics calculations (src/core/analysis/summary_statistics.py).
 Covers calculation of mean and median, NaN and missing value handling, edge cases,
-and DataFrame formatting.
+DataFrame formatting, and export to CSV and Excel.
 """
 
 from __future__ import annotations
 
 import math
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
@@ -15,8 +16,12 @@ from src.core.analysis.summary_statistics import (
     clean_numeric_series,
     compute_series_summary_stats,
     compute_summary_statistics_df,
+    export_summary_statistics_to_csv,
+    export_summary_statistics_to_excel,
     get_parameter_units,
 )
+from src.core.calculations.export_selected_range import export_range_to_csv
+from src.core.graphs.io import OutputContext, save_results_to_excel
 
 
 class TestComputeSeriesSummaryStats:
@@ -180,3 +185,69 @@ class TestComputeSummaryStatisticsDf:
         """Raises TypeError for non-DataFrame non-dict input."""
         with pytest.raises(TypeError):
             compute_summary_statistics_df(["not", "a", "dataframe"])
+
+
+class TestSummaryStatisticsExport:
+    """Tests for exporting summary statistics to CSV and Excel."""
+
+    def test_export_summary_statistics_to_csv(self, tmp_path: Path):
+        df = pd.DataFrame({
+            "LF_Angle": [10.0, 20.0, 30.0],
+            "Tail_Distance": [1.0, 2.0, 3.0],
+        })
+        out_csv = tmp_path / "summary.csv"
+        written = export_summary_statistics_to_csv(df, out_csv)
+
+        assert written.is_file()
+        loaded = pd.read_csv(written)
+        assert list(loaded.columns) == ["parameter", "mean", "median", "units"]
+        assert len(loaded) == 2
+        assert "LF_Angle" in loaded["parameter"].values
+
+    def test_export_summary_statistics_to_excel(self, tmp_path: Path):
+        df = pd.DataFrame({
+            "LF_Angle": [10.0, 20.0, 30.0],
+            "Tail_Distance": [1.0, 2.0, 3.0],
+        })
+        out_xlsx = tmp_path / "summary.xlsx"
+        written = export_summary_statistics_to_excel(df, out_xlsx)
+
+        assert written.is_file()
+        loaded = pd.read_excel(written, sheet_name="Summary Statistics")
+        assert list(loaded.columns) == ["parameter", "mean", "median", "units"]
+        assert len(loaded) == 2
+
+    def test_save_results_to_excel_includes_summary_stats_sheet(self, tmp_path: Path):
+        rows = [
+            {"Time": 0, "LF_Angle": 10.0, "RF_Angle": 20.0},
+            {"Time": 1, "LF_Angle": 20.0, "RF_Angle": 40.0},
+        ]
+        ctx = OutputContext(output_folder=str(tmp_path), log_path=str(tmp_path / "log.txt"))
+        save_results_to_excel(rows, ctx, filename="test_out.xlsx")
+
+        excel_path = tmp_path / "test_out.xlsx"
+        assert excel_path.is_file()
+
+        excel_file = pd.ExcelFile(excel_path)
+        assert "Results" in excel_file.sheet_names
+        assert "Summary Statistics" in excel_file.sheet_names
+
+        summary_sheet = pd.read_excel(excel_file, sheet_name="Summary Statistics")
+        assert list(summary_sheet.columns) == ["parameter", "mean", "median", "units"]
+        lf_row = summary_sheet[summary_sheet["parameter"] == "LF_Angle"].iloc[0]
+        assert lf_row["mean"] == pytest.approx(15.0)
+        assert lf_row["median"] == pytest.approx(15.0)
+
+    def test_export_range_to_csv_with_summary_stats_section(self, tmp_path: Path):
+        df = pd.DataFrame({
+            "Time": [0, 1, 2, 3],
+            "LF_Angle": [10.0, 20.0, 30.0, 40.0],
+        })
+        out_csv = tmp_path / "range_with_summary.csv"
+        export_range_to_csv(df, 0, 2, out_csv, include_summary_stats=True)
+
+        assert out_csv.is_file()
+        content = out_csv.read_text(encoding="utf-8")
+        assert "# --- Summary Statistics ---" in content
+        assert "parameter,mean,median,units" in content
+        assert "LF_Angle,20.0,20.0,deg" in content

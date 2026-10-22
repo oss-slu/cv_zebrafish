@@ -22,10 +22,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
+
+PathLike = Union[str, Path]
 
 
 # Canonical metadata mapping for zebrafish kinematic parameters and outputs.
@@ -238,3 +241,68 @@ def compute_summary_statistics_df(
         })
 
     return pd.DataFrame(rows, columns=["parameter", "mean", "median", "units"])
+
+
+def export_summary_statistics_to_csv(
+    data: Union[pd.DataFrame, Dict[str, Sequence[Any]]],
+    output_path: PathLike,
+    parameters: Optional[Sequence[str]] = None,
+    custom_units: Optional[Dict[str, str]] = None,
+) -> Path:
+    """
+    Export summary statistics table (parameter, mean, median, units) to a CSV file.
+
+    Args:
+        data: Either an existing summary statistics DataFrame or raw kinematic data.
+        output_path: Target CSV file path.
+        parameters: Optional list of parameters to filter.
+        custom_units: Optional dictionary of parameter units.
+
+    Returns:
+        Path to the exported CSV file.
+    """
+    if isinstance(data, pd.DataFrame) and list(data.columns) == ["parameter", "mean", "median", "units"]:
+        summary_df = data
+    else:
+        summary_df = compute_summary_statistics_df(data, parameters=parameters, custom_units=custom_units)
+
+    path = Path(output_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.suffix:
+        path = path.with_suffix(".csv")
+    summary_df.to_csv(path, index=False)
+    return path
+
+
+def export_summary_statistics_to_excel(
+    data: Union[pd.DataFrame, Dict[str, Sequence[Any]]],
+    output_path: PathLike,
+    sheet_name: str = "Summary Statistics",
+    parameters: Optional[Sequence[str]] = None,
+    custom_units: Optional[Dict[str, str]] = None,
+) -> Path:
+    """
+    Export summary statistics table (parameter, mean, median, units) to an Excel spreadsheet.
+
+    Args:
+        data: Either an existing summary statistics DataFrame or raw kinematic data.
+        output_path: Target Excel file path (.xlsx).
+        sheet_name: Name of the Excel sheet (defaults to 'Summary Statistics').
+        parameters: Optional list of parameters to filter.
+        custom_units: Optional dictionary of parameter units.
+
+    Returns:
+        Path to the exported Excel file.
+    """
+    if isinstance(data, pd.DataFrame) and list(data.columns) == ["parameter", "mean", "median", "units"]:
+        summary_df = data
+    else:
+        summary_df = compute_summary_statistics_df(data, parameters=parameters, custom_units=custom_units)
+
+    path = Path(output_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.suffix:
+        path = path.with_suffix(".xlsx")
+    summary_df.to_excel(path, sheet_name=sheet_name, index=False)
+    return path
+
