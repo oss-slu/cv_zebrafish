@@ -291,3 +291,18 @@ def test_range_controls_reenabled_after_broken_graph(qt_app, monkeypatch):
     scene._show_graph("Working graph")
     assert scene.export_range_btn.isEnabled()
     assert scene.range_start_spin.value() == 5  # range not reset by clicking a graph
+
+
+def test_summary_stats_tab_enabled_on_results(qt_app):
+    """Setting results_df enables the Summary Stats tab and computes summary statistics."""
+    scene = GraphViewerScene()
+    assert scene.tab_widget.isTabEnabled(scene.TAB_SUMMARY) is False
+
+    df = _make_results_df(50)
+    scene.set_graphs({}, results_df=df)
+
+    assert scene.tab_widget.isTabEnabled(scene.TAB_SUMMARY) is True
+    summary_df = scene.summary_widget.get_summary_dataframe()
+    assert summary_df is not None
+    assert len(summary_df) > 0
+    assert "LF_Angle" in summary_df["parameter"].values

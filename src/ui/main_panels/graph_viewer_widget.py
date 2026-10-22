@@ -52,6 +52,7 @@ from src.app_platform.paths import images_dir, sessions_dir
 
 from styles.ui_scale import scaled_px
 from ui.components.scene_help import create_scene_help_button
+from ui.components.summary_statistics_widget import SummaryStatisticsWidget
 from ui.components.wide_popup_combo import WidePopupComboBox
 from ui.workers.folder_graph_save_worker import run_folder_graph_save_core
 
@@ -134,6 +135,7 @@ class GraphViewerScene(QWidget):
     TAB_GRAPHS = 0
     TAB_CROSS = 1
     TAB_COMPARE = 2
+    TAB_SUMMARY = 3
 
     def __init__(self):
         super().__init__()
@@ -358,6 +360,11 @@ class GraphViewerScene(QWidget):
         self._init_compare_tab()
         self.tab_widget.addTab(self._compare_tab_root, "Compare")
         self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+
+        self.summary_widget = SummaryStatisticsWidget()
+        self.tab_widget.addTab(self.summary_widget, "Summary Stats")
+        self.tab_widget.setTabEnabled(self.TAB_SUMMARY, False)
+
         self.tab_widget.currentChanged.connect(self._on_main_tab_changed)
 
         # Main layout — panel margins match other workspace scenes so ⓘ stays in the same top-right relationship.
@@ -457,6 +464,10 @@ class GraphViewerScene(QWidget):
                 self._apply_crosscorr_for_current_folder_csv()
             elif self._last_single_run_df is not None:
                 self._enable_crosscorr(self._last_single_run_df)
+        elif index == self.TAB_SUMMARY:
+            df = self._active_results_df()
+            if df is not None:
+                self.summary_widget.set_dataframe(df)
 
     def _graph_datasets(self) -> List[Tuple[str, Dict[str, GraphSource]]]:
         if self._graphs_by_csv and len(self._csv_order) > 1:
@@ -758,9 +769,13 @@ class GraphViewerScene(QWidget):
         if isinstance(results_df, pd.DataFrame) and not results_df.empty:
             self._last_single_run_df = results_df
             self._enable_crosscorr(results_df)
+            self.tab_widget.setTabEnabled(self.TAB_SUMMARY, True)
+            self.summary_widget.set_dataframe(results_df)
         else:
             self._last_single_run_df = None
             self._clear_crosscorr_state()
+            self.tab_widget.setTabEnabled(self.TAB_SUMMARY, False)
+            self.summary_widget.clear()
         self._sync_compare_pane()
         self._refresh_range_controls()
 
@@ -813,6 +828,9 @@ class GraphViewerScene(QWidget):
             self.crosscorr_csv_combo.addItem(label, userData=csv_path)
         self.csv_combo.setVisible(True)
         self.crosscorr_csv_combo.setVisible(bool(self._results_by_csv))
+        if self._results_by_csv:
+            self.tab_widget.setTabEnabled(self.TAB_SUMMARY, True)
+            self.summary_widget.set_results_by_csv(self._results_by_csv)
         self.csv_combo.setCurrentIndex(0)
         self.crosscorr_csv_combo.setCurrentIndex(0)
         self.csv_combo.blockSignals(False)
@@ -893,6 +911,9 @@ class GraphViewerScene(QWidget):
             self._show_empty_state("No graphs available.")
         if self._results_by_csv:
             self._apply_crosscorr_for_current_folder_csv()
+            active_df = self._active_results_df()
+            if active_df is not None:
+                self.summary_widget.set_dataframe(active_df)
         self._sync_compare_pane()
         self._refresh_range_controls()
 
@@ -1317,6 +1338,11 @@ class GraphViewerScene(QWidget):
         self.set_context(None, None, None)
         self._clear_crosscorr_state()
         self._refresh_range_controls()
+        try:
+            self.tab_widget.setTabEnabled(self.TAB_SUMMARY, False)
+            self.summary_widget.clear()
+        except Exception:
+            pass
         try:
             self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
             self._compare_pix_a = None
