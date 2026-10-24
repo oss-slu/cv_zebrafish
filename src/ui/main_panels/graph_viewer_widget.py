@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -134,6 +135,12 @@ class GraphViewerScene(QWidget):
     TAB_GRAPHS = 0
     TAB_CROSS = 1
     TAB_COMPARE = 2
+    TAB_OVERLAY = 3
+
+    OVERLAY_COLORS = (
+        "#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A",
+        "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52",
+    )
 
     def __init__(self):
         super().__init__()
@@ -358,6 +365,10 @@ class GraphViewerScene(QWidget):
         self._init_compare_tab()
         self.tab_widget.addTab(self._compare_tab_root, "Compare")
         self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+        # Overlay tab
+        self._init_overlay_tab()
+        self.tab_widget.addTab(self._overlay_tab_root, "Overlay")
+        self.tab_widget.setTabEnabled(self.TAB_OVERLAY, False)
         self.tab_widget.currentChanged.connect(self._on_main_tab_changed)
 
         # Main layout — panel margins match other workspace scenes so ⓘ stays in the same top-right relationship.
@@ -640,6 +651,160 @@ class GraphViewerScene(QWidget):
             label.setPixmap(scaled)
             label.setText("")
 
+    # ------------------------------------------------------------------
+    # Overlay tab (issue #114)
+    # ------------------------------------------------------------------
+
+    def _init_overlay_tab(self) -> None:
+
+        self._overlay_tab_root = QWidget()
+        self._overlay_tab_root.setObjectName("GraphViewerOverlayTab")
+        box = QVBoxLayout(self._overlay_tab_root)
+
+        box.addWidget(QLabel("<b>Check two or more datasets to overlay</b>"))
+
+        self.overlay_list = QListWidget()
+        self.overlay_list.setObjectName("GraphViewerOverlayList")
+        self.overlay_list.itemChanged.connect(self._on_overlay_inputs_changed)
+        self.overlay_list.setMaximumHeight(120)
+        box.addWidget(self.overlay_list)
+
+        box.addWidget(QLabel("<b>Graph to overlay</b>"))
+        self.overlay_graph = WidePopupComboBox()
+        self.overlay_graph.setObjectName("GraphViewerOverlayGraph")
+        box.addWidget(self.overlay_graph)
+
+        self.overlay_status = QLabel("")
+        self.overlay_status.setWordWrap(True)
+        box.addWidget(self.overlay_status)
+
+        self.overlay_view = InteractiveGraph()
+        self.overlay_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        box.addWidget(self.overlay_view, stretch=1)
+
+        self.overlay_graph.currentIndexChanged.connect(self._draw_overlay)
+
+    def _overlay_checked_paths(self) -> List[str]:
+        paths = []
+        for i in range(self.overlay_list.count()):
+            item = self.overlay_list.item(i)
+            if item.checkState() == Qt.Checked:
+                paths.append(str(item.data(Qt.UserRole)))
+        return paths
+
+    def _sync_overlay_pane(self) -> None:
+        datasets = [(p, g) for p, g in self._graph_datasets() if g]
+        if not datasets:
+            self.tab_widget.setTabEnabled(self.TAB_OVERLAY, False)
+            return
+        self.tab_widget.setTabEnabled(self.TAB_OVERLAY, True)
+
+        old_checked = self._overlay_checked_paths()
+
+        self.overlay_list.blockSignals(True)
+        self.overlay_list.clear()
+        for path, _graphs in datasets:
+            name = Path(path).name if path != "current" else "(current file)"
+            item = QListWidgetItem(name)
+            item.setData(Qt.UserRole, path)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            if path in old_checked:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
+            self.overlay_list.addItem(item)
+        self.overlay_list.blockSignals(False)
+
+        self._update_overlay_graph_choices()
+
+    def _on_overlay_inputs_changed(self, *_args) -> None:
+        self._update_overlay_graph_choices()
+
+    def _update_overlay_graph_choices(self) -> None:
+        paths = self._overlay_checked_paths()
+        old_name = self.overlay_graph.currentData()
+
+        self.overlay_graph.blockSignals(True)
+        self.overlay_graph.clear()
+
+        if len(paths) < 2:
+            self.overlay_graph.blockSignals(False)
+            self.overlay_status.setText("Check at least two datasets to overlay.")
+            self.overlay_view.clear()
+            return
+
+        first = self._dict_for_compare_csv(paths[0])
+        names = []
+        for n in first:
+            if all(n in self._dict_for_compare_csv(p) for p in paths[1:]):
+                names.append(n)
+
+        for n in names:
+            self.overlay_graph.addItem(n, n)
+        if old_name in names:
+            self.overlay_graph.setCurrentIndex(self.overlay_graph.findData(old_name))
+        self.overlay_graph.blockSignals(False)
+
+        if names:
+            self.overlay_status.setText(
+                f"{len(paths)} datasets selected, {len(names)} graph(s) in common."
+            )
+        else:
+            self.overlay_status.setText("These datasets do not share a graph.")
+        self._draw_overlay()
+
+    def _draw_overlay(self, *_args: object) -> None:
+        """Draw the selected graph from every checked dataset on one figure."""
+        paths = self._overlay_checked_paths()
+        graph_name = self.overlay_graph.currentData()
+        if len(paths) < 2 or not graph_name:
+            self.overlay_view.clear()
+            return
+
+        combined = go.Figure()
+        skipped: List[str] = []
+        reference_figure: go.Figure | None = None
+
+        for index, path in enumerate(paths):
+            label = "(current file)" if path == "current" else Path(path).name
+            source = self._dict_for_compare_csv(path).get(graph_name)
+            if not isinstance(source, go.Figure):
+                skipped.append(label)
+                continue
+            if reference_figure is None:
+                reference_figure = source
+
+            color = self.OVERLAY_COLORS[index % len(self.OVERLAY_COLORS)]
+            for trace in source.data:
+                combined.add_trace(trace)  # add_trace copies; the source figure is untouched
+                added = combined.data[-1]
+                added.name = f"{label} - {trace.name}" if trace.name else label
+                added.legendgroup = label
+                added.showlegend = True
+                if added.type in ("scatter", "scattergl"):
+                    added.update(marker={"color": color}, line={"color": color})
+
+        if len(paths) - len(skipped) < 2:
+            self.overlay_view.clear()
+            self.overlay_status.setText(
+                f"'{graph_name}' is only available as a static image for: "
+                f"{', '.join(skipped)}."
+            )
+            return
+
+        combined.update_layout(reference_figure.layout)
+        combined.update_layout(
+            title=f"{graph_name} (overlay)",
+            showlegend=True,
+            xaxis={"autorange": True, "range": None},
+            yaxis={"autorange": True, "range": None},
+        )
+        self.overlay_view.set_figure(combined)
+        if skipped:
+            self.overlay_status.setText(
+                f"Skipped (no interactive graph): {', '.join(skipped)}."
+            )
+
     def set_context(self, csv_id: Optional[str], config_path: Optional[str], csv_files: Optional[List[str]] = None):
         self._context_csv_id = csv_id
         self._context_config_path = config_path
@@ -762,6 +927,7 @@ class GraphViewerScene(QWidget):
             self._last_single_run_df = None
             self._clear_crosscorr_state()
         self._sync_compare_pane()
+        self._sync_overlay_pane()
         self._refresh_range_controls()
 
     def set_graphs_by_csv(
@@ -894,6 +1060,7 @@ class GraphViewerScene(QWidget):
         if self._results_by_csv:
             self._apply_crosscorr_for_current_folder_csv()
         self._sync_compare_pane()
+        self._sync_overlay_pane()
         self._refresh_range_controls()
 
     # ------------------------------------------------------------------
@@ -1319,6 +1486,11 @@ class GraphViewerScene(QWidget):
         self._refresh_range_controls()
         try:
             self.tab_widget.setTabEnabled(self.TAB_COMPARE, False)
+            self.tab_widget.setTabEnabled(self.TAB_OVERLAY, False)
+            self.overlay_list.clear()
+            self.overlay_graph.clear()
+            self.overlay_view.clear()
+            self.overlay_status.setText("")
             self._compare_pix_a = None
             self._compare_pix_b = None
             self.compare_label_a.setText("—")
