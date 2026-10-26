@@ -1,5 +1,7 @@
 # Web version feasibility spike (#136)
 
+> **Experimental and unmaintained.** `web_prototype/` is a spike for #136, kept for reference only. It is not part of the supported app, is not kept in sync with the desktop code, and may break without notice.
+
 A time-boxed investigation into whether CV Zebrafish could run as a web app, with a
 small working prototype. **This is not a full build.**
 
