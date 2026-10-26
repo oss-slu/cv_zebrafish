@@ -1,7 +1,7 @@
 """
 Unit tests for summary statistics calculations (src/core/analysis/summary_statistics.py).
-Covers calculation of mean and median, NaN and missing value handling, edge cases,
-DataFrame formatting, and export to CSV and Excel.
+Covers calculation of linear and circular mean/median, NaN and missing value handling,
+edge cases, skipping of all-NaN/text columns, DataFrame formatting, and export to CSV and Excel.
 """
 
 from __future__ import annotations
@@ -14,11 +14,14 @@ import pytest
 
 from src.core.analysis.summary_statistics import (
     clean_numeric_series,
+    compute_circular_mean,
+    compute_circular_median,
     compute_series_summary_stats,
     compute_summary_statistics_df,
     export_summary_statistics_to_csv,
     export_summary_statistics_to_excel,
     get_parameter_units,
+    is_circular_parameter,
 )
 from src.core.calculations.export_selected_range import export_range_to_csv
 from src.core.graphs.io import OutputContext, save_results_to_excel
@@ -106,24 +109,61 @@ class TestComputeSeriesSummaryStats:
         assert res.median == pytest.approx(0.0)
 
 
+class TestCircularStatistics:
+    """Tests for circular mean and median (handling +/-180 deg wrap-around)."""
+
+    def test_circular_mean_boundary_wrapping(self):
+        """179 deg and -179 deg wrap around +/-180 deg and average to 180 deg, not 0 deg."""
+        angles = [179.0, -179.0]
+        mean_angle = compute_circular_mean(angles)
+        assert abs(mean_angle) == pytest.approx(180.0, abs=0.1)
+
+    def test_circular_median_boundary_wrapping(self):
+        """Circular median of 179 deg and -179 deg is 180 deg (minimal arc distance)."""
+        angles = [179.0, -179.0]
+        median_angle = compute_circular_median(angles)
+        assert abs(median_angle) == pytest.approx(180.0, abs=0.1)
+
+    def test_circular_mean_standard_angles(self):
+        """Circular mean of 0 deg and 90 deg is 45 deg."""
+        angles = [0.0, 90.0]
+        assert compute_circular_mean(angles) == pytest.approx(45.0)
+
+    def test_circular_series_summary_stats(self):
+        """compute_series_summary_stats with is_circular=True uses circular metrics."""
+        res = compute_series_summary_stats([179.0, -179.0], is_circular=True)
+        assert res.is_valid is True
+        assert res.count == 2
+        assert abs(res.mean) == pytest.approx(180.0, abs=0.1)
+
+    def test_is_circular_parameter(self):
+        assert is_circular_parameter("HeadYaw") is True
+        assert is_circular_parameter("curBoutHeadYaw") is True
+        assert is_circular_parameter("LF_Angle") is False
+        assert is_circular_parameter("Tail_Distance") is False
+
+
 class TestParameterUnits:
     """Tests for get_parameter_units mapping."""
 
     def test_known_parameter_units(self):
         assert get_parameter_units("LF_Angle") == "deg"
         assert get_parameter_units("RF_Angle") == "deg"
-        assert get_parameter_units("Tail_Distance") == "mm"
+        assert get_parameter_units("Tail_Distance") == "m"  # in meters, matching dish_diameter_m
+        assert get_parameter_units("Tail_Distance_Pixels") == "px"
+        assert get_parameter_units("HeadX") == "m"
+        assert get_parameter_units("HeadY") == "m"
         assert get_parameter_units("tail_beat_frequency") == "Hz"
-        assert get_parameter_units("velocity") == "mm/s"
+        assert get_parameter_units("velocity") == "m/s"
 
     def test_dynamic_spine_segment_units(self):
         assert get_parameter_units("TailAngle_0") == "deg"
         assert get_parameter_units("TailAngle_4") == "deg"
 
     def test_custom_units_override(self):
-        custom = {"LF_Angle": "radians", "velocity": "m/s"}
+        custom = {"LF_Angle": "radians", "velocity": "km/h"}
         assert get_parameter_units("LF_Angle", custom) == "radians"
-        assert get_parameter_units("velocity", custom) == "m/s"
+        assert get_parameter_units("velocity", custom) == "km/h"
 
 
 class TestComputeSummaryStatisticsDf:
@@ -156,6 +196,31 @@ class TestComputeSummaryStatisticsDf:
         assert rf_row["mean"] == pytest.approx(25.0)
         assert rf_row["median"] == pytest.approx(25.0)
         assert rf_row["units"] == "deg"
+
+        # Verify Tail_Distance units is 'm'
+        td_row = summary_df[summary_df["parameter"] == "Tail_Distance"].iloc[0]
+        assert td_row["units"] == "m"
+
+    def test_skips_all_nan_and_text_columns(self):
+        """Non-numeric string columns (Tail_Side, Furthest_Tail_Point) and all-NaN cols are skipped."""
+        df = pd.DataFrame({
+            "LF_Angle": [10.0, 20.0],
+            "Tail_Side": ["Left", "Right"],
+            "Furthest_Tail_Point": ["pt1", "pt2"],
+            "All_Nan_Column": [np.nan, np.nan],
+        })
+
+        summary_df = compute_summary_statistics_df(df)
+        assert list(summary_df["parameter"].values) == ["LF_Angle"]
+
+    def test_head_yaw_uses_circular_mean(self):
+        """HeadYaw in DataFrame uses circular mean (179° and -179° -> 180°)."""
+        df = pd.DataFrame({
+            "HeadYaw": [179.0, -179.0],
+        })
+        summary_df = compute_summary_statistics_df(df)
+        yaw_row = summary_df[summary_df["parameter"] == "HeadYaw"].iloc[0]
+        assert abs(yaw_row["mean"]) == pytest.approx(180.0, abs=0.1)
 
     def test_explicit_parameter_selection(self):
         """Allows selecting a specific subset of parameters."""

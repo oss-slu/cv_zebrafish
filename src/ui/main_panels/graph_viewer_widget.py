@@ -135,7 +135,14 @@ class GraphViewerScene(QWidget):
     TAB_GRAPHS = 0
     TAB_CROSS = 1
     TAB_COMPARE = 2
-    TAB_SUMMARY = 3
+
+    @property
+    def TAB_SUMMARY(self) -> int:
+        if hasattr(self, "summary_widget") and hasattr(self, "tab_widget"):
+            idx = self.tab_widget.indexOf(self.summary_widget)
+            if idx >= 0:
+                return idx
+        return 3
 
     def __init__(self):
         super().__init__()
@@ -464,7 +471,7 @@ class GraphViewerScene(QWidget):
                 self._apply_crosscorr_for_current_folder_csv()
             elif self._last_single_run_df is not None:
                 self._enable_crosscorr(self._last_single_run_df)
-        elif index == self.TAB_SUMMARY:
+        elif hasattr(self, "summary_widget") and (self.tab_widget.widget(index) == self.summary_widget or index == self.TAB_SUMMARY):
             df = self._active_results_df()
             if df is not None:
                 self.summary_widget.set_dataframe(df)

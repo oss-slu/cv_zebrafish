@@ -54,7 +54,7 @@ def test_summary_widget_populate_table(qt_app):
     assert widget.table.item(1, 0).text() == "Tail_Distance"
     assert widget.table.item(1, 1).text() == "5"   # mean
     assert widget.table.item(1, 2).text() == "5"   # median
-    assert widget.table.item(1, 3).text() == "mm"
+    assert widget.table.item(1, 3).text() == "m"
 
     summary_df = widget.get_summary_dataframe()
     assert summary_df is not None

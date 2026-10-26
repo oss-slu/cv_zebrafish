@@ -15,7 +15,13 @@ This module follows standard scientific data processing rules:
    median evaluate to float('nan').
 3. For odd counts of valid values, median is the central sorted value.
 4. For even counts of valid values, median is the mean of the two central sorted values.
-5. Calculation logic remains strictly decoupled from Qt UI and presentation layers.
+5. Heading/yaw angles (e.g., HeadYaw, curBoutHeadYaw) wrap across [-180°, 180°].
+   For these circular quantities, circular mean and median are computed so that
+   opposing boundary angles (such as 179° and -179°) average correctly to 180°
+   rather than falsely averaging to 0°.
+6. Non-numeric or completely empty/all-NaN columns (such as text markers like
+   Tail_Side or Furthest_Tail_Point) are omitted from summary statistics tables.
+7. Calculation logic remains strictly decoupled from Qt UI and presentation layers.
 """
 
 from __future__ import annotations
@@ -61,7 +67,7 @@ KNOWN_ANALYSIS_PARAMETERS: Dict[str, Dict[str, str]] = {
     },
     "Tail_Distance": {
         "label": "Tail Distance",
-        "units": "mm",
+        "units": "m",
         "category": "displacement",
     },
     "Tail_Distance_Pixels": {
@@ -71,12 +77,12 @@ KNOWN_ANALYSIS_PARAMETERS: Dict[str, Dict[str, str]] = {
     },
     "HeadX": {
         "label": "Head X Position",
-        "units": "mm",
+        "units": "m",
         "category": "position",
     },
     "HeadY": {
         "label": "Head Y Position",
-        "units": "mm",
+        "units": "m",
         "category": "position",
     },
     "tail_beat_frequency": {
@@ -96,10 +102,20 @@ KNOWN_ANALYSIS_PARAMETERS: Dict[str, Dict[str, str]] = {
     },
     "velocity": {
         "label": "Velocity",
-        "units": "mm/s",
+        "units": "m/s",
         "category": "velocity",
     },
 }
+
+CIRCULAR_PARAMETERS = {"HeadYaw", "curBoutHeadYaw"}
+
+
+def is_circular_parameter(param_name: str) -> bool:
+    """Return True if parameter is an angular heading/yaw quantity wrapping around +/-180 deg."""
+    if param_name in CIRCULAR_PARAMETERS:
+        return True
+    lower = param_name.lower()
+    return "yaw" in lower or "heading" in lower
 
 
 def get_parameter_units(param_name: str, custom_units: Optional[Dict[str, str]] = None) -> str:
@@ -115,14 +131,17 @@ def get_parameter_units(param_name: str, custom_units: Optional[Dict[str, str]] 
         return KNOWN_ANALYSIS_PARAMETERS[param_name]["units"]
     if param_name.startswith("TailAngle_"):
         return "deg"
-    if "angle" in param_name.lower():
+    lower = param_name.lower()
+    if "angle" in lower:
         return "deg"
-    if "frequency" in param_name.lower() or "freq" in param_name.lower():
+    if "frequency" in lower or "freq" in lower:
         return "Hz"
-    if "distance" in param_name.lower():
-        return "mm"
-    if "velocity" in param_name.lower() or "speed" in param_name.lower():
-        return "mm/s"
+    if "distance" in lower:
+        if "pixel" in lower or "px" in lower:
+            return "px"
+        return "m"
+    if "velocity" in lower or "speed" in lower:
+        return "m/s"
     return ""
 
 
@@ -161,10 +180,81 @@ def clean_numeric_series(values: Optional[Sequence[Any]]) -> List[float]:
     return cleaned
 
 
-def compute_series_summary_stats(values: Optional[Sequence[Any]]) -> SeriesSummaryStats:
+def compute_circular_mean(angles_deg: Sequence[float]) -> float:
+    """
+    Compute circular mean for angles specified in degrees wrapped around [-180, 180].
+
+    Avoids arithmetic average distortion for wrapping angles (e.g., 179° and -179°
+    average to 180°, not 0°).
+    """
+    cleaned = clean_numeric_series(angles_deg)
+    if not cleaned:
+        return float("nan")
+
+    rads = np.radians(cleaned)
+    sin_sum = float(np.sum(np.sin(rads)))
+    cos_sum = float(np.sum(np.cos(rads)))
+
+    if math.isclose(sin_sum, 0.0, abs_tol=1e-9) and math.isclose(cos_sum, 0.0, abs_tol=1e-9):
+        return float("nan")
+
+    mean_rad = math.atan2(sin_sum, cos_sum)
+    mean_deg = math.degrees(mean_rad)
+    return float(round(mean_deg, 6))
+
+
+def compute_circular_median(angles_deg: Sequence[float]) -> float:
+    """
+    Compute circular median for angles specified in degrees wrapped around [-180, 180].
+
+    Finds the angle(s) that minimize circular arc distance to all sample points,
+    taking the circular midpoint if multiple candidates achieve the minimum.
+    """
+    cleaned = clean_numeric_series(angles_deg)
+    if not cleaned:
+        return float("nan")
+    if len(cleaned) == 1:
+        return float(cleaned[0])
+
+    angles = np.array(cleaned, dtype=float)
+    wrapped = (angles + 180.0) % 360.0 - 180.0
+    sorted_angles = np.sort(wrapped)
+
+    candidates = list(sorted_angles)
+    n = len(sorted_angles)
+    for i in range(n):
+        a1 = sorted_angles[i]
+        a2 = sorted_angles[(i + 1) % n]
+        diff = (a2 - a1 + 180.0) % 360.0 - 180.0
+        mid = (a1 + diff / 2.0 + 180.0) % 360.0 - 180.0
+        candidates.append(mid)
+
+    min_dist = float("inf")
+    best_candidates = []
+    for cand in candidates:
+        diffs = np.abs((angles - cand + 180.0) % 360.0 - 180.0)
+        tot_dist = float(np.sum(diffs))
+        if tot_dist < min_dist - 1e-6:
+            min_dist = tot_dist
+            best_candidates = [cand]
+        elif abs(tot_dist - min_dist) <= 1e-6:
+            best_candidates.append(cand)
+
+    if len(best_candidates) == 1:
+        return float(round(best_candidates[0], 6))
+    return float(round(compute_circular_mean(best_candidates), 6))
+
+
+def compute_series_summary_stats(
+    values: Optional[Sequence[Any]],
+    is_circular: bool = False,
+) -> SeriesSummaryStats:
     """
     Compute mean and median for a sequence of values, safely handling empty series,
     all-NaN values, and mixed types.
+
+    If is_circular=True, circular mean and median are used to properly handle
+    angle wrap-around (e.g. for heading/yaw data wrapping across +/-180 deg).
 
     Returns:
         SeriesSummaryStats with count, mean, median, and is_valid flag.
@@ -182,8 +272,12 @@ def compute_series_summary_stats(values: Optional[Sequence[Any]]) -> SeriesSumma
             is_valid=False,
         )
 
-    mean_val = float(np.mean(cleaned))
-    median_val = float(np.median(cleaned))
+    if is_circular:
+        mean_val = compute_circular_mean(cleaned)
+        median_val = compute_circular_median(cleaned)
+    else:
+        mean_val = float(np.mean(cleaned))
+        median_val = float(np.median(cleaned))
 
     return SeriesSummaryStats(
         count=count,
@@ -197,6 +291,7 @@ def compute_summary_statistics_df(
     data: Union[pd.DataFrame, Dict[str, Sequence[Any]]],
     parameters: Optional[Sequence[str]] = None,
     custom_units: Optional[Dict[str, str]] = None,
+    skip_all_nan: bool = True,
 ) -> pd.DataFrame:
     """
     Compute mean and median for multiple analysis parameters and return a standardized
@@ -206,6 +301,7 @@ def compute_summary_statistics_df(
         data: DataFrame or dictionary of parameter series.
         parameters: Optional list of parameters to include. If None, all numeric columns/series are processed.
         custom_units: Optional dictionary mapping parameter names to custom unit strings.
+        skip_all_nan: If True (default), parameters with zero valid numeric points (or all NaN) are skipped.
 
     Returns:
         pd.DataFrame: Columns ['parameter', 'mean', 'median', 'units'] containing summary statistics.
@@ -230,7 +326,11 @@ def compute_summary_statistics_df(
         if param not in df.columns:
             continue
 
-        stats = compute_series_summary_stats(df[param].values)
+        is_circ = is_circular_parameter(param)
+        stats = compute_series_summary_stats(df[param].values, is_circular=is_circ)
+        if skip_all_nan and stats.count == 0:
+            continue
+
         units = get_parameter_units(param, custom_units)
 
         rows.append({
@@ -248,6 +348,7 @@ def export_summary_statistics_to_csv(
     output_path: PathLike,
     parameters: Optional[Sequence[str]] = None,
     custom_units: Optional[Dict[str, str]] = None,
+    skip_all_nan: bool = True,
 ) -> Path:
     """
     Export summary statistics table (parameter, mean, median, units) to a CSV file.
@@ -257,6 +358,7 @@ def export_summary_statistics_to_csv(
         output_path: Target CSV file path.
         parameters: Optional list of parameters to filter.
         custom_units: Optional dictionary of parameter units.
+        skip_all_nan: Whether to skip all-NaN/empty columns.
 
     Returns:
         Path to the exported CSV file.
@@ -264,7 +366,9 @@ def export_summary_statistics_to_csv(
     if isinstance(data, pd.DataFrame) and list(data.columns) == ["parameter", "mean", "median", "units"]:
         summary_df = data
     else:
-        summary_df = compute_summary_statistics_df(data, parameters=parameters, custom_units=custom_units)
+        summary_df = compute_summary_statistics_df(
+            data, parameters=parameters, custom_units=custom_units, skip_all_nan=skip_all_nan
+        )
 
     path = Path(output_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -280,6 +384,7 @@ def export_summary_statistics_to_excel(
     sheet_name: str = "Summary Statistics",
     parameters: Optional[Sequence[str]] = None,
     custom_units: Optional[Dict[str, str]] = None,
+    skip_all_nan: bool = True,
 ) -> Path:
     """
     Export summary statistics table (parameter, mean, median, units) to an Excel spreadsheet.
@@ -290,6 +395,7 @@ def export_summary_statistics_to_excel(
         sheet_name: Name of the Excel sheet (defaults to 'Summary Statistics').
         parameters: Optional list of parameters to filter.
         custom_units: Optional dictionary of parameter units.
+        skip_all_nan: Whether to skip all-NaN/empty columns.
 
     Returns:
         Path to the exported Excel file.
@@ -297,7 +403,9 @@ def export_summary_statistics_to_excel(
     if isinstance(data, pd.DataFrame) and list(data.columns) == ["parameter", "mean", "median", "units"]:
         summary_df = data
     else:
-        summary_df = compute_summary_statistics_df(data, parameters=parameters, custom_units=custom_units)
+        summary_df = compute_summary_statistics_df(
+            data, parameters=parameters, custom_units=custom_units, skip_all_nan=skip_all_nan
+        )
 
     path = Path(output_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -305,4 +413,3 @@ def export_summary_statistics_to_excel(
         path = path.with_suffix(".xlsx")
     summary_df.to_excel(path, sheet_name=sheet_name, index=False)
     return path
-
