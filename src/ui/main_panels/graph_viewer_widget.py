@@ -141,6 +141,7 @@ class GraphViewerScene(QWidget):
         "#636EFA", "#EF553B", "#00CC96", "#AB63FA", "#FFA15A",
         "#19D3F3", "#FF6692", "#B6E880", "#FF97FF", "#FECB52",
     )
+    OVERLAY_DASHES = ("solid", "dash", "dot", "dashdot")
 
     def __init__(self):
         super().__init__()
@@ -775,14 +776,16 @@ class GraphViewerScene(QWidget):
                 reference_figure = source
 
             color = self.OVERLAY_COLORS[index % len(self.OVERLAY_COLORS)]
-            for trace in source.data:
+            for trace_index, trace in enumerate(source.data):
                 combined.add_trace(trace)  # add_trace copies; the source figure is untouched
                 added = combined.data[-1]
                 added.name = f"{label} - {trace.name}" if trace.name else label
                 added.legendgroup = label
                 added.showlegend = True
                 if added.type in ("scatter", "scattergl"):
-                    added.update(marker={"color": color}, line={"color": color})
+                    # Color identifies the dataset; dash style identifies the trace within it.
+                    dash = self.OVERLAY_DASHES[trace_index % len(self.OVERLAY_DASHES)]
+                    added.update(marker={"color": color}, line={"color": color, "dash": dash})
 
         if len(paths) - len(skipped) < 2:
             self.overlay_view.clear()
@@ -798,6 +801,7 @@ class GraphViewerScene(QWidget):
             showlegend=True,
             xaxis={"autorange": True, "range": None},
             yaxis={"autorange": True, "range": None},
+            shapes=[],
         )
         self.overlay_view.set_figure(combined)
         if skipped:
