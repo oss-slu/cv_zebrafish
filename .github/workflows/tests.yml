@@ -9,6 +9,11 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     env:
       QT_QPA_PLATFORM: offscreen
 
@@ -48,3 +53,46 @@ jobs:
       - name: Run pytest
         shell: bash -l {0}
         run: pytest
+
+
+      - name: Locate Conda environment
+        id: conda-env
+        shell: bash -l {0}
+        run: |
+          CONDA_PATH="$(python -c 'import sys; print(sys.prefix)')"
+          test -d "$CONDA_PATH/conda-meta"
+          echo "path=$CONDA_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ${{ steps.conda-env.outputs.path }}
+          format: spdx-json
+          output-file: cv-zebrafish-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Validate SBOM
+        run: |
+          python3 - <<'PY'
+          import json
+
+          with open("cv-zebrafish-sbom.spdx.json") as f:
+              sbom = json.load(f)
+
+          assert sbom["spdxVersion"].startswith("SPDX-")
+          assert sbom["packages"], "SBOM contains no packages"
+          print(f"Found {len(sbom['packages'])} packages")
+          PY
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: cv-zebrafish-sbom
+          path: cv-zebrafish-sbom.spdx.json
+          if-no-files-found: error
+      - name: Attest SBOM provenance
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/attest@v4
+        with:
+          subject-path: cv-zebrafish-sbom.spdx.json
