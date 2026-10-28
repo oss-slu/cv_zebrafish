@@ -899,6 +899,7 @@ class MainShellWindow(QMainWindow):
             return
         try:
             self.current_session.addCSVFolder(folder_path, files)
+            self._verify_last_csv_path = folder_path
             self.current_session.save()
         except Exception as exc:
             self._show_error_toast("Folder Error", f"Failed to add folder to session:\n{exc}")

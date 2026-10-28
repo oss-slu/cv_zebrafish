@@ -109,3 +109,46 @@ def test_load_session_from_path_allowed_after_zebrafish(shell):
     with pytest.raises(_StopLoad):
         shell._load_session_from_path("/tmp/some_session.json")
     assert shell.loaded == ["/tmp/some_session.json"]
+
+class _FakeVerifySession:
+    def __init__(self):
+        self.csvs = {}
+        self.csv_folders = {}
+
+    def addCSVFolder(self, folder_path, files):
+        self.csv_folders[folder_path] = list(files)
+        self.csvs.setdefault(folder_path, {})
+
+    def save(self):
+        pass
+
+    def checkExists(self, csv_path=None, config_path=None):
+        configs = self.csvs.get(csv_path, {})
+        return config_path in configs if config_path else csv_path in self.csvs
+
+    def addConfigToCSV(self, csv_path, config_path):
+        self.csvs.setdefault(csv_path, {})[config_path] = []
+
+
+def test_json_config_after_folder_upload_attaches_to_folder(shell, monkeypatch):
+    session = _FakeVerifySession()
+    shell.current_session = session
+    shell._verify_last_csv_path = "/tmp/previous.csv"
+    monkeypatch.setattr(shell, "_refresh_sidebar_capabilities", lambda: None)
+
+    folder_path = "/tmp/csv_folder"
+    csv_files = [
+        "/tmp/csv_folder/a.csv",
+        "/tmp/csv_folder/b.csv",
+    ]
+    json_path = "/tmp/config.json"
+
+    shell._on_verify_folder_selected(folder_path, csv_files)
+
+    assert shell._verify_last_csv_path == folder_path
+    assert session.csv_folders[folder_path] == csv_files
+
+    shell._on_verify_json_selected(json_path)
+
+    assert json_path in session.csvs[folder_path]
+    assert "/tmp/previous.csv" not in session.csvs
