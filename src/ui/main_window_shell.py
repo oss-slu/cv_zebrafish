@@ -876,6 +876,10 @@ class MainShellWindow(QMainWindow):
         self.workspace.show_view_output()
         self.sidebar.set_active_tool("view_output")
 
+    def _show_compare_panel(self) -> None:
+        self.workspace.show_compare()
+        self.sidebar.set_active_tool("compare")
+
     def _on_verify_csv_selected(self, csv_path: str) -> None:
         if not self.current_session:
             self._show_error_toast("No Session", "Create or load a session first.")
@@ -970,7 +974,7 @@ class MainShellWindow(QMainWindow):
         """
         if not self._has_session:
             return "Tool can't be selected. Open Session."
-        if tool_key == "verify":
+        if tool_key in ("verify", "compare"):
             return None
         sess = self.current_session
         has_csv = sess is not None and sess.length() > 0
@@ -996,3 +1000,5 @@ class MainShellWindow(QMainWindow):
             self._show_view_output_panel()
         elif key == "generate":
             self._open_generate_config_dialog()
+        elif key == "compare":
+            self._show_compare_panel()
