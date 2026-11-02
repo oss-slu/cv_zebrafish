@@ -24,7 +24,7 @@ jobs:
 
       # Hash-locked, wheels only (see web_prototype/requirements-ci.in to regenerate).
       - name: Install web dependencies
-        run: pip install --only-binary :all: --require-hashes -r web_prototype/requirements-ci.txt
+        run: pip install --only-binary ":all:" --require-hashes -r web_prototype/requirements-ci.txt
 
       - name: Run web tests
         run: pytest tests/unit/web
