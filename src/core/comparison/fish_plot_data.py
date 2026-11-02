@@ -68,7 +68,7 @@ def get_time_series(fish: LoadedFish, parameter: str) -> Tuple[np.ndarray, np.nd
     if parameter not in results.columns:
         raise KeyError(f"{fish.label} has no parameter '{parameter}'")
 
-    y = pd.to_numeric(results[parameter], errors="coerce").to_numpy(dtype=float)
+    y = pd.to_numeric(results[parameter], errors="coerce").to_numpy(dtype=float, copy=True)
     y[~np.isfinite(y)] = np.nan
     if TIME_COLUMN in results.columns:
         x = pd.to_numeric(results[TIME_COLUMN], errors="coerce").to_numpy(dtype=float)
