@@ -801,8 +801,8 @@ class GraphViewerScene(QWidget):
             showlegend=True,
             xaxis={"autorange": True, "range": None},
             yaxis={"autorange": True, "range": None},
-            shapes=[],
         )
+        combined.layout.shapes = ()
         self.overlay_view.set_figure(combined)
         if skipped:
             self.overlay_status.setText(

@@ -382,6 +382,23 @@ def test_overlay_shares_axes_and_ignores_fixed_ranges(qt_app, monkeypatch):
     assert combined.layout.xaxis.range is None
 
 
+def test_overlay_removes_copied_bout_shading(qt_app, monkeypatch):
+    shaded = _line_figure()
+    shaded.add_vrect(x0=0.5, x1=1.5)  # bout shading on the reference dataset
+    scene, drawn, _ = _overlay_scene(
+        monkeypatch,
+        {
+            "/data/fish_a.csv": {"Tail Angle": shaded},
+            "/data/fish_b.csv": {"Tail Angle": _line_figure()},
+        },
+    )
+
+    _check_all_datasets(scene)
+
+    assert len(drawn[-1].layout.shapes) == 0
+    assert len(shaded.layout.shapes) == 1  # the source figure keeps its shading
+
+
 def test_overlay_prefixes_each_trace_with_its_dataset(qt_app, monkeypatch):
     scene, drawn, _ = _overlay_scene(
         monkeypatch,
