@@ -55,3 +55,15 @@ def test_index_lists_only_copied_files_and_no_tests(tmp_path):
         assert (out / rel).is_file(), rel
         assert "tests" not in Path(rel).parts and not Path(rel).name.startswith("test_"), rel
     assert (out / ".nojekyll").exists()
+
+
+def test_sha_is_written_for_the_footer_only_when_given(tmp_path):
+    with_sha = tmp_path / "with_sha"
+    build_static.build(with_sha, sha="0123456789abcdef0123456789abcdef01234567")
+    assert (with_sha / build_static.BUILD_SHA_FILE).read_text(encoding="utf-8").strip().startswith("0123456")
+    assert build_static.BUILD_SHA_FILE in _files_in_index((with_sha / "index.html").read_text(encoding="utf-8"))
+
+    without_sha = tmp_path / "without_sha"
+    build_static.build(without_sha)
+    assert not (without_sha / build_static.BUILD_SHA_FILE).exists()
+    assert build_static.BUILD_SHA_FILE not in _files_in_index((without_sha / "index.html").read_text(encoding="utf-8"))

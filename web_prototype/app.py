@@ -50,6 +50,11 @@ PROTOTYPE_NOTE = (
        else "files are processed by the computer running this app and not stored")
 )
 
+# Deployed commit, written by build_static.py (only present in the GitHub Pages build).
+BUILD_SHA_FILE = Path(__file__).resolve().parent / "build_sha.txt"
+BUILD_SHA = BUILD_SHA_FILE.read_text(encoding="utf-8").strip() if BUILD_SHA_FILE.is_file() else ""
+REPO_URL = "https://github.com/oss-slu/cv_zebrafish"
+
 # Pages: species → zebrafish_load → zebrafish_results, or species → mouse_load → mouse_analysis.
 STEPS = {
     "species": "Species",
@@ -100,6 +105,8 @@ def _style() -> None:
         .cvz-hint {{ text-align:center; font-size:1.35rem; color:{TEXT}; margin-bottom:1rem; }}
         .cvz-title {{ text-align:center; font-weight:700; font-size:1.15rem; margin:0.2rem 0 0.8rem 0; }}
         .cvz-label {{ text-align:center; color:{TEXT}; margin: 18vh 0 0.25rem 0; }}
+        .cvz-footer {{ color:{TEXT_MUTED}; font-size:0.75rem; text-align:center; margin-top:3rem; }}
+        .cvz-footer a {{ color:{TEXT_MUTED}; }}
         .cvz-placeholder {{ border:1px solid {CHROME_LINE}; border-radius:6px; padding:1.5rem;
                             color:{TEXT_MUTED}; text-align:center; margin-bottom:1.25rem; }}
         .stButton > button, .stDownloadButton > button {{ background:{CHROME_BUTTON}; border:1px solid {CHROME_LINE};
@@ -138,6 +145,15 @@ def _sidebar(page: str) -> None:
 
 def _back_row(target_label: str = "Back") -> bool:
     return st.button(target_label, key=f"back_{st.session_state.page}", width="content")
+
+
+def _footer() -> None:
+    if BUILD_SHA:
+        st.markdown(
+            f'<div class="cvz-footer">Build <a href="{REPO_URL}/commit/{BUILD_SHA}" target="_blank">'
+            f"<code>{BUILD_SHA[:7]}</code></a></div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _logo(name: str) -> None:
@@ -293,3 +309,4 @@ st.session_state.setdefault("page", "species")
 _style()
 _sidebar(st.session_state.page)
 PAGES[st.session_state.page]()
+_footer()
