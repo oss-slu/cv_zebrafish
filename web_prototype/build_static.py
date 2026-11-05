@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -48,6 +49,8 @@ REQUIREMENTS = ["numpy", "pandas", "plotly==7.0.0", "pillow"]  # plotly pinned t
 
 # Written into the build so app.py can show which commit is deployed (page footer).
 BUILD_SHA_FILE = "web_prototype/build_sha.txt"
+# app.py puts the SHA into an HTML link, so only a plain commit hash is accepted.
+SHA_PATTERN = re.compile(r"[0-9a-fA-F]{7,40}")
 
 
 def core_files() -> list[str]:
@@ -124,6 +127,9 @@ INDEX_HTML = """<!doctype html>
 
 
 def build(out: Path, sha: str = "") -> list[str]:
+    sha = sha.strip()
+    if sha and not SHA_PATTERN.fullmatch(sha):
+        raise ValueError(f"sha must be a 7-40 character hex commit hash, got {sha!r}")
     files = core_files() + STATIC_FILES
     if out.exists():
         shutil.rmtree(out)
@@ -132,7 +138,7 @@ def build(out: Path, sha: str = "") -> list[str]:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / rel, dest)
     if sha:
-        (out / BUILD_SHA_FILE).write_text(sha.strip() + "\n", encoding="utf-8")
+        (out / BUILD_SHA_FILE).write_text(sha + "\n", encoding="utf-8")
         files.append(BUILD_SHA_FILE)
     (out / "index.html").write_text(
         INDEX_HTML.format(
@@ -156,5 +162,8 @@ if __name__ == "__main__":
         help="Commit shown in the page footer (default: $GITHUB_SHA, set in GitHub Actions; omitted if empty)",
     )
     args = parser.parse_args()
-    built = build(args.out, sha=args.sha)
+    try:
+        built = build(args.out, sha=args.sha)
+    except ValueError as exc:
+        parser.error(str(exc))
     print(f"Built {len(built)} files + index.html into {args.out}")
