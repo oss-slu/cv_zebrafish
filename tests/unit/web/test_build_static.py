@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 _spec = importlib.util.spec_from_file_location("build_static", REPO_ROOT / "web_prototype" / "build_static.py")
@@ -55,3 +57,26 @@ def test_index_lists_only_copied_files_and_no_tests(tmp_path):
         assert (out / rel).is_file(), rel
         assert "tests" not in Path(rel).parts and not Path(rel).name.startswith("test_"), rel
     assert (out / ".nojekyll").exists()
+
+
+def test_sha_is_written_for_the_footer_only_when_given(tmp_path):
+    with_sha = tmp_path / "with_sha"
+    build_static.build(with_sha, sha="0123456789abcdef0123456789abcdef01234567")
+    assert (with_sha / build_static.BUILD_SHA_FILE).read_text(encoding="utf-8").strip().startswith("0123456")
+    assert build_static.BUILD_SHA_FILE in _files_in_index((with_sha / "index.html").read_text(encoding="utf-8"))
+
+    without_sha = tmp_path / "without_sha"
+    build_static.build(without_sha)
+    assert not (without_sha / build_static.BUILD_SHA_FILE).exists()
+    assert build_static.BUILD_SHA_FILE not in _files_in_index((without_sha / "index.html").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("sha", ["abc12", "not-a-sha", '0123456"><script>alert(1)</script>', "g" * 40, "a" * 41])
+def test_rejects_sha_that_is_not_a_commit_hash(tmp_path, sha):
+    out = tmp_path / "site"
+    out.mkdir()
+    (out / "keep.txt").write_text("existing build", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="hex commit hash"):
+        build_static.build(out, sha=sha)
+    assert (out / "keep.txt").exists(), "a rejected sha must not wipe the output folder"
