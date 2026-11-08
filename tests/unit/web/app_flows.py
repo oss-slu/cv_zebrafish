@@ -60,3 +60,21 @@ def test_mouse_goes_to_mouse_load_and_back():
 
     at = _click(at, "Back")
     assert at.session_state.page == "species"
+
+
+def test_zebrafish_multi_fish_comparison_flow():
+    at = _click(_app(), "Continue")
+    assert at.session_state.page == "zebrafish_load"
+
+    from adapter import SAMPLE_CSV_PATH, analyze_fish_files, load_sample_config
+    config = load_sample_config()
+    data = SAMPLE_CSV_PATH.read_bytes()
+    loaded, _ = analyze_fish_files([("fish_A.csv", data), ("fish_B.csv", data)], config)
+
+    at.session_state.loaded_fish = loaded
+    at.session_state.page = "zebrafish_results"
+    at.run()
+
+    assert not at.exception
+    assert any("2 fish loaded" in c.value for c in at.caption)
+    assert len(at.dataframe) >= 1

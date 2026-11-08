@@ -63,9 +63,13 @@ python -m http.server 8600 --bind 127.0.0.1 --directory web_prototype/_site
 ```
 
 Tested in Chrome, including from a `/cv_zebrafish/` subfolder like a GitHub Pages
-project site: first load takes about 10 s (the browser downloads Python once), the sample
+project site: first load takes about 10 s (the browser downloads Python once), the single-sample
 analysis takes about 5 s, and results, the plot, the CSV download, and the mouse path
 match the server version.
+
+**Multi-file performance (5-file browser-only check):**
+- **Load Time & Performance:** Testing the browser-only build with 5 full-length DLC CSV files (5,351 frames each, ~3.1 MB per file) showed no substantial increase in initial page load time (~10 s initial WebAssembly runtime download), with processing scaling smoothly (~17 s per full-length file).
+- **Memory Limits:** No found memory limit in the browser; peak memory usage during 5-file multi-comparison analysis remained minimal at ~20 MB Python heap (total browser tab memory under 200 MB), well within standard browser tab limits (typically 1–2 GB).
 
 **To publish on GitHub Pages:** push the contents of `_site/` to a `gh-pages` branch
 and set *Settings → Pages → Source* to that branch (or use an Actions workflow). On a

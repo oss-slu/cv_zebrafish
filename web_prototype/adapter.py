@@ -19,7 +19,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 for p in (REPO_ROOT, REPO_ROOT / "src"):
@@ -34,6 +34,15 @@ from src.core.graphs.loader_bundle import GraphDataBundle  # noqa: E402
 from src.core.graphs.plots.fin_tail import render_fin_tail  # noqa: E402
 from src.core.parsing.Parser import parse_dlc_csv  # noqa: E402
 from src.core.validation.csv_verifier import list_bodyparts, verify_deeplabcut_csv  # noqa: E402
+from src.core.analysis.summary_statistics import compute_summary_statistics_df  # noqa: E402
+from src.core.comparison.fish_data import LoadedFish, unique_label  # noqa: E402
+from src.core.comparison.fish_comparison_table import (  # noqa: E402
+    build_comparison_table,
+    export_comparison_table,
+    get_parameter_names,
+)
+from src.core.comparison.fish_plot import build_overlay_figure  # noqa: E402
+from src.core.comparison.fish_plot_data import FishColorMap  # noqa: E402
 
 SAMPLE_CONFIG_PATH = REPO_ROOT / "data" / "samples" / "jsons" / "BaseConfig.json"
 SAMPLE_CSV_PATH = REPO_ROOT / "data" / "samples" / "csv" / "correct_format.csv"
@@ -118,14 +127,56 @@ def analyze_csv_bytes(data: bytes, config: Dict[str, Any], filename: str = "uplo
 
 
 def summary_table(results: pd.DataFrame) -> pd.DataFrame:
-    """Mean / min / max for the headline measurements present in ``results``."""
-    rows = []
-    for col, label, unit in SUMMARY_COLUMNS:
-        if col not in results.columns:
+    """Summary statistics (parameter, mean, median, units) matching the desktop app."""
+    return compute_summary_statistics_df(results)
+
+
+def analyze_fish_files(
+    files: Sequence[Tuple[str, bytes]],
+    config: Dict[str, Any],
+    existing_fish: Optional[Sequence[LoadedFish]] = None,
+) -> Tuple[List[LoadedFish], List[Tuple[str, List[str]]]]:
+    """Validate and analyze multiple DLC CSV files given as (filename, bytes).
+
+    Args:
+        files: List of (filename, file_bytes) pairs to analyze.
+        config: Analysis config applied to all files.
+        existing_fish: Currently loaded fish, to ensure unique labels and IDs.
+
+    Returns:
+        (loaded_fish, failures) where failures are (filename, error_messages) pairs.
+    """
+    loaded: List[LoadedFish] = list(existing_fish or [])
+    failures: List[Tuple[str, List[str]]] = []
+    taken_labels = {fish.label for fish in loaded}
+    next_id = len(loaded) + 1
+
+    for name, data in files:
+        res = analyze_csv_bytes(data, config, filename=name)
+        if not res.ok:
+            failures.append((name, res.errors))
             continue
-        s = pd.to_numeric(results[col], errors="coerce")
-        rows.append({"Measurement": label, "Unit": unit, "Mean": s.mean(), "Min": s.min(), "Max": s.max()})
-    return pd.DataFrame(rows)
+        label = unique_label(Path(name).stem, taken_labels)
+        taken_labels.add(label)
+        fish = LoadedFish(
+            fish_id=f"fish_{next_id}",
+            label=label,
+            source_file=name,
+            results=res.results,
+            warnings=res.warnings,
+        )
+        loaded.append(fish)
+        next_id += 1
+
+    return loaded, failures
+
+
+def comparison_table_csv_bytes(table: pd.DataFrame, fish_list: Sequence[LoadedFish]) -> bytes:
+    """Generate exported comparison CSV bytes with full desktop-parity header metadata."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "comparison.csv"
+        export_comparison_table(table, fish_list, path)
+        return path.read_bytes()
 
 
 def fin_tail_figure(results: pd.DataFrame, config: Dict[str, Any]) -> tuple[Optional[go.Figure], List[str]]:

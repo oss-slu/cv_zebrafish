@@ -21,6 +21,7 @@ class SidebarTools(QWidget):
         "generate": QStyle.SP_FileDialogDetailedView,
         "select_run": QStyle.SP_MediaPlay,
         "view_output": QStyle.SP_FileDialogInfoView,
+        "compare": QStyle.SP_FileDialogContentsView,
     }
 
     def __init__(self, parent=None):
@@ -41,6 +42,7 @@ class SidebarTools(QWidget):
             ("generate", "Generate Config"),
             ("select_run", "Select & Run"),
             ("view_output", "View Output"),
+            ("compare", "Compare Fish"),
         ]
         self._main_buttons: list[QToolButton] = []
         self._buttons_by_key: dict[str, QToolButton] = {}
@@ -89,7 +91,7 @@ class SidebarTools(QWidget):
         """Visual / affordance: inactive icon when the shell will block that tool."""
         if not self._cap_has_session:
             return False
-        if key == "verify":
+        if key in ("verify", "compare"):
             return True
         if key in ("generate", "select_run"):
             return self._cap_has_csv
