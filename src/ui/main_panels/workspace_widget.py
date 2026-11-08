@@ -6,6 +6,7 @@ from ui.main_panels.empty_session_panel import EmptySessionPanel
 from ui.main_panels.select_run_panel import SelectRunPanel
 from ui.main_panels.species_select_panel import SpeciesSelectPanel
 from ui.main_panels.verify_panel import VerifyPanel
+from ui.main_panels.compare_panel import ComparePanel
 from ui.main_panels.view_output_panel import ViewOutputPanel
 
 
@@ -13,7 +14,7 @@ class WorkspaceWidget(QWidget):
     """
     Hosts main-panel views.
     Indices: 0 species select, 1 empty session, 2 verify, 3 select/run,
-    4 view output, 5 mouse analysis.
+    4 view output, 5 mouse analysis, 6 compare fish.
     """
 
     IDX_SPECIES = 0
@@ -22,6 +23,7 @@ class WorkspaceWidget(QWidget):
     IDX_SELECT_RUN = 3
     IDX_VIEW_OUTPUT = 4
     IDX_MOUSE = 5
+    IDX_COMPARE = 6
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,6 +52,9 @@ class WorkspaceWidget(QWidget):
         self.mouse_panel = MouseAnalysisPage()
         self._stack.addWidget(self.mouse_panel)
 
+        self.compare_panel = ComparePanel()
+        self._stack.addWidget(self.compare_panel)
+
     def current_panel(self) -> QWidget:
         """The panel currently shown (compare with e.g. ``species_panel``)."""
         return self._stack.currentWidget()
@@ -71,3 +76,6 @@ class WorkspaceWidget(QWidget):
 
     def show_mouse(self) -> None:
         self._stack.setCurrentIndex(self.IDX_MOUSE)
+
+    def show_compare(self) -> None:
+        self._stack.setCurrentIndex(self.IDX_COMPARE)
