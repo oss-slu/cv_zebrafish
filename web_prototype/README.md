@@ -67,10 +67,9 @@ project site: first load takes about 10 s (the browser downloads Python once), t
 analysis takes about 5 s, and results, the plot, the CSV download, and the mouse path
 match the server version.
 
-**Multi-file performance (5-file benchmark):**
-- **Processing Time:** Processing 5 full-length sample DLC CSV files (5,351 frames each, ~3.1 MB per file) takes ~85 s (~17 s per file in WebAssembly).
-- **Memory Footprint:** Peak memory usage during 5-file multi-comparison analysis is ~20 MB of Python heap (total browser tab memory remains well under ~200 MB), staying well inside standard browser tab limits (typically 1–2 GB).
-- **Scalability Note:** File parsing and calculations execute sequentially in the browser thread; batches of 5–10 files run comfortably, though larger batches will scale linearly (~15–20 s per file).
+**Multi-file performance (5-file browser-only check):**
+- **Load Time & Performance:** Testing the browser-only build with 5 full-length DLC CSV files (5,351 frames each, ~3.1 MB per file) showed no substantial increase in initial page load time (~10 s initial WebAssembly runtime download), with processing scaling smoothly (~17 s per full-length file).
+- **Memory Limits:** No found memory limit in the browser; peak memory usage during 5-file multi-comparison analysis remained minimal at ~20 MB Python heap (total browser tab memory under 200 MB), well within standard browser tab limits (typically 1–2 GB).
 
 **To publish on GitHub Pages:** push the contents of `_site/` to a `gh-pages` branch
 and set *Settings → Pages → Source* to that branch (or use an Actions workflow). On a
