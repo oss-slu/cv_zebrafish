@@ -115,6 +115,7 @@ tests/
 - **Multi-CSV navigation:** Graph Viewer Prev/Next plus dataset dropdown for batch runs, with graph titles labeled by source CSV filename.
 - **Headplot GUI integration:** Head orientation plots accessible directly from the Graph Viewer
 - **In-app Help & Console:** Help icon on every scene explains that scene's controls; Help menu → Console shows recent log/toast text for debugging
+- **Summary Statistics:** Automated mean and median summary statistics for all kinematic outputs, with circular mean for angular metrics, robust NaN handling, a dedicated UI table tab, and CSV/Excel exports.
 - **Legacy parity:** Original console pipeline kept under `legacy/` for regression comparison.
 
 
@@ -342,6 +343,36 @@ The Graph Viewer includes a **Cross-Correlation** tab for temporal relationships
 - **Lag range:** Defaults to +-25% of signal length (capped)
 
 
+
+## Summary Statistics
+The calculation pipeline computes mean and median summary statistics for all kinematic metrics, handling missing frames, NaNs, and low-likelihood DLC tracking points safely.
+
+### How to Use (UI)
+1. Run calculations on single or multiple CSVs via **Select & Run**
+2. Open **View Output** and select the **Summary Stats** tab
+3. Review the table listing each metric's name, **Mean**, **Median**, and standard **Units** (e.g. degrees, mm, bouts)
+4. For batch folder runs, use the CSV dropdown selector to switch between fish datasets
+5. Click **Export to CSV** or **Export to Excel** to save the formatted statistics table
+
+### Programmatic Usage
+```python
+from src.core.analysis import (
+    compute_summary_statistics_df,
+    compute_series_summary_stats,
+)
+
+# Compute full summary statistics DataFrame from calculation results
+stats_df = compute_summary_statistics_df(results_df)
+print(stats_df)
+# Output columns: ['parameter', 'mean', 'median', 'units']
+```
+
+### Key Features
+- **Circular Statistics**: Automatically applies circular mean to angular metrics (`Head_Yaw`, fin angles) to prevent boundary wrapping artifacts.
+- **Robust NaN Handling**: Automatically ignores low-likelihood coordinates and empty series without crashing; returns NaN when no valid frames exist.
+- **Multi-Format Export**: Generates `# --- Summary Statistics ---` header sections in CSV exports and a dedicated `"Summary Statistics"` worksheet in Excel workbooks.
+
+
 ---
 
 
@@ -441,10 +472,18 @@ If you just joined the team (or found the project on GitHub), this is the shorte
 - **Accessibility** Non-technical lab members can run full analyses independently —> no coding required
 
 
-## Future Roadmap
-- **1. Broader animal support** *(in progress, Fall 2026)*: generalize naming conventions, defaults and metrics so labs can reuse the pipeline for species beyond zebrafish. A species selection dropdown (#122) and a scaffolded mouse analysis page (#124) are the first steps.
-- **2. Richer / custom analysis** — Add more built-in metrics and let users define extra analyses (custom columns, rules, or small plug-ins) via the config file (no source code changes needed).
-- **3. Labeling in the pipeline** — Build a frame-by-frame video labeling step for any animal directly inside the app, replacing the separate DLC pre-processing step and consolidating the entire workflow in one place
+## Current Focus & Roadmap
+
+### Current Focus (Fall 2026)
+Following client feedback from Dr. Sengupta, mouse tracking support is **deferred** for this semester due to the lack of a mouse DeepLabCut dataset. Active development is focused on:
+- **1. Browser-Only Web Version**: Developing a lightweight, browser-based web application deployed via GitHub Pages (#136, #147).
+- **2. Multi-Fish Comparison**: Multi-file upload, cross-dataset metric overlay, and fish-to-fish comparison view (#134).
+- **3. Summary Statistics**: Automated mean and median statistical summaries across all analysis outputs (#132).
+
+### Future Roadmap
+- **1. Broader Animal Support (Deferred)**: Generalizing naming conventions, defaults, and metric pipelines to support species beyond zebrafish (e.g. mouse DLC datasets). Foundational navigation components (#122, #124) remain intact for when mouse tracking data becomes available.
+- **2. Richer / Custom Analysis**: Add more built-in metrics and allow users to define extra analyses (custom columns, rules, or small plug-ins) via the config file (no source code changes needed).
+- **3. Labeling in the Pipeline**: Build a frame-by-frame video labeling step for any animal directly inside the app, replacing the separate DLC pre-processing step and consolidating the entire workflow in one place.
 
 
 ## Known Gaps / Next Steps
