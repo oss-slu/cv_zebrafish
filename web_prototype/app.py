@@ -23,8 +23,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from adapter import (  # noqa: E402
     REPO_ROOT,
     SAMPLE_CSV_PATH,
+    AnalysisResult,
+    FishColorMap,
+    LoadedFish,
     analyze_csv_bytes,
+    analyze_fish_files,
+    build_comparison_table,
+    build_overlay_figure,
+    comparison_table_csv_bytes,
     fin_tail_figure,
+    get_parameter_names,
     load_sample_config,
     summary_table,
 )
@@ -71,7 +79,7 @@ def _go(page: str) -> None:
 
 
 def _reset_to_species() -> None:
-    for key in ("species", "result", "file_name", "mouse_file"):
+    for key in ("species", "result", "file_name", "mouse_file", "loaded_fish"):
         st.session_state.pop(key, None)
     st.session_state.upload_key = st.session_state.get("upload_key", 0) + 1
     _go("species")
@@ -166,8 +174,11 @@ def page_zebrafish_load() -> None:
     st.markdown('<div class="cvz-hint">+ Load DeepLabCut CSV</div>', unsafe_allow_html=True)
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
-        upload = st.file_uploader(
-            "DeepLabCut CSV", type=["csv"], label_visibility="collapsed",
+        uploads = st.file_uploader(
+            "DeepLabCut CSV(s)",
+            type=["csv"],
+            accept_multiple_files=True,
+            label_visibility="collapsed",
             key=f"zf_upload_{st.session_state.get('upload_key', 0)}",
         )
         use_sample = st.button("Use the bundled sample file", width="stretch")
@@ -175,7 +186,7 @@ def page_zebrafish_load() -> None:
             cfg_upload = st.file_uploader("Config JSON", type=["json"], key="zf_config")
             st.caption("Defaults to the sample BaseConfig.json.")
 
-    if upload is None and not use_sample:
+    if not uploads and not use_sample:
         return
 
     config = load_sample_config()
@@ -186,15 +197,30 @@ def page_zebrafish_load() -> None:
             st.error(f"Config isn't valid JSON: {exc}")
             return
 
-    data, name = (upload.getvalue(), upload.name) if upload is not None else (SAMPLE_CSV_PATH.read_bytes(), SAMPLE_CSV_PATH.name)
+    if use_sample and not uploads:
+        files = [(SAMPLE_CSV_PATH.name, SAMPLE_CSV_PATH.read_bytes())]
+    else:
+        files = [(u.name, u.getvalue()) for u in (uploads or [])]
+
     with st.spinner("Running analysis…"):
-        result = analyze_csv_bytes(data, config, filename=name)
-    if not result.ok:
-        for e in result.errors:
-            st.error(e)
+        loaded_fish, failures = analyze_fish_files(
+            files, config, existing_fish=st.session_state.get("loaded_fish", [])
+        )
+
+    for fname, errors in failures:
+        st.error(f"Failed to load {fname}: " + " ".join(errors))
+
+    if not loaded_fish:
         return
-    st.session_state.result = result
-    st.session_state.file_name = name
+
+    st.session_state.loaded_fish = loaded_fish
+    st.session_state.result = AnalysisResult(
+        ok=True,
+        results=loaded_fish[0].results,
+        config=config,
+        warnings=loaded_fish[0].warnings,
+    )
+    st.session_state.file_name = loaded_fish[0].source_file
     _go("zebrafish_results")
     st.rerun()
 
@@ -202,48 +228,203 @@ def page_zebrafish_load() -> None:
 def page_zebrafish_results() -> None:
     if _back_row("Load another file"):
         st.session_state.pop("result", None)
+        st.session_state.pop("loaded_fish", None)
         st.session_state.upload_key = st.session_state.get("upload_key", 0) + 1
         _go("zebrafish_load")
         st.rerun()
 
-    result = st.session_state.result
-    results, config, name = result.results, result.config, st.session_state.file_name
+    loaded_fish: list[LoadedFish] = st.session_state.get("loaded_fish", [])
+    if not loaded_fish and "result" in st.session_state:
+        res = st.session_state.result
+        loaded_fish = [
+            LoadedFish(
+                fish_id="fish_1",
+                label=Path(st.session_state.file_name).stem,
+                source_file=st.session_state.file_name,
+                results=res.results,
+                warnings=res.warnings,
+            )
+        ]
+        st.session_state.loaded_fish = loaded_fish
+
+    if not loaded_fish:
+        st.info("No fish data loaded.")
+        return
+
+    config = st.session_state.result.config if "result" in st.session_state else load_sample_config()
+
     st.markdown('<div class="cvz-title">Results</div>', unsafe_allow_html=True)
-    st.caption(f"{name} · {len(results):,} frames · {results.shape[1]} result columns")
-    for w in result.warnings:
-        st.warning(w)
 
-    st.subheader("Summary")
-    st.dataframe(
-        summary_table(results),
-        hide_index=True,
-        width="stretch",
-        column_config={c: st.column_config.NumberColumn(format="%.4g") for c in ("Mean", "Min", "Max")},
-    )
+    if len(loaded_fish) == 1:
+        fish = loaded_fish[0]
+        results = fish.results
+        st.caption(f"{fish.source_file} · {len(results):,} frames · {results.shape[1]} result columns")
+        for w in fish.warnings:
+            st.warning(w)
 
-    st.subheader("Fin angles + tail distance")
-    last = len(results) - 1
-    default_end = min(last, (config.get("time_ranges") or [[0, last]])[0][1])
-    start, end = st.slider("Frame range", 0, last, (0, default_end))
-    fig, fig_warnings = fin_tail_figure(results, {**config, "time_ranges": [[start, end]]})
-    for w in fig_warnings:
-        st.caption(w)
-    if fig is not None:
-        fig.update_layout(template="plotly_dark", paper_bgcolor=PANEL_MAIN, plot_bgcolor=PANEL_MAIN)
-        st.plotly_chart(fig, width="stretch")
+        st.subheader("Summary")
+        st.dataframe(
+            summary_table(results),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "mean": st.column_config.NumberColumn("Mean", format="%.4g"),
+                "median": st.column_config.NumberColumn("Median", format="%.4g"),
+                "parameter": st.column_config.TextColumn("Parameter"),
+                "units": st.column_config.TextColumn("Units"),
+            },
+        )
 
-    with st.expander("All result columns"):
-        # Some result columns mix numbers and per-bout lists; show those as text.
-        display = results.copy()
-        for col in display.columns[display.dtypes == object]:
-            display[col] = display[col].astype(str)
-        st.dataframe(display, width="stretch", height=320)
-    st.download_button(
-        "Download results CSV",
-        results.to_csv(index=False).encode("utf-8"),
-        file_name=f"{Path(name).stem}_results.csv",
-        mime="text/csv",
-    )
+        st.subheader("Fin angles + tail distance")
+        last = len(results) - 1
+        default_end = min(last, (config.get("time_ranges") or [[0, last]])[0][1])
+        start, end = st.slider("Frame range", 0, last, (0, default_end))
+        fig, fig_warnings = fin_tail_figure(results, {**config, "time_ranges": [[start, end]]})
+        for w in fig_warnings:
+            st.caption(w)
+        if fig is not None:
+            fig.update_layout(template="plotly_dark", paper_bgcolor=PANEL_MAIN, plot_bgcolor=PANEL_MAIN)
+            st.plotly_chart(fig, width="stretch")
+
+        with st.expander("All result columns"):
+            display = results.copy()
+            for col in display.columns[display.dtypes == object]:
+                display[col] = display[col].astype(str)
+            st.dataframe(display, width="stretch", height=320)
+
+        st.download_button(
+            "Download results CSV",
+            results.to_csv(index=False).encode("utf-8"),
+            file_name=f"{Path(fish.source_file).stem}_results.csv",
+            mime="text/csv",
+        )
+    else:
+        st.caption(f"{len(loaded_fish)} fish loaded for analysis and comparison")
+        tab_comparison, tab_individual = st.tabs(["Comparison", "Individual Fish"])
+
+        with tab_comparison:
+            with st.expander("Loaded Fish & Labels", expanded=True):
+                labels_changed = False
+                for i, fish in enumerate(list(loaded_fish)):
+                    c_label, c_file, c_del = st.columns([3, 4, 1])
+                    new_val = c_label.text_input(
+                        f"Label for {fish.fish_id}",
+                        value=fish.label,
+                        key=f"fish_lbl_{fish.fish_id}",
+                        label_visibility="collapsed",
+                    )
+                    if new_val and new_val != fish.label:
+                        fish.label = new_val
+                        labels_changed = True
+                    c_file.caption(f"{fish.source_file} ({len(fish.results):,} frames)")
+                    if c_del.button("Remove", key=f"del_{fish.fish_id}"):
+                        loaded_fish.remove(fish)
+                        st.session_state.loaded_fish = loaded_fish
+                        st.rerun()
+                if labels_changed:
+                    st.session_state.loaded_fish = loaded_fish
+
+            if not loaded_fish:
+                st.info("All fish were removed. Load new files to continue.")
+                return
+
+            st.subheader("Fish Comparison Table")
+            all_labels = [f.label for f in loaded_fish]
+            selected_labels = st.multiselect(
+                "Filter fish",
+                options=all_labels,
+                default=all_labels,
+                key="comp_fish_filter",
+            )
+            fish_to_compare = [f for f in loaded_fish if f.label in selected_labels]
+
+            if not fish_to_compare:
+                st.warning("Select at least one fish to view comparison.")
+            else:
+                avail_params = get_parameter_names(fish_to_compare)
+                selected_params = st.multiselect(
+                    "Filter parameters",
+                    options=avail_params,
+                    default=avail_params,
+                    key="comp_param_filter",
+                )
+                if not selected_params:
+                    st.warning("Select at least one parameter to view.")
+                else:
+                    comp_table = build_comparison_table(fish_to_compare, selected_params)
+                    st.dataframe(
+                        comp_table,
+                        hide_index=True,
+                        width="stretch",
+                    )
+                    csv_bytes = comparison_table_csv_bytes(comp_table, fish_to_compare)
+                    st.download_button(
+                        "Download comparison CSV",
+                        csv_bytes,
+                        file_name="fish_comparison.csv",
+                        mime="text/csv",
+                    )
+
+            st.subheader("Signal Overlay Plot")
+            if fish_to_compare:
+                plotable_signals = ["LF_Angle", "RF_Angle", "Tail_Distance", "HeadYaw"]
+                overlay_param = st.selectbox("Select signal trace", options=plotable_signals, key="overlay_param")
+                cmap = FishColorMap()
+                overlay_fig = build_overlay_figure(fish_to_compare, overlay_param, cmap)
+                overlay_fig.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor=PANEL_MAIN,
+                    plot_bgcolor=PANEL_MAIN,
+                )
+                st.plotly_chart(overlay_fig, width="stretch")
+
+        with tab_individual:
+            fish_options = {f.label: f for f in loaded_fish}
+            chosen_label = st.selectbox("Select fish to view", options=list(fish_options.keys()))
+            chosen_fish = fish_options[chosen_label]
+            ind_results = chosen_fish.results
+
+            st.caption(f"{chosen_fish.source_file} · {len(ind_results):,} frames · {ind_results.shape[1]} result columns")
+            for w in chosen_fish.warnings:
+                st.warning(w)
+
+            st.subheader("Summary")
+            st.dataframe(
+                summary_table(ind_results),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "mean": st.column_config.NumberColumn("Mean", format="%.4g"),
+                    "median": st.column_config.NumberColumn("Median", format="%.4g"),
+                    "parameter": st.column_config.TextColumn("Parameter"),
+                    "units": st.column_config.TextColumn("Units"),
+                },
+            )
+
+            st.subheader("Fin angles + tail distance")
+            last = len(ind_results) - 1
+            default_end = min(last, (config.get("time_ranges") or [[0, last]])[0][1])
+            start, end = st.slider("Frame range", 0, last, (0, default_end), key=f"range_{chosen_fish.fish_id}")
+            fig, fig_warnings = fin_tail_figure(ind_results, {**config, "time_ranges": [[start, end]]})
+            for w in fig_warnings:
+                st.caption(w)
+            if fig is not None:
+                fig.update_layout(template="plotly_dark", paper_bgcolor=PANEL_MAIN, plot_bgcolor=PANEL_MAIN)
+                st.plotly_chart(fig, width="stretch")
+
+            with st.expander("All result columns"):
+                display = ind_results.copy()
+                for col in display.columns[display.dtypes == object]:
+                    display[col] = display[col].astype(str)
+                st.dataframe(display, width="stretch", height=320)
+
+            st.download_button(
+                f"Download {chosen_fish.label} results CSV",
+                ind_results.to_csv(index=False).encode("utf-8"),
+                file_name=f"{Path(chosen_fish.source_file).stem}_results.csv",
+                mime="text/csv",
+                key=f"dl_{chosen_fish.fish_id}",
+            )
 
 
 def page_mouse_load() -> None:
