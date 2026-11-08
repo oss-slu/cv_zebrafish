@@ -172,6 +172,11 @@ def page_zebrafish_load() -> None:
         st.rerun()
     _logo("fish1.png")
     st.markdown('<div class="cvz-hint">+ Load DeepLabCut CSV</div>', unsafe_allow_html=True)
+
+    existing = st.session_state.get("loaded_fish", [])
+    if existing:
+        st.info(f"Session currently has {len(existing)} fish ({', '.join(f.label for f in existing)}). Upload more to add them.")
+
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         uploads = st.file_uploader(
@@ -181,12 +186,21 @@ def page_zebrafish_load() -> None:
             label_visibility="collapsed",
             key=f"zf_upload_{st.session_state.get('upload_key', 0)}",
         )
+
+        run_uploads = False
+        if uploads:
+            st.caption(f"{len(uploads)} file(s) selected: {', '.join(u.name for u in uploads)}")
+            st.caption("Tip: Hold Ctrl/Cmd in the file chooser or drag & drop multiple CSVs to select several at once.")
+            run_uploads = st.button("Run Analysis", type="primary", width="stretch")
+
         use_sample = st.button("Use the bundled sample file", width="stretch")
+        use_sample_multi = st.button("Use sample files (2-fish comparison demo)", width="stretch")
+
         with st.expander("Config (optional)"):
             cfg_upload = st.file_uploader("Config JSON", type=["json"], key="zf_config")
             st.caption("Defaults to the sample BaseConfig.json.")
 
-    if not uploads and not use_sample:
+    if not run_uploads and not use_sample and not use_sample_multi:
         return
 
     config = load_sample_config()
@@ -197,14 +211,17 @@ def page_zebrafish_load() -> None:
             st.error(f"Config isn't valid JSON: {exc}")
             return
 
-    if use_sample and not uploads:
+    if use_sample and not run_uploads and not use_sample_multi:
         files = [(SAMPLE_CSV_PATH.name, SAMPLE_CSV_PATH.read_bytes())]
+    elif use_sample_multi:
+        raw = SAMPLE_CSV_PATH.read_bytes()
+        files = [("fish1_control.csv", raw), ("fish2_treated.csv", raw)]
     else:
         files = [(u.name, u.getvalue()) for u in (uploads or [])]
 
     with st.spinner("Running analysis…"):
         loaded_fish, failures = analyze_fish_files(
-            files, config, existing_fish=st.session_state.get("loaded_fish", [])
+            files, config, existing_fish=existing
         )
 
     for fname, errors in failures:
@@ -226,12 +243,19 @@ def page_zebrafish_load() -> None:
 
 
 def page_zebrafish_results() -> None:
-    if _back_row("Load another file"):
-        st.session_state.pop("result", None)
-        st.session_state.pop("loaded_fish", None)
-        st.session_state.upload_key = st.session_state.get("upload_key", 0) + 1
-        _go("zebrafish_load")
-        st.rerun()
+    c_back, c_add = st.columns([1, 1])
+    with c_back:
+        if st.button("Load another file", key="back_zebrafish_results"):
+            st.session_state.pop("result", None)
+            st.session_state.pop("loaded_fish", None)
+            st.session_state.upload_key = st.session_state.get("upload_key", 0) + 1
+            _go("zebrafish_load")
+            st.rerun()
+    with c_add:
+        if st.button("+ Add more fish to comparison"):
+            st.session_state.upload_key = st.session_state.get("upload_key", 0) + 1
+            _go("zebrafish_load")
+            st.rerun()
 
     loaded_fish: list[LoadedFish] = st.session_state.get("loaded_fish", [])
     if not loaded_fish and "result" in st.session_state:
