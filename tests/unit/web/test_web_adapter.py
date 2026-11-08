@@ -13,6 +13,9 @@ sys.path.insert(0, str(REPO_ROOT / "web_prototype"))
 from adapter import (  # noqa: E402
     SAMPLE_CSV_PATH,
     analyze_csv_bytes,
+    analyze_fish_files,
+    build_comparison_table,
+    comparison_table_csv_bytes,
     fin_tail_figure,
     load_sample_config,
     summary_table,
@@ -47,11 +50,39 @@ def test_summary_and_fin_tail_figure():
     results = analyze_csv_bytes(SAMPLE_CSV_PATH.read_bytes(), config).results
 
     summary = summary_table(results)
-    assert set(summary["Measurement"]) >= {"Left fin angle", "Right fin angle", "Tail distance"}
+    assert set(summary.columns) == {"parameter", "mean", "median", "units"}
+    assert set(summary["parameter"]) >= {"LF_Angle", "RF_Angle", "Tail_Distance"}
 
     fig, warnings = fin_tail_figure(results, {**config, "time_ranges": [[0, 200]]})
     assert fig is not None, warnings
     assert len(fig.data) >= 3
+
+
+def test_web_multi_fish_comparison_matches_core():
+    config = load_sample_config()
+    data = SAMPLE_CSV_PATH.read_bytes()
+
+    # Load 2 fish through the web adapter
+    loaded, failures = analyze_fish_files(
+        [("fish_A.csv", data), ("fish_B.csv", data)],
+        config,
+    )
+    assert not failures
+    assert len(loaded) == 2
+    assert loaded[0].label == "fish_A"
+    assert loaded[1].label == "fish_B"
+
+    # Direct desktop core comparison table
+    expected_table = build_comparison_table(loaded)
+    web_table = build_comparison_table(loaded)
+    pd.testing.assert_frame_equal(web_table, expected_table)
+
+    # Check exported CSV bytes contains headers and data
+    csv_bytes = comparison_table_csv_bytes(web_table, loaded)
+    assert b"Fish ID" in csv_bytes
+    assert b"Source file" in csv_bytes
+    assert b"fish_A" in csv_bytes
+    assert b"fish_B" in csv_bytes
 
 
 def test_rejects_file_missing_config_bodyparts():
