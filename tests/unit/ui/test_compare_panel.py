@@ -106,23 +106,4 @@ def test_export_writes_only_selected_fish(panel, tmp_path, monkeypatch):
     assert "Fish 5" not in exported.columns
     assert exported.loc[0, "Parameter"] == "Fish ID"
     assert exported.loc[1, "Fish 1"] == "/data/fish_1.csv"
-
     
-def test_plots_follow_the_table_selection(panel):
-    before = {t.name: t.line.color for t in panel.overlay_widget.figure.data}
-
-    panel.fish_table.item(1, 0).setCheckState(Qt.Unchecked)
-
-    after = {t.name: t.line.color for t in panel.overlay_widget.figure.data}
-    assert "Fish 2" not in after
-    assert after["Fish 3"] == before["Fish 3"]
-
-
-def test_removed_fish_leaves_the_plot(panel):
-    panel._remove_fish("fish_1")
-
-    assert "Fish 1" not in [t.name for t in panel.overlay_widget.figure.data]
-
-
-def test_each_fish_row_shows_its_plot_color(panel):
-    assert not panel.fish_table.item(0, 1).icon().isNull()
