@@ -5,6 +5,8 @@ as the desktop app (results are identical, tested) and is published to **GitHub 
 as a browser-only site: Python runs in the visitor's browser, so there is no server, and
 uploaded files **never leave the visitor's computer**.
 
+**Live: https://oss-slu.github.io/cv_zebrafish/**
+
 It started as the feasibility spike for #136; the spike's findings are kept below
 [Feasibility spike (#136)](#feasibility-spike-136).
 

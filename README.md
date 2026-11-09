@@ -4,7 +4,7 @@
 
 Desktop toolkit for validating DeepLabCut zebrafish CSVs, generating JSON configs, running kinematic calculations, and rendering Plotly graphs through a PyQt UI.
 
-A smaller **web app** runs the same zebrafish analysis in the browser, with nothing to install; see [web_prototype/README.md](web_prototype/README.md).
+A smaller **web app** runs the same zebrafish analysis in the browser, with nothing to install: **[oss-slu.github.io/cv_zebrafish](https://oss-slu.github.io/cv_zebrafish/)** (details in [web_prototype/README.md](web_prototype/README.md)).
 
 
 ## Quickstart
@@ -425,7 +425,7 @@ The desktop app is a local application: there is no server or cloud deployment. 
 The `data/samples/` directory contains example DLC CSVs and config JSONs you can use to walk through the full workflow without needing your own data files.
 
 ### Web app
-The web app (`web_prototype/`) is published to GitHub Pages automatically by `.github/workflows/deploy-web.yml` whenever a change to it or to `src/core/` merges to `main`. It runs entirely in the visitor's browser, so there is still no server, and uploaded files stay on the visitor's computer. It covers one zebrafish analysis; see [web_prototype/README.md](web_prototype/README.md) for what it includes and how to develop it.
+The web app (`web_prototype/`, live at https://oss-slu.github.io/cv_zebrafish/) is published to GitHub Pages automatically by `.github/workflows/deploy-web.yml` whenever a change to it or to `src/core/` merges to `main`. It runs entirely in the visitor's browser, so there is still no server, and uploaded files stay on the visitor's computer. It covers one zebrafish analysis; see [web_prototype/README.md](web_prototype/README.md) for what it includes and how to develop it.
 
 ---
 
