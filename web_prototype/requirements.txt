@@ -1,0 +1,3 @@
+# Extra dependency for the web prototype only (spike #136).
+# The analysis core's own dependencies come from environment.yml.
+streamlit>=1.65  # version the prototype was tested with

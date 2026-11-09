@@ -1,0 +1,13 @@
+# Match the desktop app's dark theme (styles/themes.py DARK_THEME).
+[theme]
+base = "dark"
+backgroundColor = "#0f0f10"           # panel_main
+secondaryBackgroundColor = "#222226"  # panel_chrome (sidebar, inputs)
+textColor = "#ececf0"                 # text
+primaryColor = "#90CAF9"              # accent
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
