@@ -1,4 +1,4 @@
-"""Runs the web prototype click-through tests (``app_flows.py``) in their own process.
+"""Runs the web app click-through tests (``app_flows.py``) in their own process.
 
 Streamlit's test runner in the same process as the Qt/Plotly tests intermittently
 crashed Python with a bus error, so the flows run in a fresh interpreter. Skipped when

@@ -1,4 +1,4 @@
-"""Build a static, in-browser version of the web prototype (stlite).
+"""Build the static, in-browser version of the web app (stlite).
 
 The output folder is plain HTML + files, the same thing GitHub Pages would host.
 The analysis runs in the visitor's browser (Python compiled to WebAssembly), so
@@ -102,7 +102,7 @@ INDEX_HTML = """<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CV Zebrafish (web prototype)</title>
+    <title>CV Zebrafish</title>
     <link rel="icon" href="assets/images/fish1.png" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/browser@{version}/build/stlite.css" />
     <style>html, body {{ background: #0f0f10; margin: 0; }}</style>
