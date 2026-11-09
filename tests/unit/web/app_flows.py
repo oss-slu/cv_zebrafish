@@ -8,12 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import importlib.util
+
 import pytest
 
 pytest.importorskip("streamlit")
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
-APP = str(Path(__file__).resolve().parents[3] / "web_prototype" / "app.py")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+APP = str(REPO_ROOT / "web_prototype" / "app.py")
 
 
 def _app() -> AppTest:
@@ -60,3 +63,18 @@ def test_mouse_goes_to_mouse_load_and_back():
 
     at = _click(at, "Back")
     assert at.session_state.page == "species"
+
+
+def test_footer_shows_build_sha_only_in_built_site(tmp_path):
+    assert not any('class="cvz-footer"' in m.value for m in _app().markdown)
+
+    spec = importlib.util.spec_from_file_location("build_static", REPO_ROOT / "web_prototype" / "build_static.py")
+    build_static = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build_static)
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    build_static.build(tmp_path / "site", sha=sha)
+
+    at = AppTest.from_file(str(tmp_path / "site" / "web_prototype" / "app.py"), default_timeout=60).run()
+    assert not at.exception
+    footer = next(m.value for m in at.markdown if 'class="cvz-footer"' in m.value)
+    assert f"/commit/{sha}" in footer and ">0123456<" in footer

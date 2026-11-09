@@ -1,0 +1,11 @@
+# Inputs for requirements-ci.txt, the hash-locked install for the `web` CI job.
+# Same packages the browser build loads (build_static.REQUIREMENTS), plus Streamlit and pytest.
+# Regenerate after changing this file or requirements.txt:
+#   uv pip compile web_prototype/requirements-ci.in -o web_prototype/requirements-ci.txt \
+#     --python-version 3.10 --python-platform x86_64-manylinux_2_28 --generate-hashes --only-binary :all:
+-r requirements.txt
+numpy
+pandas
+plotly==7.0.0
+pillow
+pytest
