@@ -2,6 +2,8 @@
 IO helpers for graph outputs: folder creation, logging, and Excel export.
 
 This is a modular replacement for the ad-hoc file handling in `outputDisplay.py`.
+Summary statistics (mean, median, units) are automatically included as a dedicated
+sheet ('Summary Statistics') when persisting results to Excel.
 """
 
 from __future__ import annotations
@@ -67,13 +69,34 @@ def print_to_output(text: str, ctx: Optional[OutputContext]) -> None:
             f.write(text)
 
 
-def save_results_to_excel(rows: Iterable[dict], ctx: Optional[OutputContext], filename: str = "output_data.xlsx") -> None:
-    """Persist tabular results to Excel in the provided context folder."""
+def save_results_to_excel(
+    rows: Iterable[dict],
+    ctx: Optional[OutputContext],
+    filename: str = "output_data.xlsx",
+    include_summary_stats: bool = True,
+) -> None:
+    """Persist tabular results to Excel in the provided context folder.
+
+    Args:
+        rows: Iterable of result row dicts.
+        ctx: OutputContext describing destination folder and paths.
+        filename: Destination file name.
+        include_summary_stats: If True (default), writes both 'Results' and
+            'Summary Statistics' sheets to the workbook.
+    """
     if not ctx:
         return
     df = pd.DataFrame(rows)
     output_file_path = os.path.join(ctx.output_folder, filename)
-    df.to_excel(output_file_path, index=False)
+    if include_summary_stats and not df.empty:
+        from src.core.analysis.summary_statistics import compute_summary_statistics_df
+
+        summary_df = compute_summary_statistics_df(df)
+        with pd.ExcelWriter(output_file_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Results", index=False)
+            summary_df.to_excel(writer, sheet_name="Summary Statistics", index=False)
+    else:
+        df.to_excel(output_file_path, index=False)
 
 
 __all__ = ["OutputContext", "get_output_context", "print_to_output", "save_results_to_excel"]

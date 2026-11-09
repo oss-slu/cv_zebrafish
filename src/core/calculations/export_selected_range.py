@@ -12,6 +12,12 @@ Range semantics
 * The original index and the ``Time`` column are left untouched, so exported
   rows keep their original frame numbers.
 
+Summary statistics (issue #132)
+-------------------------------
+When ``include_summary_stats=True`` is passed to :func:`export_range_to_csv`,
+a structured summary statistics section is appended at the bottom of the CSV
+containing mean, median, and units for the exported range.
+
 Note
 ----
 Metadata columns such as ``timeRangeStart_N`` / ``timeRangeEnd_N`` are only
@@ -26,7 +32,7 @@ Example
     )
 
     name = default_export_filename("fish1.csv", 100, 250)   # fish1_frames_100-250.csv
-    export_range_to_csv(results_df, 100, 250, name)
+    export_range_to_csv(results_df, 100, 250, name, include_summary_stats=True)
 """
 
 from __future__ import annotations
@@ -131,6 +137,7 @@ def export_range_to_csv(
     start: Any,
     end: Any,
     output_path: PathLike,
+    include_summary_stats: bool = False,
 ) -> Path:
     """Write rows ``start``..``end`` (inclusive) of ``df`` to a CSV file.
 
@@ -138,11 +145,21 @@ def export_range_to_csv(
     DataFrame index is not written. A ``.csv`` extension is added if
     ``output_path`` has none, and missing parent folders are created.
 
+    When ``include_summary_stats`` is True, a structured summary section is
+    appended at the bottom of the CSV containing mean, median, and units for the
+    exported range data:
+    ```
+    # --- Summary Statistics ---
+    parameter,mean,median,units
+    ...
+    ```
+
     Args:
         df: The processed results DataFrame.
         start: First row position to export (zero-based).
         end: Last row position to export (zero-based, inclusive).
         output_path: Destination file.
+        include_summary_stats: Whether to append summary statistics section.
 
     Returns:
         The path that was written.
@@ -159,4 +176,13 @@ def export_range_to_csv(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     subset.to_csv(path, index=False)
+
+    if include_summary_stats:
+        from src.core.analysis.summary_statistics import compute_summary_statistics_df
+
+        summary_df = compute_summary_statistics_df(subset)
+        with path.open("a", encoding="utf-8") as f:
+            f.write("\n# --- Summary Statistics ---\n")
+            summary_df.to_csv(f, index=False)
+
     return path
