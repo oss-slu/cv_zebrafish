@@ -1,4 +1,4 @@
-"""Tests for the browser-only static build (spike #136). No Streamlit needed."""
+"""Tests for the browser-only static build. No Streamlit needed."""
 
 from __future__ import annotations
 

@@ -4,6 +4,8 @@
 
 Desktop toolkit for validating DeepLabCut zebrafish CSVs, generating JSON configs, running kinematic calculations, and rendering Plotly graphs through a PyQt UI.
 
+A smaller **web app** runs the same zebrafish analysis in the browser, with nothing to install; see [web_prototype/README.md](web_prototype/README.md).
+
 
 ## Quickstart
 
@@ -400,7 +402,7 @@ conda env create -f environment.yml
 ---
 
 ## Deployment
-CV Zebrafish is a local desktop application — there is no server or cloud deployment. Distribution is done by sharing the repository and having the recipient set up the Conda environment.
+The desktop app is a local application: there is no server or cloud deployment. Distribution is done by sharing the repository and having the recipient set up the Conda environment.
 **To share with a new lab member or collaborator:**
 1. Clone the repository:
   ```bash
@@ -421,6 +423,9 @@ CV Zebrafish is a local desktop application — there is no server or cloud depl
 
 **Sample data for a first run:**
 The `data/samples/` directory contains example DLC CSVs and config JSONs you can use to walk through the full workflow without needing your own data files.
+
+### Web app
+The web app (`web_prototype/`) is published to GitHub Pages automatically by `.github/workflows/deploy-web.yml` whenever a change to it or to `src/core/` merges to `main`. It runs entirely in the visitor's browser, so there is still no server, and uploaded files stay on the visitor's computer. It covers one zebrafish analysis; see [web_prototype/README.md](web_prototype/README.md) for what it includes and how to develop it.
 
 ---
 

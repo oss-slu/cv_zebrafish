@@ -1,12 +1,13 @@
-"""CV Zebrafish web prototype (spike for #136).
+"""CV Zebrafish web app (started as the #136 spike, made official in #147).
 
 Run from this folder so the dark theme in .streamlit/config.toml is picked up:
     cd web_prototype
     streamlit run app.py
 
 Mirrors the desktop flow: species selection → load screen → results. The
-zebrafish path runs the existing analysis; the mouse path is structure only,
-like the desktop Mouse Analysis page (#118).
+zebrafish path runs the existing analysis. Mouse is listed as "coming soon"; its
+pages (structure only, like the desktop Mouse Analysis page, #118) stay behind
+MOUSE_READY until a mouse analysis exists.
 """
 
 from __future__ import annotations
@@ -41,11 +42,13 @@ TEXT_MUTED = "#9c9ca8"
 ACCENT = "#90CAF9"
 
 SPECIES = ("Zebrafish", "Mouse")
+# Mouse analysis is deferred (#147): shown as "coming soon" and can't be continued.
+MOUSE_READY = False
 
 # stlite (the browser-only / GitHub Pages build) runs Python as WebAssembly in the browser.
 IN_BROWSER = sys.platform == "emscripten"
-PROTOTYPE_NOTE = (
-    "Prototype for issue #136 · covers one zebrafish analysis · "
+SCOPE_NOTE = (
+    "Web app · covers one zebrafish analysis · "
     + ("files you upload stay in your browser" if IN_BROWSER
        else "files are processed by the computer running this app and not stored")
 )
@@ -138,7 +141,7 @@ def _sidebar(page: str) -> None:
         st.markdown(
             f'<div class="cvz-brand"><img src="{_data_uri(IMAGES / "fish1.png")}">CV Zebrafish</div>'
             + "".join(rows)
-            + f'<div class="cvz-note">Web prototype (#136){" · " + species if species else ""}</div>',
+            + f'<div class="cvz-note">Web app{" · " + species if species else ""}</div>',
             unsafe_allow_html=True,
         )
 
@@ -166,12 +169,18 @@ def page_species() -> None:
     st.markdown('<div class="cvz-label">Species</div>', unsafe_allow_html=True)
     _, mid, _ = st.columns([2, 1, 2])
     with mid:
-        choice = st.selectbox("Species", SPECIES, index=0, label_visibility="collapsed")
-        if st.button("Continue", width="stretch"):
+        choice = st.selectbox(
+            "Species", SPECIES, index=0, label_visibility="collapsed",
+            format_func=lambda s: s if s != "Mouse" or MOUSE_READY else "Mouse (coming soon)",
+        )
+        unavailable = choice == "Mouse" and not MOUSE_READY
+        if unavailable:
+            st.caption("Mouse analysis is coming soon.")
+        if st.button("Continue", width="stretch", disabled=unavailable):
             st.session_state.species = choice
             _go("zebrafish_load" if choice == "Zebrafish" else "mouse_load")
             st.rerun()
-    st.markdown(f'<div class="cvz-center cvz-note">{PROTOTYPE_NOTE}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="cvz-center cvz-note">{SCOPE_NOTE}</div>', unsafe_allow_html=True)
 
 
 def page_zebrafish_load() -> None:

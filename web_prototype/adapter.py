@@ -1,4 +1,4 @@
-"""Web-facing adapter around the existing analysis core (spike for #136).
+"""Web-facing adapter around the existing analysis core (web app; see README.md).
 
 No web framework imports here: this module only turns uploaded bytes into the
 same calls the desktop app makes, so it can be tested with plain pytest and
@@ -76,7 +76,7 @@ def analyze_csv_bytes(data: bytes, config: Dict[str, Any], filename: str = "uplo
     """Validate and analyze one DeepLabCut CSV given as raw bytes."""
     suffix = Path(filename).suffix.lower() or ".csv"
     if suffix != ".csv":
-        return AnalysisResult(ok=False, errors=[f"Only DeepLabCut .csv files are supported in this prototype (got {suffix})."])
+        return AnalysisResult(ok=False, errors=[f"Only DeepLabCut .csv files are supported in the web app (got {suffix})."])
 
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / Path(filename).name

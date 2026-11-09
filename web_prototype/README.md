@@ -1,11 +1,53 @@
-# Web version feasibility spike (#136)
+# CV Zebrafish web app
 
-> **Experimental and unmaintained.** `web_prototype/` is a spike for #136, kept for reference only. It is not part of the supported app, is not kept in sync with the desktop code, and may break without notice.
+A browser version of CV Zebrafish's zebrafish analysis. It runs the **same analysis code**
+as the desktop app (results are identical, tested) and is published to **GitHub Pages**
+as a browser-only site: Python runs in the visitor's browser, so there is no server, and
+uploaded files **never leave the visitor's computer**.
 
-A time-boxed investigation into whether CV Zebrafish could run as a web app, with a
-small working prototype. **This is not a full build.**
+It started as the feasibility spike for #136; the spike's findings are kept below
+[Feasibility spike (#136)](#feasibility-spike-136).
 
-## Run the prototype
+## Use it
+
+1. **Species**: Zebrafish (Mouse is listed as *coming soon*; mouse analysis is deferred).
+2. **Load**: fish logo + "Load DeepLabCut CSV" (or **Use the bundled sample file**); an
+   optional config JSON goes under *Config (optional)*.
+3. **Results**: summary table (mean / min / max of fin angles, tail distance, head yaw),
+   the **fin angles + tail distance** plot with a frame-range slider, all result columns,
+   and **Download results CSV**.
+
+The page footer shows the commit the site was built from. First load takes about 10 s
+(the browser downloads Python once); the sample analysis takes about 5 s.
+
+### What it covers
+
+It's one analysis, not a replacement for the desktop app:
+
+| | Desktop app | Web app |
+|---|---|---|
+| Species selection | ✅ | ✅ (Mouse: coming soon) |
+| Mouse analysis page (placeholder, #118) | ✅ | ❌ (hidden until mouse analysis exists) |
+| Analyze one DeepLabCut CSV | ✅ | ✅ |
+| Sessions (create, save, reopen) | ✅ | ❌ |
+| Batch runs on a folder of CSVs | ✅ | ❌ |
+| Generate Config (pick body parts, custom angles) | ✅ | ❌ (sample config or upload a JSON) |
+| Graphs | Dot plots, fin/tail, spines, head plot, custom angle, cross-correlation | Fin/tail only |
+| Graph tools (range statistics, export range, compare graphs) | ✅ | Frame-range slider only |
+| Save graphs as HTML/PNG | ✅ | ❌ (results CSV download only) |
+| Settings (theme, UI scale), console, help | ✅ | Dark theme only |
+| Summary table of key measurements | ❌ | ✅ |
+| Warns when file body parts don't match the config | ❌ | ✅ |
+
+**Limits of the browser-only build:**
+- Only pure-Python / Pyodide-supported packages: numpy, pandas, plotly are fine; PyQt and
+  Kaleido image export are not available (not needed by this page).
+- Slower than the desktop app for large files, and bounded by browser memory.
+- DeepLabCut `.h5` files aren't supported (CSV only).
+
+## Develop
+
+### Run with Streamlit (fastest for editing)
 
 From the repo root, in the project environment (`environment.yml`):
 
@@ -16,45 +58,13 @@ streamlit run app.py
 ```
 
 Run it from inside `web_prototype/` so the dark theme in `.streamlit/config.toml` (the
-desktop app's colors) is picked up. It opens at http://localhost:8501 and follows the
-desktop app's flow, with its logos and sidebar icons:
+desktop app's colors) is picked up. It opens at http://localhost:8501. Files are processed
+in memory and a temporary folder; nothing is stored.
 
-1. **Species**: choose Zebrafish or Mouse, then Continue.
-2. **Zebrafish → Load**: fish logo + "Load DeepLabCut CSV" (or **Use the bundled sample
-   file**); an optional config JSON goes under *Config (optional)*.
-3. **Zebrafish → Results**: summary table (mean / min / max of fin angles, tail distance,
-   head yaw), the existing **fin angles + tail distance** plot with a frame-range slider,
-   all result columns, and **Download results CSV**.
-4. **Mouse**: mouse logo + "Load DLC File" (`.h5`/`.csv`), then the same placeholder
-   layout as the desktop Mouse Analysis page (#118). No mouse analysis exists yet.
+### Preview the browser-only build
 
-Files are processed in memory and a temporary folder; nothing is stored.
-
-### What it covers (it's a sample, not a replacement)
-
-It runs the **same analysis code** as the desktop app (results are identical), but only
-shows a small part of what the desktop app offers:
-
-| | Desktop app | Web prototype |
-|---|---|---|
-| Species selection, mouse placeholder page | ✅ | ✅ |
-| Analyze one DeepLabCut CSV | ✅ | ✅ |
-| Sessions (create, save, reopen) | ✅ | ❌ |
-| Batch runs on a folder of CSVs | ✅ | ❌ |
-| Generate Config (pick body parts, custom angles) | ✅ | ❌ (sample config or upload a JSON) |
-| Graphs | Dot plots, fin/tail, spines, head plot, custom angle, cross-correlation | Fin/tail only |
-| Graph tools (range statistics, export range, compare graphs) | ✅ | Frame-range slider only |
-| Save graphs as HTML/PNG | ✅ | ❌ (results CSV download only) |
-| Settings (theme, UI scale), console, help | ✅ | Dark theme only |
-| Summary table of key measurements | ❌ | ✅ (new) |
-| Warns when file body parts don't match the config | ❌ | ✅ (new) |
-
-## No server: browser-only build (GitHub Pages ready)
-
-The same page can also run **entirely in the visitor's browser** using
-[stlite](https://github.com/whitphx/stlite) (Streamlit + Python compiled to WebAssembly).
-The output is plain static files, so it can be hosted on **GitHub Pages with no server to
-set up or maintain**, and uploaded files **never leave the visitor's computer**.
+This is exactly what GitHub Pages serves ([stlite](https://github.com/whitphx/stlite):
+Streamlit + Python compiled to WebAssembly):
 
 ```bash
 python web_prototype/build_static.py          # writes web_prototype/_site/
@@ -62,36 +72,49 @@ python -m http.server 8600 --bind 127.0.0.1 --directory web_prototype/_site
 # open http://127.0.0.1:8600 (private preview: only your computer can reach it)
 ```
 
-Tested in Chrome, including from a `/cv_zebrafish/` subfolder like a GitHub Pages
-project site: first load takes about 10 s (the browser downloads Python once), the sample
-analysis takes about 5 s, and results, the plot, the CSV download, and the mouse path
-match the server version.
+`build_static.py --sha <commit>` sets the footer's commit (CI passes `$GITHUB_SHA`).
+Plotly is pinned in `build_static.py` so a new release can't change the published page.
 
-**To publish on GitHub Pages:** push the contents of `_site/` to a `gh-pages` branch
-and set *Settings → Pages → Source* to that branch (or use an Actions workflow). On a
-personal account the page is **public**: anyone with the link can open it, though it only
-contains code and sample data that are already public in this repo. Enabling Pages on
-`oss-slu/cv_zebrafish` needs a repo admin.
+### Tests and CI
 
-**Limits of the browser-only build:**
-- Only pure-Python / Pyodide-supported packages: numpy, pandas, plotly are fine; PyQt and
-  Kaleido image export are not available (not needed by this page).
-- Slower than a server for large files, and bounded by browser memory.
-- Reading DeepLabCut `.h5` in the browser should be possible via h5py (in Pyodide's
-  package list) but was not tested in this spike.
-- Plotly is pinned (`build_static.py`) so a new release can't change the published page.
+```bash
+pytest tests/unit/web
+```
+
+The `web` job in `.github/workflows/tests.yml` runs these on every PR, separately from the
+Qt test job (Streamlit's test runner alongside the Qt/Plotly tests caused bus errors). It
+installs the hash-locked `requirements-ci.txt`; after changing `requirements.txt` or
+`requirements-ci.in`, regenerate it with the command at the top of `requirements-ci.in`.
+
+### Deployment
+
+`.github/workflows/deploy-web.yml` builds the site and publishes it to GitHub Pages on every
+push to `main` that changes `web_prototype/`, `src/core/`, `data/samples/`,
+`assets/images/`, or the workflow itself. It can also be run by hand from the Actions tab.
+It requires *Settings → Pages → Source* to be **GitHub Actions** (a repo admin setting).
+The site is public; it contains only code and sample data that are already public in
+this repo.
+
+### Files
 
 | File | What it is |
 |---|---|
 | `adapter.py` | Calls the existing core (`parse_dlc_csv` → `run_calculations` → `render_fin_tail`). No web imports, so any framework can use it. |
-| `app.py` | The Streamlit page: species → load → results, styled like the desktop app (~290 lines). |
+| `app.py` | The Streamlit page: species → load → results, styled like the desktop app. |
 | `.streamlit/config.toml` | Dark theme using the desktop `DARK_THEME` colors. |
-| `build_static.py` | Builds the browser-only (stlite) static site into `_site/` for GitHub Pages. |
+| `build_static.py` | Builds the browser-only (stlite) static site into `_site/`. |
+| `requirements.txt` | Streamlit, for running the page locally. |
+| `requirements-ci.in` / `requirements-ci.txt` | Inputs / hash-locked install for the `web` CI job. |
 | `../tests/unit/web/test_web_adapter.py` | Checks the web path gives **identical** results to the desktop pipeline, and that bad files fail with a message. |
-| `../tests/unit/web/test_web_app.py` | Clicks through both flows (skipped if Streamlit isn't installed). |
+| `../tests/unit/web/test_web_app.py` | Clicks through the page (runs `app_flows.py` in its own process). |
 | `../tests/unit/web/test_build_static.py` | Checks the static build contains every analysis module the page imports. |
 
-## Framework comparison
+## Feasibility spike (#136)
+
+The original investigation (October 2026) behind this app, kept for reference. Its
+recommendation, a browser-only Streamlit page on GitHub Pages, is what this folder became.
+
+### Framework comparison
 
 | | Streamlit | Dash | Flask + simple front end |
 |---|---|---|---|
@@ -107,7 +130,7 @@ long-term fit if the web version needs the desktop graph viewer's interactivity 
 statistics, multi-dataset overlay). Flask + front end only makes sense with a dedicated
 front-end developer.
 
-## What blocks reuse of current code
+### What blocks reuse of current code
 
 Good news first: the analysis core runs without the desktop UI. `parse_dlc_csv` →
 `run_calculations` takes ~0.5 s on the 5,351-frame sample, and the web path produces
@@ -137,7 +160,7 @@ Blockers found (most are what #133 is meant to fix):
    distance, reads CSV only (no `.h5`), and has no mouse measurements. **A web version
    does not remove the mouse analysis work**: that code has to be written either way.
 
-## Hosting options and data privacy
+### Hosting options and data privacy
 
 | Option | How | Data leaves the lab? | Notes |
 |---|---|---|---|
@@ -150,7 +173,7 @@ Privacy questions for the lab before anything is hosted: is unpublished tracking
 allowed on third-party servers? Who should have access, and does it need a login? Should
 uploads ever be stored, or only processed and discarded (the prototype stores nothing)?
 
-## Recommendation
+### Recommendation
 
 1. **Don't replace the desktop app right now.** The desktop app has ~8,700 lines of UI
    (graph viewer alone ~2,000) that a web version would have to rebuild for parity:
