@@ -347,6 +347,12 @@ def test_schema_constants():
     assert y == "Spine_0_y"
     assert conf == "Spine_0_conf"
 
+def test_loader_accepts_dataframe(temp_csv_and_config):
+    """A DataFrame gives the same loader data as the CSV path it came from."""
+    csv_path, config_path = temp_csv_and_config
+    from_path = GraphDataLoader(csv_path, config_path)
+    from_frame = GraphDataLoader(pd.read_csv(csv_path), config_path)
+    pd.testing.assert_frame_equal(from_path.df, from_frame.df)
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

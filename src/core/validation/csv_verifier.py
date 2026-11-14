@@ -1,24 +1,45 @@
 import os
+
 import pandas as pd
 
+from ..input_source import CsvSource, InputSourceError, is_path, load_csv_source
 
-def verify_deeplabcut_csv(file_path, img_width=None, img_height=None):
+# A DeepLabCut CSV needs the bodyparts and coords rows, plus at least one
+# column after the scorer column.
+MIN_ROWS = 2
+MIN_COLUMNS = 2
 
+
+def verify_deeplabcut_csv(source: CsvSource, img_width=None, img_height=None):
+    """Validate a DeepLabCut CSV given as a path, file-like object, or DataFrame.
+
+    Returns ``(errors, warnings)``. Malformed input produces an error message
+    instead of raising.
+    """
     errors = []
     warnings = []
 
-    # Check if file exists
-    if not os.path.isfile(file_path):
-        errors.append(f"[ERROR] File does not exist: {file_path}")
+    if is_path(source):
+        file_path = os.fspath(source)
+        if not os.path.isfile(file_path):
+            errors.append(f"[ERROR] File does not exist: {file_path}")
+            return errors, warnings
+        if not file_path.lower().endswith('.csv'):
+            errors.append(f"[ERROR] File is not a CSV: {file_path}")
+            return errors, warnings
+
+    try:
+        df = load_csv_source(source)
+    except InputSourceError as exc:
+        errors.append(f"[ERROR] {exc}")
         return errors, warnings
 
-    # Check if file is a CSV
-    if not file_path.lower().endswith('.csv'):
-        errors.append(f"[ERROR] File is not a CSV: {file_path}")
+    if df.shape[0] < MIN_ROWS or df.shape[1] < MIN_COLUMNS:
+        errors.append(
+            "[ERROR] File is too small to be a DeepLabCut CSV: expected "
+            "bodyparts and coords rows below the header."
+        )
         return errors, warnings
-
-    # Load file
-    df = pd.read_csv(file_path)
 
     # Extract header rows
     bodyparts = df.iloc[0]
@@ -57,14 +78,19 @@ def verify_deeplabcut_csv(file_path, img_width=None, img_height=None):
     return errors, warnings
 
 
-def list_bodyparts(file_path):
-    # Load the CSV
-    df = pd.read_csv(file_path)
+def list_bodyparts(source: CsvSource):
+    """Return the unique bodypart names, or an empty list if there is no bodyparts row.
 
-    # First row contains bodypart names
-    bodyparts = df.iloc[0, 1:].unique()  # skip first col (scorer)
-
-    return bodyparts
+    Unlike ``verify_deeplabcut_csv``, an unreadable file still raises the
+    original pandas error, as it did before.
+    """
+    try:
+        df = load_csv_source(source)
+    except InputSourceError as exc:
+        raise exc.__cause__ from None
+    if df.shape[0] < 1:
+        return []
+    return df.iloc[0, 1:].unique()
 
 
 if __name__ == "__main__":

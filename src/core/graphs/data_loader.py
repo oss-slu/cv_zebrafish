@@ -29,6 +29,12 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Iterator
 from dataclasses import dataclass
+try:
+    from ..input_source import CsvSource, InputSourceError, is_path, load_csv_source
+except ImportError:
+    # Imported with src/core on sys.path (as `graphs.data_loader`), so there is
+    # no parent package to import from.
+    from input_source import CsvSource, InputSourceError, is_path, load_csv_source
 
 # ----------------- Constants & Data Contracts -----------------
 class Schema:
@@ -207,11 +213,14 @@ class GraphDataLoader:
         config_path (str): File path to runtime or export config in JSON.
         overrides (dict, optional): Dictionary of config overrides for runtime tests or injected settings.
     """
-    def __init__(self, csv_path: str, config_path: str, overrides: Optional[Dict[str, Any]] = None):
-        self.csv_path = Path(csv_path)
+    def __init__(self, csv_path: CsvSource, config_path: str, overrides: Optional[Dict[str, Any]] = None):
+        self.csv_path = Path(csv_path) if is_path(csv_path) else None
         self.config_path = Path(config_path)
         self.config = self._load_config(config_path)
-        self.df = pd.read_csv(self.csv_path)
+        try:
+            self.df = load_csv_source(csv_path)
+        except InputSourceError as exc:
+            raise LoaderError(str(exc)) from exc
         self._validate_columns()
         self.time_ranges = self._parse_time_ranges()
         if overrides:
