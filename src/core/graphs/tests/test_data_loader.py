@@ -20,6 +20,7 @@ import pytest
 import pandas as pd
 import numpy as np
 import json
+import io
 import tempfile
 from pathlib import Path
 from typing import Dict, Any
@@ -38,7 +39,8 @@ from graphs.data_loader import (
     MissingColumnError,
     MalformedBoutRangeError,
     InconsistentLengthError,
-    Schema
+    Schema,
+    LoaderError
 )
 
 
@@ -353,6 +355,21 @@ def test_loader_accepts_dataframe(temp_csv_and_config):
     from_path = GraphDataLoader(csv_path, config_path)
     from_frame = GraphDataLoader(pd.read_csv(csv_path), config_path)
     pd.testing.assert_frame_equal(from_path.df, from_frame.df)
+
+def test_loader_accepts_file_like_object(temp_csv_and_config):
+    csv_path, config_path = temp_csv_and_config
+    with open(csv_path, encoding="utf-8") as handle:
+        from_handle = GraphDataLoader(io.StringIO(handle.read()), config_path)
+    from_path = GraphDataLoader(csv_path, config_path)
+    pd.testing.assert_frame_equal(from_path.df, from_handle.df)
+    assert from_handle.csv_path is None
+    assert from_path.csv_path == Path(csv_path)
+
+
+def test_loader_reports_unreadable_input_as_loader_error(temp_csv_and_config):
+    _, config_path = temp_csv_and_config
+    with pytest.raises(LoaderError):
+        GraphDataLoader(io.StringIO(""), config_path)
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

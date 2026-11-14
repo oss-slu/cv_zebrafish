@@ -45,3 +45,35 @@ def test_missing_coords_row_returns_error_instead_of_raising():
 
 def test_list_bodyparts_from_file_like_object():
     assert list(list_bodyparts(io.StringIO(VALID_CSV))) == ["Head"]
+
+def test_pathlib_path_is_accepted(tmp_path):
+    path = tmp_path / "fish.csv"
+    path.write_text(VALID_CSV)
+    errors, _ = verify_deeplabcut_csv(path)
+    assert errors == []
+
+
+def test_non_csv_path_is_rejected(tmp_path):
+    path = tmp_path / "fish.txt"
+    path.write_text(VALID_CSV)
+    errors, _ = verify_deeplabcut_csv(path)
+    assert any("not a CSV" in error for error in errors)
+
+
+def test_non_numeric_values_are_reported():
+    text = VALID_CSV.replace("1.0,2.0", "abc,2.0")
+    errors, _ = verify_deeplabcut_csv(io.StringIO(text))
+    assert any("Non-numeric values in Head-x" in error for error in errors)
+
+
+def test_unexpected_coordinate_columns_are_reported():
+    text = VALID_CSV.replace("coords,x,y,likelihood", "coords,x,y,z")
+    errors, _ = verify_deeplabcut_csv(io.StringIO(text))
+    assert any("wrong columns" in error for error in errors)
+
+
+def test_dataframe_input_is_not_modified():
+    frame = pd.read_csv(io.StringIO(VALID_CSV))
+    original = frame.copy()
+    verify_deeplabcut_csv(frame)
+    pd.testing.assert_frame_equal(frame, original)
