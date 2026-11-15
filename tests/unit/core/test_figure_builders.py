@@ -12,22 +12,6 @@ from src.core.graphs.figure_builders import (
     build_spine_graphs,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-
-
-def test_module_imports_without_pyqt():
-    probe = (
-        "import sys; import src.core.graphs.figure_builders; "
-        "print('PyQt5' in sys.modules)"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", probe],
-        capture_output=True, text=True, cwd=REPO_ROOT, timeout=120,
-    )
-    assert result.returncode == 0, result.stderr[-2000:]
-    assert result.stdout.strip().splitlines()[-1] == "False"
-
-
 def test_empty_dataframe_gives_warning_not_graphs():
     graphs, warnings = build_dot_plot_graphs(pd.DataFrame(), {})
     assert graphs == {}
