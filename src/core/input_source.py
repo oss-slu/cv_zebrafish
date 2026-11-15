@@ -37,4 +37,3 @@ def load_csv_source(source: CsvSource) -> pd.DataFrame:
         return pd.read_csv(source)
     except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
         raise InputSourceError(f"Could not read the file as a CSV table: {exc}") from exc
-    

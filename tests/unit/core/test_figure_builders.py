@@ -1,23 +1,15 @@
-import subprocess
-import sys
-from pathlib import Path
-
 import pandas as pd
-
 import pytest
 
 from src.core.graphs.figure_builders import (
     DOT_PLOT_SPECS,
     _extract_time_ranges,
     _iter_custom_angle_graphs,
-    build_graphs_from_data,
-    build_spine_graphs,
-)
-
-from src.core.graphs.figure_builders import (
     build_dot_plot_graphs,
     build_fin_tail_graphs,
+    build_graphs_from_data,
     build_head_plot_graphs,
+    build_spine_graphs,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -50,6 +42,7 @@ def test_fin_tail_graphs_skipped_when_flag_is_off():
 def test_head_plot_skipped_when_flag_is_off():
     graphs, warnings = build_head_plot_graphs(pd.DataFrame({"HeadYaw": [1.0]}), {})
     assert graphs == {} and warnings == []
+
 
 def test_dot_plots_warn_when_no_flag_is_enabled():
     frame = pd.DataFrame({"Time": [0, 1]})
