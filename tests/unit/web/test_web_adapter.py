@@ -1,4 +1,4 @@
-"""Tests for the web prototype adapter (spike #136). No web framework needed."""
+"""Tests for the web app adapter. No web framework needed."""
 
 from __future__ import annotations
 

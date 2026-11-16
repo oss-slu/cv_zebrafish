@@ -1,4 +1,4 @@
-"""Web-facing adapter around the existing analysis core (spike for #136).
+"""Web-facing adapter around the existing analysis core (web app; see README.md).
 
 No web framework imports here: this module only turns uploaded bytes into the
 same calls the desktop app makes, so it can be tested with plain pytest and
@@ -37,6 +37,7 @@ from src.core.validation.csv_verifier import list_bodyparts, verify_deeplabcut_c
 from src.core.analysis.summary_statistics import compute_summary_statistics_df  # noqa: E402
 from src.core.comparison.fish_data import LoadedFish, unique_label  # noqa: E402
 from src.core.comparison.fish_comparison_table import (  # noqa: E402
+    FIXED_COLUMNS,
     build_comparison_table,
     export_comparison_table,
     get_parameter_names,

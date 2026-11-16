@@ -1,12 +1,13 @@
-"""CV Zebrafish web prototype (spike for #136).
+"""CV Zebrafish web app (started as the #136 spike, made official in #147).
 
 Run from this folder so the dark theme in .streamlit/config.toml is picked up:
     cd web_prototype
     streamlit run app.py
 
 Mirrors the desktop flow: species selection → load screen → results. The
-zebrafish path runs the existing analysis; the mouse path is structure only,
-like the desktop Mouse Analysis page (#118).
+zebrafish path runs the existing analysis. Mouse is listed as "coming soon"; its
+pages (structure only, like the desktop Mouse Analysis page, #118) stay behind
+MOUSE_READY until a mouse analysis exists.
 """
 
 from __future__ import annotations
@@ -49,14 +50,21 @@ TEXT_MUTED = "#9c9ca8"
 ACCENT = "#90CAF9"
 
 SPECIES = ("Zebrafish", "Mouse")
+# Mouse analysis is deferred (#147): shown as "coming soon" and can't be continued.
+MOUSE_READY = False
 
 # stlite (the browser-only / GitHub Pages build) runs Python as WebAssembly in the browser.
 IN_BROWSER = sys.platform == "emscripten"
-PROTOTYPE_NOTE = (
-    "Prototype for issue #136 · covers one zebrafish analysis · "
+SCOPE_NOTE = (
+    "Web app · covers one zebrafish analysis · "
     + ("files you upload stay in your browser" if IN_BROWSER
        else "files are processed by the computer running this app and not stored")
 )
+
+# Deployed commit, written by build_static.py (only present in the GitHub Pages build).
+BUILD_SHA_FILE = Path(__file__).resolve().parent / "build_sha.txt"
+BUILD_SHA = BUILD_SHA_FILE.read_text(encoding="utf-8").strip() if BUILD_SHA_FILE.is_file() else ""
+REPO_URL = "https://github.com/oss-slu/cv_zebrafish"
 
 # Pages: species → zebrafish_load → zebrafish_results, or species → mouse_load → mouse_analysis.
 STEPS = {
@@ -108,6 +116,8 @@ def _style() -> None:
         .cvz-hint {{ text-align:center; font-size:1.35rem; color:{TEXT}; margin-bottom:1rem; }}
         .cvz-title {{ text-align:center; font-weight:700; font-size:1.15rem; margin:0.2rem 0 0.8rem 0; }}
         .cvz-label {{ text-align:center; color:{TEXT}; margin: 18vh 0 0.25rem 0; }}
+        .cvz-footer {{ color:{TEXT_MUTED}; font-size:0.75rem; text-align:center; margin-top:3rem; }}
+        .cvz-footer a {{ color:{TEXT_MUTED}; }}
         .cvz-placeholder {{ border:1px solid {CHROME_LINE}; border-radius:6px; padding:1.5rem;
                             color:{TEXT_MUTED}; text-align:center; margin-bottom:1.25rem; }}
         .stButton > button, .stDownloadButton > button {{ background:{CHROME_BUTTON}; border:1px solid {CHROME_LINE};
@@ -139,13 +149,22 @@ def _sidebar(page: str) -> None:
         st.markdown(
             f'<div class="cvz-brand"><img src="{_data_uri(IMAGES / "fish1.png")}">CV Zebrafish</div>'
             + "".join(rows)
-            + f'<div class="cvz-note">Web prototype (#136){" · " + species if species else ""}</div>',
+            + f'<div class="cvz-note">Web app{" · " + species if species else ""}</div>',
             unsafe_allow_html=True,
         )
 
 
 def _back_row(target_label: str = "Back") -> bool:
     return st.button(target_label, key=f"back_{st.session_state.page}", width="content")
+
+
+def _footer() -> None:
+    if BUILD_SHA:
+        st.markdown(
+            f'<div class="cvz-footer">Build <a href="{REPO_URL}/commit/{BUILD_SHA}" target="_blank">'
+            f"<code>{BUILD_SHA[:7]}</code></a></div>",
+            unsafe_allow_html=True,
+        )
 
 
 def _logo(name: str) -> None:
@@ -158,12 +177,18 @@ def page_species() -> None:
     st.markdown('<div class="cvz-label">Species</div>', unsafe_allow_html=True)
     _, mid, _ = st.columns([2, 1, 2])
     with mid:
-        choice = st.selectbox("Species", SPECIES, index=0, label_visibility="collapsed")
-        if st.button("Continue", width="stretch"):
+        choice = st.selectbox(
+            "Species", SPECIES, index=0, label_visibility="collapsed",
+            format_func=lambda s: s if s != "Mouse" or MOUSE_READY else "Mouse (coming soon)",
+        )
+        unavailable = choice == "Mouse" and not MOUSE_READY
+        if unavailable:
+            st.caption("Mouse analysis is coming soon.")
+        if st.button("Continue", width="stretch", disabled=unavailable):
             st.session_state.species = choice
             _go("zebrafish_load" if choice == "Zebrafish" else "mouse_load")
             st.rerun()
-    st.markdown(f'<div class="cvz-center cvz-note">{PROTOTYPE_NOTE}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="cvz-center cvz-note">{SCOPE_NOTE}</div>', unsafe_allow_html=True)
 
 
 def page_zebrafish_load() -> None:
@@ -338,8 +363,16 @@ def page_zebrafish_results() -> None:
                         label_visibility="collapsed",
                     )
                     if new_val and new_val != fish.label:
-                        fish.label = new_val
-                        labels_changed = True
+                        clean_val = new_val.strip()
+                        if not clean_val:
+                            st.error("Fish labels cannot be empty.")
+                        elif clean_val in FIXED_COLUMNS:
+                            st.error(f"'{clean_val}' is reserved; choose another label.")
+                        elif any(other.label == clean_val for other in loaded_fish if other is not fish):
+                            st.error(f"The label '{clean_val}' is already used by another fish.")
+                        else:
+                            fish.label = clean_val
+                            labels_changed = True
                     c_file.caption(f"{fish.source_file} ({len(fish.results):,} frames)")
                     if c_del.button("Remove", key=f"del_{fish.fish_id}"):
                         loaded_fish.remove(fish)
@@ -498,3 +531,4 @@ st.session_state.setdefault("page", "species")
 _style()
 _sidebar(st.session_state.page)
 PAGES[st.session_state.page]()
+_footer()

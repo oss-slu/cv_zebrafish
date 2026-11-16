@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 from PyQt5.QtCore import Qt, QThread
-from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -21,7 +20,6 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -37,8 +35,6 @@ from src.core.comparison.fish_comparison_table import (
 )
 from src.core.comparison.fish_data import LoadedFish
 from src.core.validation import json_verifier
-from src.core.comparison.fish_plot_data import FishColorMap
-from ui.components.fish_overlay_widget import FishOverlayWidget
 from styles.ui_scale import scaled_px
 from ui.workers.fish_load_worker import FishLoadWorker
 
@@ -72,7 +68,6 @@ class ComparePanel(QWidget):
         self._worker: Optional[FishLoadWorker] = None
         self._pending_file_count = 0
 
-        self._colors = FishColorMap()
         self._build_ui()
         self._refresh_all()
 
@@ -88,6 +83,13 @@ class ComparePanel(QWidget):
         header.setStyleSheet("font-size: 17px; font-weight: bold;")
         layout.addWidget(header, 0, Qt.AlignHCenter)
 
+        # I show a short hint so users know when to use Compare Fish vs Overlay
+        hint = QLabel(
+            "Compare Fish builds a stats table across fish. "
+            "For graphs of fish together, use the Overlay tab."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
         layout.addLayout(self._build_setup_row())
 
         splitter = QSplitter(Qt.Vertical)
@@ -184,12 +186,7 @@ class ComparePanel(QWidget):
         self.comparison_view.setEditTriggers(QTableWidget.NoEditTriggers)
         self.comparison_view.setAlternatingRowColors(True)
         self.comparison_view.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
-        self.overlay_widget = FishOverlayWidget()
-        self.view_tabs = QTabWidget()
-        self.view_tabs.setObjectName("CompareViewTabs")
-        self.view_tabs.addTab(self.comparison_view, "Table")
-        self.view_tabs.addTab(self.overlay_widget, "Plots")
-        layout.addWidget(self.view_tabs, 1)
+        layout.addWidget(self.comparison_view, 1)
         return area
 
     # ------------------------------------------------------- public helpers
@@ -320,9 +317,6 @@ class ComparePanel(QWidget):
 
             label_item = QTableWidgetItem(fish.label)
             label_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable)
-            swatch = QPixmap(14, 14)
-            swatch.fill(QColor(self._colors.color_for(fish.fish_id)))
-            label_item.setIcon(QIcon(swatch))
             table.setItem(row, _COL_LABEL, label_item)
 
             id_item = QTableWidgetItem(fish.fish_id)
@@ -376,7 +370,6 @@ class ComparePanel(QWidget):
     def _remove_fish(self, fish_id: str) -> None:
         self._fish = [fish for fish in self._fish if fish.fish_id != fish_id]
         self._excluded_fish_ids.discard(fish_id)
-        self._colors.release(fish_id)
         self._refresh_all()
 
     # ----------------------------------------------------- parameter list
@@ -432,7 +425,6 @@ class ComparePanel(QWidget):
         if not fish or not parameters:
             self._comparison = None
             view.clear()
-            self.overlay_widget.clear()
             view.setRowCount(0)
             view.setColumnCount(0)
             if not self._fish:
@@ -460,7 +452,6 @@ class ComparePanel(QWidget):
         for column_index in range(len(FIXED_COLUMNS), len(comparison.columns)):
             view.setColumnWidth(column_index, max(view.columnWidth(column_index), scaled_px(110)))
         self.status_label.setText(f"{len(fish)} fish × {len(parameters)} parameters")
-        self.overlay_widget.set_data(fish, parameters, self._colors)
         self._update_controls()
 
     def _export_comparison(self) -> None:
