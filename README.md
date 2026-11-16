@@ -350,7 +350,7 @@ The calculation pipeline computes mean and median summary statistics for all kin
 ### How to Use (UI)
 1. Run calculations on single or multiple CSVs via **Select & Run**
 2. Open **View Output** and select the **Summary Stats** tab
-3. Review the table listing each metric's name, **Mean**, **Median**, and standard **Units** (e.g. degrees, mm, bouts)
+3. Review the table listing each metric's name, **Mean**, **Median**, and standard **Units** (e.g. deg, m, bouts)
 4. For batch folder runs, use the CSV dropdown selector to switch between fish datasets
 5. Click **Export to CSV** or **Export to Excel** to save the formatted statistics table
 
@@ -368,7 +368,7 @@ print(stats_df)
 ```
 
 ### Key Features
-- **Circular Statistics**: Automatically applies circular mean to angular metrics (`Head_Yaw`, fin angles) to prevent boundary wrapping artifacts.
+- **Circular Statistics**: Automatically applies circular mean to yaw metrics (`HeadYaw`, `curBoutHeadYaw`) to prevent boundary wrapping artifacts.
 - **Robust NaN Handling**: Automatically ignores low-likelihood coordinates and empty series without crashing; returns NaN when no valid frames exist.
 - **Multi-Format Export**: Generates `# --- Summary Statistics ---` header sections in CSV exports and a dedicated `"Summary Statistics"` worksheet in Excel workbooks.
 
