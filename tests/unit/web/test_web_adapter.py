@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "web_prototype"))
@@ -20,6 +21,7 @@ from adapter import (  # noqa: E402
     load_sample_config,
     summary_table,
 )
+from src.core.analysis.summary_statistics import compute_summary_statistics_df  # noqa: E402
 from src.core.calculations.Driver import run_calculations  # noqa: E402
 from src.core.parsing.Parser import parse_dlc_csv  # noqa: E402
 
@@ -60,24 +62,42 @@ def test_summary_and_fin_tail_figure():
 
 def test_web_multi_fish_comparison_matches_core():
     config = load_sample_config()
-    data = SAMPLE_CSV_PATH.read_bytes()
+    lines = SAMPLE_CSV_PATH.read_text(encoding="utf-8").splitlines()
+    data_a = "\n".join(lines).encode()
+    data_b = "\n".join(lines[:103]).encode()  # 3 header lines + 100 frames
 
-    # Load 2 fish through the web adapter
+    # Load 2 distinct fish through the web adapter
     loaded, failures = analyze_fish_files(
-        [("fish_A.csv", data), ("fish_B.csv", data)],
+        [("fish_A.csv", data_a), ("fish_B.csv", data_b)],
         config,
     )
     assert not failures
     assert len(loaded) == 2
     assert loaded[0].label == "fish_A"
     assert loaded[1].label == "fish_B"
+    assert len(loaded[0].results) == 5351
+    assert len(loaded[1].results) == 100
 
-    # Direct desktop core comparison table
-    expected_table = build_comparison_table(loaded)
+    # Build comparison table via adapter
     web_table = build_comparison_table(loaded)
-    pd.testing.assert_frame_equal(web_table, expected_table)
 
-    # Check exported CSV bytes contains headers and data
+    # Directly verify against desktop core compute_summary_statistics_df for each fish
+    for fish in loaded:
+        expected_summary = compute_summary_statistics_df(fish.results).set_index("parameter")
+        for param in expected_summary.index:
+            for stat in ("mean", "median"):
+                row = web_table[
+                    (web_table["Parameter"] == param) & (web_table["Statistic"] == stat)
+                ]
+                assert not row.empty, f"Missing row for {param} {stat}"
+                cell_val = row.iloc[0][fish.label]
+                expected_val = expected_summary.at[param, stat]
+                if pd.isna(expected_val):
+                    assert pd.isna(cell_val)
+                else:
+                    assert cell_val == pytest.approx(expected_val)
+
+    # Check exported CSV bytes contains headers and data for both fish
     csv_bytes = comparison_table_csv_bytes(web_table, loaded)
     assert b"Fish ID" in csv_bytes
     assert b"Source file" in csv_bytes
