@@ -124,5 +124,39 @@ def run_calculations(
     return result_df
 
 
+def run_adult_calculations(
+    parsed_points: Dict[str, Any],
+    *,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> pd.DataFrame:
+    """
+    Compute fin-free body metrics for adult zebrafish.
 
+    Fin angles, fin peaks, and fin-based bout detection do not apply to adults
+    and are skipped.
+
+    Args:
+        parsed_points: Mapping of body-part identifiers to coordinate arrays.
+            Must contain "spine" (10 points).
+
+    Returns:
+        pd.DataFrame: One row per frame with Time, HeadYaw and BodyAngle_1..8.
+    """
+    if cancel_check is not None and cancel_check():
+        raise CalculationAborted()
+
+    spine = parsed_points["spine"]
+    n_frames = len(spine[0]["x"])
+
+    # calc_spine_angles returns one angle per segment (8 for 10 spine points).
+    spine_angles = calc_spine_angles(spine)
+    # Head yaw from the first two spine points (p0 -> p1).
+    head_yaw = calc_yaw(spine[0], spine[1])
+
+    results_dict = {"Time": np.arange(n_frames), "HeadYaw": head_yaw}
+    for seg in range(spine_angles.shape[1]):
+        # Number from 1 so the columns match alpha1..alpha8 in the lab diagram.
+        results_dict[f"BodyAngle_{seg + 1}"] = spine_angles[:, seg]
+
+    return pd.DataFrame(results_dict)
    
