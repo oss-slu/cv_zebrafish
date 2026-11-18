@@ -124,9 +124,27 @@ def run_calculations(
     return result_df
 
 
+def _mask_low_confidence(points: list, min_confidence: float) -> list:
+    """Return copies of points with x/y set to NaN where confidence is below the threshold."""
+    masked = []
+    for pt in points:
+        conf = pt.get("conf")
+        if conf is None:
+            masked.append(pt)
+            continue
+        x = np.array(pt["x"], dtype=float)
+        y = np.array(pt["y"], dtype=float)
+        low = np.array(conf, dtype=float) < min_confidence
+        x[low] = np.nan
+        y[low] = np.nan
+        masked.append({"x": x, "y": y, "conf": conf})
+    return masked
+
+
 def run_adult_calculations(
     parsed_points: Dict[str, Any],
     *,
+    min_accepted_confidence: Optional[float] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
 ) -> pd.DataFrame:
     """
@@ -138,6 +156,8 @@ def run_adult_calculations(
     Args:
         parsed_points: Mapping of body-part identifiers to coordinate arrays.
             Must contain "spine" (10 points).
+        min_accepted_confidence: Points with confidence below this value become
+            NaN. If None, no masking is applied.
 
     Returns:
         pd.DataFrame: One row per frame with Time, HeadYaw and BodyAngle_1..8.
@@ -146,6 +166,8 @@ def run_adult_calculations(
         raise CalculationAborted()
 
     spine = parsed_points["spine"]
+    if min_accepted_confidence is not None:
+        spine = _mask_low_confidence(spine, min_accepted_confidence)
     n_frames = len(spine[0]["x"])
 
     # calc_spine_angles returns one angle per segment (8 for 10 spine points).
