@@ -20,9 +20,11 @@ Frames are renumbered from 0 in the trimmed files. Use the same range for both f
 
 ## Regenerating
 
+Copy the two lab files into the repo first (e.g. `data/raw/`; `*.csv` is git-ignored, so they won't be committed), then:
+
 ```bash
-python tools/trim_dlc_csv.py <M26R>_1100000.csv <M26R>_600000.csv \
+python tools/trim_dlc_csv.py data/raw/<M26R>_1100000.csv data/raw/<M26R>_600000.csv \
     --start <first frame> --frames 2000 --out data/samples/csv/adult/
 ```
 
-The tool refuses pairs with different frame counts and warns if an output is over ~1 MB.
+The tool only reads and writes inside the repository, refuses pairs with different frame counts, and warns if an output is over ~1 MB. CSVs in this folder are kept by a `.gitignore` exception.

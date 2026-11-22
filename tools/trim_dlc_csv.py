@@ -6,12 +6,14 @@ the same frame range out of every file given, so the trimmed files still line up
 frame for frame.
 
 The DLC header rows (scorer / bodyparts / coords, plus ``individuals`` for
-multi-animal files) are copied unchanged. Kept frames are renumbered from 0 so
+multi-animal files) are copied unchanged. Input and output paths must be inside
+the repository; copy the lab files in first (e.g. ``data/raw/``; ``*.csv`` is
+git-ignored except for committed fixtures). Kept frames are renumbered from 0 so
 code that assumes frame index == row position keeps working; record the original
 range in the fixture README.
 
 Usage:
-    python tools/trim_dlc_csv.py BODY.csv CAUDAL.csv --start 10000 --frames 2000 \\
+    python tools/trim_dlc_csv.py data/raw/BODY.csv data/raw/CAUDAL.csv --start 10000 --frames 2000 \\
         --out data/samples/csv/adult/
 """
 
@@ -24,14 +26,29 @@ from pathlib import Path
 from typing import List, Sequence, Tuple
 
 SIZE_WARNING_BYTES = 1_000_000
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _inside(path: Path, root: Path) -> Path:
+    """Resolve ``path`` and refuse it unless it is inside ``root``.
+
+    Inputs and outputs are limited to the repository: copy the lab files into
+    the repo first (``*.csv`` is git-ignored, so they won't be committed).
+    """
+    resolved = Path(path).resolve()
+    root = Path(root).resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"{path} is outside {root}; copy the file into the repository first.")
+    return resolved
 
 
 def _is_frame_row(row: Sequence[str]) -> bool:
     return bool(row) and row[0].strip().isdigit()
 
 
-def read_dlc_csv(path: Path) -> Tuple[List[List[str]], List[List[str]]]:
+def read_dlc_csv(path: Path, root: Path = REPO_ROOT) -> Tuple[List[List[str]], List[List[str]]]:
     """Split a DLC CSV into (header rows, frame rows)."""
+    path = _inside(path, root)
     with open(path, newline="", encoding="utf-8") as f:
         rows = list(csv.reader(f))
     header: List[List[str]] = []
@@ -47,10 +64,11 @@ def read_dlc_csv(path: Path) -> Tuple[List[List[str]], List[List[str]]]:
     return header, frames
 
 
-def trim_dlc_csv(src: Path, dst: Path, start: int, frames: int) -> int:
+def trim_dlc_csv(src: Path, dst: Path, start: int, frames: int, root: Path = REPO_ROOT) -> int:
     """Write frames ``[start, start + frames)`` of ``src`` to ``dst``; return rows written."""
-    header, rows = read_dlc_csv(src)
+    header, rows = read_dlc_csv(src, root)
     _check_range(src.name, len(rows), start, frames)
+    dst = _inside(dst, root)
     dst.parent.mkdir(parents=True, exist_ok=True)
     with open(dst, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -60,20 +78,20 @@ def trim_dlc_csv(src: Path, dst: Path, start: int, frames: int) -> int:
     return frames
 
 
-def trim_pair(srcs: Sequence[Path], out_dir: Path, start: int, frames: int) -> List[Path]:
+def trim_pair(srcs: Sequence[Path], out_dir: Path, start: int, frames: int, root: Path = REPO_ROOT) -> List[Path]:
     """Trim several DLC CSVs from the same video to the same range.
 
     Raises ValueError if the files don't have the same number of frames, since
     they would no longer line up after trimming.
     """
-    counts = {src: len(read_dlc_csv(src)[1]) for src in srcs}
+    counts = {src: len(read_dlc_csv(src, root)[1]) for src in srcs}
     if len(set(counts.values())) > 1:
         detail = ", ".join(f"{p.name}: {n}" for p, n in counts.items())
         raise ValueError(f"Files have different frame counts ({detail}); they must come from the same video.")
     outputs = []
     for src in srcs:
         dst = out_dir / src.name
-        trim_dlc_csv(src, dst, start, frames)
+        trim_dlc_csv(src, dst, start, frames, root)
         outputs.append(dst)
     return outputs
 
