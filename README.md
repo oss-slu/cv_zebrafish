@@ -26,7 +26,17 @@ conda activate cv-zebrafish
 pip install -e .
 ```
 > `environment.yml` declares Python 3.10 and all app/test dependencies; prefer this over ad-hoc pip installs.
+
+### pip + venv (no Conda)
+
+```bash
+python3.10 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .
 ```
+> `requirements.txt` mirrors `environment.yml` and pins `plotly==5.24.1` / `kaleido==0.2.1`; newer Kaleido 1.x hangs on PNG export. PyQt5 wheels bundle Qt, so no system Qt install is needed. See [docs/howtos/SETUP_NOTES.md](docs/howtos/SETUP_NOTES.md) if setup misbehaves.
+
 ### Plotly/Kaleido image export
 
 The application uses Plotly and Kaleido to export graphs as PNG images. Kaleido may require Google Chrome or Chromium to be installed for image export.
@@ -492,7 +502,7 @@ Following client feedback from Dr. Sengupta, mouse tracking support is **deferre
 
 
 ## Known Gaps / Next Steps
-- No dependency lockfile; add `requirements.txt`/`conda-lock` for fully reproducible installs
+- No full dependency lockfile: `requirements.txt` pins only Plotly/Kaleido; consider `pip-tools`/`conda-lock` for fully reproducible installs
 - No lint or type tooling: consider adding `ruff` (linting) and `mypy` (type checking)
 
 
