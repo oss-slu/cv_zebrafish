@@ -11,8 +11,6 @@ to prevent silent empty analyses (#143).
 
 from __future__ import annotations
 
-import argparse
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
@@ -129,38 +127,3 @@ def merge_adult_dlc_csvs(
             )
 
     return combined_df
-
-
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    import json
-    import sys
-
-    parser = argparse.ArgumentParser(description="Merge adult zebrafish body_points and caudal_fin DLC CSVs.")
-    parser.add_argument("body_points", type=Path, help="Path to body_points CSV (*_1100000.csv)")
-    parser.add_argument("caudal_fin", type=Path, nargs="?", default=None, help="Path to caudal_fin CSV (*_600000.csv)")
-    parser.add_argument("--config", type=Path, default=None, help="Path to AdultConfig.json for bodypart validation")
-    parser.add_argument("--out", type=Path, default=None, help="Output path for merged DLC CSV")
-    args = parser.parse_args(argv)
-
-    cfg = None
-    if args.config:
-        with open(args.config, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-
-    try:
-        merged = merge_adult_dlc_csvs(args.body_points, args.caudal_fin, config=cfg)
-    except Exception as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
-        return 1
-
-    bps = list(merged.columns.get_level_values(1).unique())
-    print(f"[SUCCESS] Merged {len(merged)} frames with bodyparts: {', '.join(bps)}")
-    if args.out:
-        merged.to_csv(args.out)
-        print(f"Saved merged CSV to: {args.out}")
-    return 0
-
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
