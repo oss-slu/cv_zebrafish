@@ -1,7 +1,7 @@
 # pip equivalent of environment.yml
 # Use: python3.10 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && pip install -e .
 #
-# plotly and kaleido are pinned on purpose. Unpinned installs pull Plotly 6+/7
+# plotly and kaleido are pinned on purpose. Unpinned installs pull Plotly 7
 # plus Kaleido 1.x; Plotly 7 refuses Kaleido 0.2.x, and Kaleido 1.x hung on
 # fig.write_image / pio.to_image on macOS (headless Chrome never returned).
 # See docs/howtos/SETUP_NOTES.md.

@@ -28,7 +28,7 @@ No `brew install qt` is needed: PyQt5 and PyQtWebEngine wheels bundle Qt on macO
 
 | Package | Pinned | Why |
 |---------|--------|-----|
-| plotly | 5.24.1 | Plotly 6+/7 requires Kaleido ≥ 1.0 |
+| plotly | 5.24.1 | Plotly 7 refuses Kaleido 0.2.x ("Image export requires the Kaleido package, v1.0.0 or greater"). Plotly 6.0–6.3 still export with Kaleido 0.2.1, but 6.3 prints a deprecation warning, so the pin stays on 5.x |
 | kaleido | 0.2.1 | Kaleido 1.x spawned headless Chrome and **hung** on `fig.write_image` / `pio.to_image` (spine plot tests never finished) |
 
 Do **not** `pip install -U kaleido` on Plotly 5.x, which pulls Kaleido 1.x and brings the hang back.
