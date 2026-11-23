@@ -74,6 +74,17 @@ def test_pair_with_different_frame_counts_raises(tmp_path):
     assert not (tmp_path / "out").exists()  # nothing half-written
 
 
+def test_pair_with_duplicate_names_raises(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first = write_dlc(tmp_path / "a" / "body.csv", ["p0"], n_frames=20)
+    second = write_dlc(tmp_path / "b" / "body.csv", ["p0"], n_frames=20)
+
+    with pytest.raises(ValueError, match="share a name"):
+        trim_pair([first, second], tmp_path / "out", start=0, frames=5, root=tmp_path)
+    assert not (tmp_path / "out").exists()  # nothing written
+
+
 @pytest.mark.parametrize("start,frames", [(35, 10), (-1, 5), (0, 0)])
 def test_bad_range_raises(tmp_path, start, frames):
     src = write_dlc(tmp_path / "body.csv", ["p0"], n_frames=40)

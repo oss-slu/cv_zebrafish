@@ -82,8 +82,13 @@ def trim_pair(srcs: Sequence[Path], out_dir: Path, start: int, frames: int, root
     """Trim several DLC CSVs from the same video to the same range.
 
     Raises ValueError if the files don't have the same number of frames, since
-    they would no longer line up after trimming.
+    they would no longer line up after trimming, or if two files share a name,
+    since outputs keep the input names and one would overwrite the other.
     """
+    names = [Path(src).name for src in srcs]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"Input files share a name ({', '.join(duplicates)}); outputs would overwrite each other.")
     counts = {src: len(read_dlc_csv(src, root)[1]) for src in srcs}
     if len(set(counts.values())) > 1:
         detail = ", ".join(f"{p.name}: {n}" for p, n in counts.items())
